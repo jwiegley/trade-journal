@@ -7,13 +7,22 @@ maintainer: johnw@newartisans.com
 dependencies:
   - base
   - text
+  - bytestring
+  - aeson
+  - aeson-schema
   - servant
+  - servant-client
+  - time
 
 library:
-  source-dirs: .
+  source-dirs: src
   exposed-modules:
+    - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
 
 executables:
   thinkorswim:
     main: Main.hs
+    dependencies:
+      - thinkorswim
+      - http-client
