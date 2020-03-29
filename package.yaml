@@ -1,0 +1,19 @@
+name:       thinkorswim
+version:    1.0.0
+license:    BSD3
+author:     John Wiegley
+maintainer: johnw@newartisans.com
+
+dependencies:
+  - base
+  - text
+  - servant
+
+library:
+  source-dirs: .
+  exposed-modules:
+    - ThinkOrSwim.API.TransactionHistory.GetTransactions
+
+executables:
+  thinkorswim:
+    main: Main.hs
