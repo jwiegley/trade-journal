@@ -6,6 +6,7 @@ maintainer: johnw@newartisans.com
 
 dependencies:
   - base
+  - containers
   - text
   - bytestring
   - aeson

@@ -29,9 +29,9 @@ createManager =
                 }
 
 downloadTransactions :: Text -> Text -> Manager -> IO [Transaction]
-downloadTransactions accountId accessToken mgr = do
+downloadTransactions actId accessToken mgr = do
     let call = getTransactions
-            (AccountId accountId)
+            (AccountId actId)
             Nothing
             Nothing
             Nothing

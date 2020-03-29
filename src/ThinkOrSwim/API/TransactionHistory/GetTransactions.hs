@@ -13,8 +13,8 @@ import Data.Text as T
 import Data.Time
 
 data FixedIncome = FixedIncome
-    { bondInterestRate :: Double
-    , bondMaturityDate :: UTCTime
+    { _bondInterestRate :: Double
+    , _bondMaturityDate :: UTCTime
     }
     deriving (Eq, Show)
 
@@ -35,18 +35,18 @@ instance FromJSON PutCall where
       _      -> fail $ "putCall unexpected: " ++ T.unpack text
 
 data Option = Option
-    { description      :: Maybe Text
-    , putCall          :: Maybe PutCall
-    , strikePrice      :: Maybe Double
-    , expirationDate   :: UTCTime
-    , underlyingSymbol :: Maybe Text
+    { _description      :: Maybe Text
+    , _putCall          :: Maybe PutCall
+    , _strikePrice      :: Maybe Double
+    , _expirationDate   :: UTCTime
+    , _underlyingSymbol :: Maybe Text
     }
     deriving (Eq, Show)
 
 makeClassy ''Option
 
 data CashEquivalent = CashEquivalent
-    { cashType :: Text
+    { _cashType :: Text
     }
     deriving (Eq, Show)
 
@@ -63,9 +63,9 @@ data AssetType
 makePrisms ''AssetType
 
 data Instrument = Instrument
-    { assetType :: AssetType
-    , symbol    :: Maybe Text
-    , cusip     :: Text
+    { _assetType :: AssetType
+    , _symbol    :: Maybe Text
+    , _cusip     :: Text
     }
     deriving (Eq, Show)
 
@@ -73,19 +73,19 @@ makeClassy ''Instrument
 
 instance FromJSON Instrument where
   parseJSON = withObject "instrument" $ \obj -> do
-    assetTypeText        <- obj .:  "assetType"
-    cusip                <- obj .:  "cusip"
-    symbol               <- obj .:? "symbol"
+    _assetTypeText <- obj .:  "assetType"
+    _cusip         <- obj .:  "cusip"
+    _symbol        <- obj .:? "symbol"
 
-    -- bondInterestRate     <- obj .:? "bondInterestRate"
-    -- bondMaturityDate     <- obj .:? "bondMaturityDate"
-    -- description          <- obj .:? "description"
-    -- putCall              <- obj .:? "putCall"
-    -- optionStrikePrice    <- obj .:? "optionStrikePrice"
-    -- optionExpirationDate <- obj .:? "optionExpirationDate"
-    -- underlyingSymbol     <- obj .:? "underlyingSymbol"
+    -- _bondInterestRate     <- obj .:? "bondInterestRate"
+    -- _bondMaturityDate     <- obj .:? "bondMaturityDate"
+    -- _description          <- obj .:? "description"
+    -- _putCall              <- obj .:? "putCall"
+    -- _optionStrikePrice    <- obj .:? "optionStrikePrice"
+    -- _optionExpirationDate <- obj .:? "optionExpirationDate"
+    -- _underlyingSymbol     <- obj .:? "underlyingSymbol"
 
-    assetType <- case assetTypeText of
+    _assetType <- case _assetTypeText of
       "EQUITY"      -> return Equity
       "MUTUAL_FUND" -> return MutualFund
       "OPTION" ->
@@ -102,7 +102,7 @@ instance FromJSON Instrument where
       "CASH_EQUIVALENT" ->
           CashEquivalentAsset . CashEquivalent
               <$> obj .:  "type"
-      _                 -> fail $ "assetType unexpected: " ++ T.unpack assetTypeText
+      _                 -> fail $ "assetType unexpected: " ++ T.unpack _assetTypeText
 
     return Instrument{..}
 
@@ -137,15 +137,15 @@ instance FromJSON Instruction where
       _      -> fail $ "instruction unexpected: " ++ T.unpack text
 
 data TransactionItem = TransactionItem
-    { transactionInstrument :: Maybe Instrument
-    , positionEffect        :: Maybe PositionEffect
-    , instruction           :: Maybe Instruction
-    , parentChildIndicator  :: Maybe Text
-    , parentOrderKey        :: Maybe Int32
-    , cost                  :: Double
-    , price                 :: Maybe Double
-    , amount                :: Maybe Double
-    , accountId             :: Int32
+    { _transactionInstrument :: Maybe Instrument
+    , _positionEffect        :: Maybe PositionEffect
+    , _instruction           :: Maybe Instruction
+    , _parentChildIndicator  :: Maybe Text
+    , _parentOrderKey        :: Maybe Int32
+    , _cost                  :: Double
+    , _price                 :: Maybe Double
+    , _amount                :: Maybe Double
+    , _accountId             :: Int32
     }
     deriving (Eq, Show)
 
@@ -153,26 +153,26 @@ makeClassy ''TransactionItem
 
 instance FromJSON TransactionItem where
   parseJSON = withObject "transactionItem" $ \obj -> do
-    transactionInstrument <- obj .:? "instrument"
-    positionEffect        <- obj .:? "positionEffect"
-    instruction           <- obj .:? "instruction"
-    parentChildIndicator  <- obj .:? "parentChildIndicator"
-    parentOrderKey        <- obj .:? "parentOrderKey"
-    cost                  <- obj .:  "cost"
-    price                 <- obj .:? "price"
-    amount                <- obj .:? "amount"
-    accountId             <- obj .:  "accountId"
+    _transactionInstrument <- obj .:? "instrument"
+    _positionEffect        <- obj .:? "positionEffect"
+    _instruction           <- obj .:? "instruction"
+    _parentChildIndicator  <- obj .:? "parentChildIndicator"
+    _parentOrderKey        <- obj .:? "parentOrderKey"
+    _cost                  <- obj .:  "cost"
+    _price                 <- obj .:? "price"
+    _amount                <- obj .:? "amount"
+    _accountId             <- obj .:  "accountId"
     return TransactionItem{..}
 
 data Fees = Fees
-    { rFee          :: Double
-    , additionalFee :: Double
-    , cdscFee       :: Double
-    , regFee        :: Double
-    , otherCharges  :: Double
-    , commission    :: Double
-    , optRegFee     :: Double
-    , secFee        :: Double
+    { _rFee          :: Double
+    , _additionalFee :: Double
+    , _cdscFee       :: Double
+    , _regFee        :: Double
+    , _otherCharges  :: Double
+    , _commission    :: Double
+    , _optRegFee     :: Double
+    , _secFee        :: Double
     }
     deriving (Eq, Show)
 
@@ -180,14 +180,14 @@ makeClassy ''Fees
 
 instance FromJSON Fees where
   parseJSON = withObject "fees" $ \obj -> do
-    rFee          <- obj .: "rFee"
-    additionalFee <- obj .: "additionalFee"
-    cdscFee       <- obj .: "cdscFee"
-    regFee        <- obj .: "regFee"
-    otherCharges  <- obj .: "otherCharges"
-    commission    <- obj .: "commission"
-    optRegFee     <- obj .: "optRegFee"
-    secFee        <- obj .: "secFee"
+    _rFee          <- obj .: "rFee"
+    _additionalFee <- obj .: "additionalFee"
+    _cdscFee       <- obj .: "cdscFee"
+    _regFee        <- obj .: "regFee"
+    _otherCharges  <- obj .: "otherCharges"
+    _commission    <- obj .: "commission"
+    _optRegFee     <- obj .: "optRegFee"
+    _secFee        <- obj .: "secFee"
     return Fees{..}
 
 data AchStatus
@@ -249,25 +249,25 @@ instance FromJSON TransactionType where
       _                      -> fail $ "transactionType unexpected: " ++ T.unpack text
 
 data Transaction = Transaction
-    { transactionItem_              :: TransactionItem
-    , fees_                         :: Fees
-    , accruedInterest               :: Maybe Double
-    , achStatus                     :: Maybe AchStatus
-    , transactionDescription        :: Text
-    , cashBalanceEffectFlag         :: Bool
-    , transactionId                 :: Int64
-    , transactionSubType            :: Text
-    , orderDate                     :: Maybe UTCTime
-    , transactionDate               :: UTCTime
-    , netAmount                     :: Double
-    , dayTradeBuyingPowerEffect     :: Maybe Double
-    , requirementReallocationAmount :: Maybe Double
-    , sma                           :: Maybe Double
-    , orderId                       :: Maybe Text
-    , settlementDate                :: UTCTime
-    , subAccount                    :: Text
-    , clearingReferenceNumber       :: Maybe Text
-    , type_                         :: TransactionType
+    { _transactionItem_              :: TransactionItem
+    , _fees_                         :: Fees
+    , _accruedInterest               :: Maybe Double
+    , _achStatus                     :: Maybe AchStatus
+    , _transactionDescription        :: Text
+    , _cashBalanceEffectFlag         :: Bool
+    , _transactionId                 :: Int64
+    , _transactionSubType            :: Text
+    , _orderDate                     :: Maybe UTCTime
+    , _transactionDate               :: UTCTime
+    , _netAmount                     :: Double
+    , _dayTradeBuyingPowerEffect     :: Maybe Double
+    , _requirementReallocationAmount :: Maybe Double
+    , _sma                           :: Maybe Double
+    , _orderId                       :: Maybe Text
+    , _settlementDate                :: UTCTime
+    , _subAccount                    :: Text
+    , _clearingReferenceNumber       :: Maybe Text
+    , _type_                         :: TransactionType
     }
     deriving (Eq, Show)
 
@@ -275,24 +275,25 @@ makeClassy ''Transaction
 
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
-    transactionItem_              <- obj .:  "transactionItem"
-    fees_                         <- obj .:  "fees"
-    accruedInterest               <- obj .:? "accruedInterest"
-    achStatus                     <- obj .:? "achStatus"
-    transactionDescription        <- obj .:  "description"
-    cashBalanceEffectFlag         <- obj .:? "cashBalanceEffectFlag" .!= False
-    transactionId                 <- obj .:  "transactionId"
-    transactionSubType            <- obj .:  "transactionSubType"
-    orderDate                     <- obj .:? "orderDate"
-    transactionDate               <- obj .:  "transactionDate"
-    netAmount                     <- obj .:  "netAmount"
-    dayTradeBuyingPowerEffect     <- obj .:? "dayTradeBuyingPowerEffect"
-    requirementReallocationAmount <- obj .:? "requirementReallocationAmount"
-    sma                           <- obj .:? "sma"
-    orderId                       <- obj .:? "orderId"
-    settlementDateText            <- obj .:  "settlementDate"
-    let settlementDate = parseTimeOrError False defaultTimeLocale "%Y-%m-%d" settlementDateText
-    subAccount                    <- obj .:  "subAccount"
-    clearingReferenceNumber       <- obj .:? "clearingReferenceNumber"
-    type_                         <- obj .:  "type"
+    _transactionItem_              <- obj .:  "transactionItem"
+    _fees_                         <- obj .:  "fees"
+    _accruedInterest               <- obj .:? "accruedInterest"
+    _achStatus                     <- obj .:? "achStatus"
+    _transactionDescription        <- obj .:  "description"
+    _cashBalanceEffectFlag         <- obj .:? "cashBalanceEffectFlag" .!= False
+    _transactionId                 <- obj .:  "transactionId"
+    _transactionSubType            <- obj .:  "transactionSubType"
+    _orderDate                     <- obj .:? "orderDate"
+    _transactionDate               <- obj .:  "transactionDate"
+    _netAmount                     <- obj .:  "netAmount"
+    _dayTradeBuyingPowerEffect     <- obj .:? "dayTradeBuyingPowerEffect"
+    _requirementReallocationAmount <- obj .:? "requirementReallocationAmount"
+    _sma                           <- obj .:? "sma"
+    _orderId                       <- obj .:? "orderId"
+    _settlementDateText            <- obj .:  "settlementDate"
+    let _settlementDate =
+            parseTimeOrError False defaultTimeLocale "%Y-%m-%d" _settlementDateText
+    _subAccount                    <- obj .:  "subAccount"
+    _clearingReferenceNumber       <- obj .:? "clearingReferenceNumber"
+    _type_                         <- obj .:  "type"
     return Transaction{..}
