@@ -13,12 +13,16 @@ dependencies:
   - servant
   - servant-client
   - time
+  - uri-encode
 
 library:
   source-dirs: src
   exposed-modules:
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
+  dependencies:
+    - lens
+    - megaparsec
 
 executables:
   thinkorswim:
@@ -26,3 +30,5 @@ executables:
     dependencies:
       - thinkorswim
       - http-client
+      - http-client-tls
+      - pretty-show

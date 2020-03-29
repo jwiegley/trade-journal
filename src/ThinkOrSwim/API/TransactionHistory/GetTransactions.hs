@@ -1,10 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
 module ThinkOrSwim.API.TransactionHistory.GetTransactions where
 
+import Control.Lens
 import Data.Aeson
 import Data.Int
 import Data.Text as T
@@ -16,6 +18,22 @@ data FixedIncome = FixedIncome
     }
     deriving (Eq, Show)
 
+makeClassy ''FixedIncome
+
+data PutCall
+    = Put
+    | Call
+    deriving (Eq, Show, Enum, Ord)
+
+makePrisms ''PutCall
+
+instance FromJSON PutCall where
+  parseJSON = withText "putCall" $ \text ->
+    case text of
+      "PUT"  -> return Put
+      "CALL" -> return Call
+      _      -> fail $ "putCall unexpected: " ++ T.unpack text
+
 data Option = Option
     { description      :: Maybe Text
     , putCall          :: Maybe PutCall
@@ -25,10 +43,14 @@ data Option = Option
     }
     deriving (Eq, Show)
 
+makeClassy ''Option
+
 data CashEquivalent = CashEquivalent
     { cashType :: Text
     }
     deriving (Eq, Show)
+
+makeClassy ''CashEquivalent
 
 data AssetType
     = Equity
@@ -38,17 +60,7 @@ data AssetType
     | CashEquivalentAsset CashEquivalent
     deriving (Eq, Show)
 
-data PutCall
-    = Put
-    | Call
-    deriving (Eq, Show, Enum, Ord)
-
-instance FromJSON PutCall where
-  parseJSON = withText "putCall" $ \text ->
-    case text of
-      "PUT"  -> return Put
-      "CALL" -> return Call
-      _      -> fail $ "putCall unexpected: " ++ T.unpack text
+makePrisms ''AssetType
 
 data Instrument = Instrument
     { assetType :: AssetType
@@ -56,6 +68,8 @@ data Instrument = Instrument
     , cusip     :: Text
     }
     deriving (Eq, Show)
+
+makeClassy ''Instrument
 
 instance FromJSON Instrument where
   parseJSON = withObject "instrument" $ \obj -> do
@@ -98,6 +112,8 @@ data PositionEffect
     | Automatic
     deriving (Eq, Show, Enum, Ord)
 
+makePrisms ''PositionEffect
+
 instance FromJSON PositionEffect where
   parseJSON = withText "positionEffect" $ \text ->
     case text of
@@ -111,6 +127,8 @@ data Instruction
     | Sell
     deriving (Eq, Show, Enum, Ord)
 
+makePrisms ''Instruction
+
 instance FromJSON Instruction where
   parseJSON = withText "instruction" $ \text ->
     case text of
@@ -119,29 +137,31 @@ instance FromJSON Instruction where
       _      -> fail $ "instruction unexpected: " ++ T.unpack text
 
 data TransactionItem = TransactionItem
-    { instrument           :: Maybe Instrument
-    , positionEffect       :: Maybe PositionEffect
-    , instruction          :: Maybe Instruction
-    , parentChildIndicator :: Maybe Text
-    , parentOrderKey       :: Maybe Int32
-    , cost                 :: Double
-    , price                :: Maybe Double
-    , amount               :: Maybe Double
-    , accountId            :: Int32
+    { transactionInstrument :: Maybe Instrument
+    , positionEffect        :: Maybe PositionEffect
+    , instruction           :: Maybe Instruction
+    , parentChildIndicator  :: Maybe Text
+    , parentOrderKey        :: Maybe Int32
+    , cost                  :: Double
+    , price                 :: Maybe Double
+    , amount                :: Maybe Double
+    , accountId             :: Int32
     }
     deriving (Eq, Show)
 
+makeClassy ''TransactionItem
+
 instance FromJSON TransactionItem where
   parseJSON = withObject "transactionItem" $ \obj -> do
-    instrument           <- obj .:? "instrument"
-    positionEffect       <- obj .:? "positionEffect"
-    instruction          <- obj .:? "instruction"
-    parentChildIndicator <- obj .:? "parentChildIndicator"
-    parentOrderKey       <- obj .:? "parentOrderKey"
-    cost                 <- obj .:  "cost"
-    price                <- obj .:? "price"
-    amount               <- obj .:? "amount"
-    accountId            <- obj .:  "accountId"
+    transactionInstrument <- obj .:? "instrument"
+    positionEffect        <- obj .:? "positionEffect"
+    instruction           <- obj .:? "instruction"
+    parentChildIndicator  <- obj .:? "parentChildIndicator"
+    parentOrderKey        <- obj .:? "parentOrderKey"
+    cost                  <- obj .:  "cost"
+    price                 <- obj .:? "price"
+    amount                <- obj .:? "amount"
+    accountId             <- obj .:  "accountId"
     return TransactionItem{..}
 
 data Fees = Fees
@@ -155,6 +175,8 @@ data Fees = Fees
     , secFee        :: Double
     }
     deriving (Eq, Show)
+
+makeClassy ''Fees
 
 instance FromJSON Fees where
   parseJSON = withObject "fees" $ \obj -> do
@@ -174,6 +196,8 @@ data AchStatus
     | Cancel
     | Error_
     deriving (Eq, Show, Enum, Ord)
+
+makePrisms ''AchStatus
 
 instance FromJSON AchStatus where
   parseJSON = withText "achStatus" $ \text ->
@@ -202,6 +226,8 @@ data TransactionType
     | SmaAdjustment
     deriving (Eq, Show, Enum, Ord)
 
+makePrisms ''TransactionType
+
 instance FromJSON TransactionType where
   parseJSON = withText "transactionType" $ \text ->
     case text of
@@ -223,8 +249,8 @@ instance FromJSON TransactionType where
       _                      -> fail $ "transactionType unexpected: " ++ T.unpack text
 
 data Transaction = Transaction
-    { transactionItem               :: TransactionItem
-    , fees                          :: Fees
+    { transactionItem_              :: TransactionItem
+    , fees_                         :: Fees
     , accruedInterest               :: Maybe Double
     , achStatus                     :: Maybe AchStatus
     , transactionDescription        :: Text
@@ -245,10 +271,12 @@ data Transaction = Transaction
     }
     deriving (Eq, Show)
 
+makeClassy ''Transaction
+
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
-    transactionItem               <- obj .:  "transactionItem"
-    fees                          <- obj .:  "fees"
+    transactionItem_              <- obj .:  "transactionItem"
+    fees_                         <- obj .:  "fees"
     accruedInterest               <- obj .:? "accruedInterest"
     achStatus                     <- obj .:? "achStatus"
     transactionDescription        <- obj .:  "description"

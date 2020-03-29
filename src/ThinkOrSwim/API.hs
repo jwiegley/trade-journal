@@ -10,6 +10,7 @@ import Data.Proxy
 import Data.Text as T
 import Data.Text.Encoding as T
 import Data.Time
+-- import Network.URI.Encode as URI
 import Servant.API
 import Servant.Client
 import ThinkOrSwim.API.TransactionHistory.GetTransactions
@@ -32,7 +33,7 @@ baseUrl = "https://api.tdameritrade.com/v1/"
 newtype AccessToken = AccessToken Text
 
 instance ToHttpApiData AccessToken where
-    toUrlPiece (AccessToken t) = t
+    toUrlPiece (AccessToken t) = "Bearer " <> t
     toHeader (AccessToken t) = T.encodeUtf8 $ "Bearer " <> t
 
 newtype AccountId = AccountId Text
