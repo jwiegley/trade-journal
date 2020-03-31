@@ -5,6 +5,7 @@ module Main where
 import Control.Applicative
 import Data.Aeson
 import Data.ByteString.Lazy as BL
+import Data.Ledger as Ledger
 import Data.Text as T
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
@@ -12,7 +13,8 @@ import Servant.Client
 import System.Environment
 import Text.Show.Pretty
 import ThinkOrSwim.API
-import ThinkOrSwim.API.TransactionHistory.GetTransactions
+import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import ThinkOrSwim.Convert
 
 createManager :: IO Manager
 createManager =
@@ -28,7 +30,7 @@ createManager =
                                            (requestHeaders req) }
                 }
 
-downloadTransactions :: Text -> Text -> Manager -> IO [Transaction]
+downloadTransactions :: Text -> Text -> Manager -> IO [API.Transaction]
 downloadTransactions actId accessToken mgr = do
     let call = getTransactions
             (AccountId actId)
@@ -49,7 +51,7 @@ downloadTransactions actId accessToken mgr = do
         , baseUrlPath   = "/v1"
         }
 
-readTransactions :: IO [Transaction]
+readTransactions :: IO [API.Transaction]
 readTransactions = do
     eres <- eitherDecode
         <$> BL.readFile "/Users/johnw/Documents/accounts/broker/hist.json"
@@ -61,5 +63,9 @@ main :: IO ()
 main = do
     act:token:_ <- Prelude.map T.pack <$> getArgs
     mgr         <- createManager
-    xs:_        <- readTransactions <|> downloadTransactions act token mgr
+    xs:_        <- cleanupTransactions
+        <$> (readTransactions <|> downloadTransactions act token mgr)
     pPrint xs
+    pPrint (convertTransaction xs)
+    let [xs'] = finalizeTransactions [] [convertTransaction xs]
+    pPrint (renderTransaction xs')

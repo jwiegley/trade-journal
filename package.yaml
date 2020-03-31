@@ -19,11 +19,17 @@ dependencies:
 library:
   source-dirs: src
   exposed-modules:
+    - Data.Ledger
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
+    - ThinkOrSwim.Convert
   dependencies:
     - lens
     - megaparsec
+    - reflection
+    - tagged
+    - vector
+    - mtl
 
 executables:
   thinkorswim:

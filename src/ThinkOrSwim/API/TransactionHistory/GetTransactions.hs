@@ -1,14 +1,25 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module ThinkOrSwim.API.TransactionHistory.GetTransactions where
 
 import Control.Lens
-import Data.Aeson
+import Control.Monad.State
+import Data.Aeson hiding ((.=))
 import Data.Int
+import Data.List (foldl')
+import Data.Map (Map)
 import Data.Text as T
 import Data.Time
 
@@ -35,11 +46,11 @@ instance FromJSON PutCall where
       _      -> fail $ "putCall unexpected: " ++ T.unpack text
 
 data Option = Option
-    { _description      :: Maybe Text
-    , _putCall          :: Maybe PutCall
-    , _strikePrice      :: Maybe Double
+    { _description      :: Text
+    , _putCall          :: PutCall
+    , _strikePrice      :: Double
     , _expirationDate   :: UTCTime
-    , _underlyingSymbol :: Maybe Text
+    , _underlyingSymbol :: Text
     }
     deriving (Eq, Show)
 
@@ -64,7 +75,7 @@ makePrisms ''AssetType
 
 data Instrument = Instrument
     { _assetType :: AssetType
-    , _symbol    :: Maybe Text
+    , _symbol    :: Text
     , _cusip     :: Text
     }
     deriving (Eq, Show)
@@ -75,7 +86,7 @@ instance FromJSON Instrument where
   parseJSON = withObject "instrument" $ \obj -> do
     _assetTypeText <- obj .:  "assetType"
     _cusip         <- obj .:  "cusip"
-    _symbol        <- obj .:? "symbol"
+    _symbol        <- obj .:? "symbol" .!= ""
 
     -- _bondInterestRate     <- obj .:? "bondInterestRate"
     -- _bondMaturityDate     <- obj .:? "bondMaturityDate"
@@ -90,19 +101,20 @@ instance FromJSON Instrument where
       "MUTUAL_FUND" -> return MutualFund
       "OPTION" ->
           fmap OptionAsset $ Option
-              <$> obj .:? "description"
-              <*> obj .:? "putCall"
-              <*> obj .:? "optionStrikePrice"
+              <$> obj .:? "description"       .!= ""
+              <*> obj .:? "putCall"           .!= Call
+              <*> obj .:? "optionStrikePrice" .!= 0.0
               <*> obj .:  "optionExpirationDate"
-              <*> obj .:? "underlyingSymbol"
+              <*> obj .:? "underlyingSymbol"  .!= ""
       "FIXED_INCOME"    ->
           fmap FixedIncomeAsset $ FixedIncome
-              <$> obj .:  "bondInterestRate"
-              <*> obj .:  "bondMaturityDate"
+              <$> obj .: "bondInterestRate"
+              <*> obj .: "bondMaturityDate"
       "CASH_EQUIVALENT" ->
           CashEquivalentAsset . CashEquivalent
-              <$> obj .:  "type"
-      _                 -> fail $ "assetType unexpected: " ++ T.unpack _assetTypeText
+              <$> obj .: "type"
+
+      _ -> fail $ "assetType unexpected: " ++ T.unpack _assetTypeText
 
     return Instrument{..}
 
@@ -224,9 +236,27 @@ data TransactionType
     | MarginCall
     | MoneyMarket
     | SmaAdjustment
-    deriving (Eq, Show, Enum, Ord)
+    deriving (Eq, Enum, Ord)
 
 makePrisms ''TransactionType
+
+instance Show TransactionType where
+    show = \case
+      Trade              -> "TRADE"
+      ReceiveAndDeliver  -> "RECEIVE_AND_DELIVER"
+      DividendOrInterest -> "DIVIDEND_OR_INTEREST"
+      AchReceipt         -> "ACH_RECEIPT"
+      AchDisbursement    -> "ACH_DISBURSEMENT"
+      CashReceipt        -> "CASH_RECEIPT"
+      CashDisbursement   -> "CASH_DISBURSEMENT"
+      ElectronicFund     -> "ELECTRONIC_FUND"
+      WireOut            -> "WIRE_OUT"
+      WireIn             -> "WIRE_IN"
+      Journal            -> "JOURNAL"
+      Memorandum         -> "MEMORANDUM"
+      MarginCall         -> "MARGIN_CALL"
+      MoneyMarket        -> "MONEY_MARKET"
+      SmaAdjustment      -> "SMA_ADJUSTMENT"
 
 instance FromJSON TransactionType where
   parseJSON = withText "transactionType" $ \text ->
@@ -297,3 +327,69 @@ instance FromJSON Transaction where
     _clearingReferenceNumber       <- obj .:? "clearingReferenceNumber"
     _type_                         <- obj .:  "type"
     return Transaction{..}
+
+newtype TransactionHistory = TransactionHistory { getTransactionHistory :: [Transaction] }
+
+instance FromJSON TransactionHistory where
+  parseJSON v@(Array _) = TransactionHistory . cleanupTransactions <$> parseJSON v
+  parseJSON v = error $ "Unexpected transaction history value: " ++ show v
+
+cleanupTransactions :: [Transaction] -> [Transaction]
+cleanupTransactions xs =
+    flip evalState (mempty :: Map Text Instrument)
+        $ mapM (fmap check . go) (Prelude.reverse xs)
+  where
+    go :: Transaction -> State (Map Text Instrument) Transaction
+    go t =
+        case t^.transactionItem_.transactionInstrument of
+            Nothing -> pure t
+            Just i -> case i^.symbol of
+                ""  -> do
+                    i' <- preuse (ix (i^.cusip))
+                    pure $ t & transactionItem_.transactionInstrument .~ i'
+                _sym -> do
+                    at (i^.cusip) ?= i
+                    pure t
+
+    check :: Transaction -> Transaction
+    check t =
+        case t^?transactionItem_.transactionInstrument._Just.symbol of
+            Just "" -> error $ "symbol has no name: " ++ show t
+            _ -> t
+
+newtype OrderHistory = OrderHistory { getOrderHistory :: [Transaction] }
+
+determineOrders :: TransactionHistory -> OrderHistory
+determineOrders (TransactionHistory xs) =
+    OrderHistory $ Data.List.foldl' go [] xs
+  where
+    go [] x = [x]
+    go (_p:_acc) _x =
+        -- Sometimes TD Ameritrade divides a transaction into multiple,
+        -- smaller transactions, such as a purchase order for 100 shares that
+        -- gets fulfilled over the course of 5 separate transaction. This is
+        -- reflected in the transaction history by multiple transactions with
+        -- orderIds of the form "Id", "Id.2", "Id.3", etc. They are usually
+        -- grouped in the history, but not always, since they may be
+        -- interleaved among other transactions.
+        --
+        -- From the perspective of TD Ameritrade these are separate events;
+        -- however -- if they should all execute at the same price -- we'd
+        -- like to view them as a single event occurring at the time of the
+        -- last sub-transaction. That is, we prefer the "order view" (an order
+        -- was placed for 100 shares) to the "execution view" (the order was
+        -- fulfilled by 4 executions across different exchanges and at
+        -- slightly different times).
+        --
+        -- The main reason to do this is that the order view will tally up
+        -- with GainsKeeper report, while the execution view does not.
+        undefined
+
+{- Transformations on the data:
+
+- Read transactions from TD Ameritrade
+- Infer any missing data
+- Coalesce executions into orders
+- Calculate effect of capital gains, include the wash sale rule
+
+ -}
