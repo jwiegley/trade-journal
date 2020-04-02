@@ -15,13 +15,17 @@
 
 module ThinkOrSwim.API.TransactionHistory.GetTransactions where
 
+import           Control.Applicative
+import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
 import           Data.Int
-import           Data.List (foldl')
+import           Data.List.NonEmpty (NonEmpty(..))
+-- import qualified Data.List.NonEmpty as NE
 import           Data.Map (Map)
 import qualified Data.Map as M
+import           Data.Semigroup hiding (Option, option)
 import           Data.Text as T
 import           Data.Time
 
@@ -154,8 +158,8 @@ data TransactionItem = TransactionItem
     { _transactionInstrument :: Maybe Instrument
     , _positionEffect        :: Maybe PositionEffect
     , _instruction           :: Maybe Instruction
-    , _parentChildIndicator  :: Maybe Text
-    , _parentOrderKey        :: Maybe Int32
+    -- , _parentChildIndicator  :: Maybe Text
+    -- , _parentOrderKey        :: Maybe Int32
     , _cost                  :: Double
     , _price                 :: Maybe Double
     , _amount                :: Maybe Double
@@ -170,8 +174,8 @@ instance FromJSON TransactionItem where
     _transactionInstrument <- obj .:? "instrument"
     _positionEffect        <- obj .:? "positionEffect"
     _instruction           <- obj .:? "instruction"
-    _parentChildIndicator  <- obj .:? "parentChildIndicator"
-    _parentOrderKey        <- obj .:? "parentOrderKey"
+    -- _parentChildIndicator  <- obj .:? "parentChildIndicator"
+    -- _parentOrderKey        <- obj .:? "parentOrderKey"
     _cost                  <- obj .:  "cost"
     _price                 <- obj .:? "price"
     _amount                <- obj .:? "amount"
@@ -191,6 +195,31 @@ data Fees = Fees
     deriving (Eq, Show)
 
 makeClassy ''Fees
+
+instance Semigroup Fees where
+    x <> y = Fees
+        { _rFee          = x^.rFee          + y^.rFee
+        , _additionalFee = x^.additionalFee + y^.additionalFee
+        , _cdscFee       = x^.cdscFee       + y^.cdscFee
+        , _regFee        = x^.regFee        + y^.regFee
+        , _otherCharges  = x^.otherCharges  + y^.otherCharges
+        , _commission    = x^.commission    + y^.commission
+        , _optRegFee     = x^.optRegFee     + y^.optRegFee
+        , _secFee        = x^.secFee        + y^.secFee
+        }
+
+instance Monoid Fees where
+    mempty = Fees
+        { _rFee          = 0.0
+        , _additionalFee = 0.0
+        , _cdscFee       = 0.0
+        , _regFee        = 0.0
+        , _otherCharges  = 0.0
+        , _commission    = 0.0
+        , _optRegFee     = 0.0
+        , _secFee        = 0.0
+        }
+    mappend = (<>)
 
 instance FromJSON Fees where
   parseJSON = withObject "fees" $ \obj -> do
@@ -280,17 +309,27 @@ instance FromJSON TransactionType where
       "SMA_ADJUSTMENT"       -> return SmaAdjustment
       _                      -> fail $ "transactionType unexpected: " ++ T.unpack text
 
+type TransactionId = NonEmpty Int64
+type TransactionSubType = Text
+
+data TransactionInfo = TransactionInfo
+    { _transactionId          :: TransactionId
+    , _transactionSubType     :: TransactionSubType
+    , _transactionDate        :: UTCTime
+    , _transactionItem_       :: TransactionItem
+    , _transactionDescription :: Text
+    }
+    deriving (Eq, Show)
+
+makeClassy ''TransactionInfo
+
 data Transaction = Transaction
-    { _transactionItem_              :: TransactionItem
+    { _transactionInfo_              :: TransactionInfo
     , _fees_                         :: Fees
     , _accruedInterest               :: Maybe Double
     , _achStatus                     :: Maybe AchStatus
-    , _transactionDescription        :: Text
     , _cashBalanceEffectFlag         :: Bool
-    , _transactionId                 :: Int64
-    , _transactionSubType            :: Text
     , _orderDate                     :: Maybe UTCTime
-    , _transactionDate               :: UTCTime
     , _netAmount                     :: Double
     , _dayTradeBuyingPowerEffect     :: Maybe Double
     , _requirementReallocationAmount :: Maybe Double
@@ -307,17 +346,20 @@ makeClassy ''Transaction
 
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
-    _transactionItem_              <- obj .:  "transactionItem"
-    _fees_                         <- obj .:  "fees"
+    _transactionItem_       <- obj .: "transactionItem"
+    tid                     <- obj .: "transactionId"
+    let _transactionId = tid :| []
+    _transactionSubType     <- obj .: "transactionSubType"
+    _transactionDate        <- obj .: "transactionDate"
+    _transactionDescription <- obj .: "description"
+    let _transactionInfo_ = TransactionInfo {..}
+
     _accruedInterest               <- obj .:? "accruedInterest"
     _achStatus                     <- obj .:? "achStatus"
-    _transactionDescription        <- obj .:  "description"
     _cashBalanceEffectFlag         <- obj .:? "cashBalanceEffectFlag" .!= False
-    _transactionId                 <- obj .:  "transactionId"
-    _transactionSubType            <- obj .:  "transactionSubType"
     _orderDate                     <- obj .:? "orderDate"
-    _transactionDate               <- obj .:  "transactionDate"
     _netAmount                     <- obj .:  "netAmount"
+    _fees_                         <- obj .:  "fees"
     _dayTradeBuyingPowerEffect     <- obj .:? "dayTradeBuyingPowerEffect"
     _requirementReallocationAmount <- obj .:? "requirementReallocationAmount"
     _sma                           <- obj .:? "sma"
@@ -351,19 +393,19 @@ cleanupTransactions xs =
   where
     go :: Transaction -> State CUSIPMap Transaction
     go t =
-        case t^.transactionItem_.transactionInstrument of
+        case t^?transactionInfo_.transactionItem_.transactionInstrument._Just of
             Nothing -> pure t
             Just i -> case i^.symbol of
                 ""  -> do
                     i' <- preuse (ix (i^.cusip))
-                    pure $ t & transactionItem_.transactionInstrument .~ i'
+                    pure $ t & transactionInfo_.transactionItem_.transactionInstrument .~ i'
                 _sym -> do
                     at (i^.cusip) ?= i
                     pure t
 
     check :: Transaction -> Transaction
     check t =
-        case t^?transactionItem_.transactionInstrument._Just.symbol of
+        case t^?transactionInfo_.transactionItem_.transactionInstrument._Just.symbol of
             Just "" -> error $ "symbol has no name: " ++ show t
             _ -> t
 
@@ -374,9 +416,9 @@ determineOrders (TransactionHistory xs _) =
     let (ts, m) = runState (mapM go xs) (mempty :: Map Text [Transaction])
     in OrderHistory $ mconcat $ M.elems m <> ts
   where
-    go t = case T.splitOn "." <$> (t^.orderId) of
+    go t = case baseOrderId t of
         Nothing -> pure [t]
-        Just (oid:_) -> do
+        Just oid -> do
             mres <- preuse (ix oid)
             case mres of
                 Nothing -> at oid ?= [t]
@@ -391,3 +433,63 @@ determineOrders (TransactionHistory xs _) =
 - Calculate effect of capital gains, include the wash sale rule
 
  -}
+
+baseOrderId :: Transaction -> Maybe Text
+baseOrderId t = do
+     (oid:_) <- T.splitOn "." <$> (t^.orderId)
+     pure oid
+
+mergeSubTransactions :: TransactionInfo -> TransactionInfo -> Maybe TransactionInfo
+mergeSubTransactions x y | conditions = Just TransactionInfo
+    { _transactionId          = undefined
+    , _transactionSubType     = x^.transactionSubType
+    , _transactionDate        =
+      getMax $ Max (x^.transactionDate) <> Max (y^.transactionDate)
+    , _transactionItem_       = undefined
+    , _transactionDescription = x^.transactionDescription
+    }
+  where
+    conditions
+        = x^.transactionDescription == y^.transactionDescription
+        && x^.transactionId /= y^.transactionId
+        && x^.transactionSubType == y^.transactionSubType
+
+mergeSubTransactions _ _ = Nothing
+
+-- Merge two transactions that share the same base orderId. It is assumed that
+-- this is the case before this function is called.
+mergeTransactions :: Transaction -> Transaction -> Transaction
+mergeTransactions x y = assert conditions Transaction
+    { _transactionInfo_              = undefined
+      -- mergeSubTransactions (x^.subTransactions) (y^.subTransactions)
+    , _fees_                         = x^.fees_ <> y^.fees_
+    , _accruedInterest               =
+      liftA2 (+) (x^.accruedInterest) (y^.accruedInterest)
+    , _achStatus                     = x^.achStatus
+    , _cashBalanceEffectFlag         = x^.cashBalanceEffectFlag
+    , _orderDate                     = x^.orderDate
+    , _netAmount                     = x^.netAmount + y^.netAmount
+    , _dayTradeBuyingPowerEffect     =
+      liftA2 (+) (x^.dayTradeBuyingPowerEffect) (y^.dayTradeBuyingPowerEffect)
+    , _requirementReallocationAmount =
+      liftA2 (+) (x^.requirementReallocationAmount) (y^.requirementReallocationAmount)
+    , _sma                           = liftA2 (+) (x^.sma) (y^.sma)
+    , _orderId                       = Just xid
+    , _settlementDate                = x^.settlementDate
+    , _subAccount                    = x^.subAccount
+    , _clearingReferenceNumber       = x^.clearingReferenceNumber
+    , _type_                         = x^.type_
+    }
+  where
+    Just xid = baseOrderId x
+    Just yid = baseOrderId y
+
+    conditions
+        = xid == yid
+        && x^.achStatus == y^.achStatus
+        && x^.cashBalanceEffectFlag == y^.cashBalanceEffectFlag
+        && x^.clearingReferenceNumber == y^.clearingReferenceNumber
+        && x^.orderDate == y^.orderDate
+        && x^.settlementDate == y^.settlementDate
+        && x^.subAccount == y^.subAccount
+        && x^.type_ == y^.type_

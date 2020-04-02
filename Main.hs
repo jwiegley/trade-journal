@@ -67,5 +67,6 @@ main = do
     pPrint t
     let xs@(x:_) = convertTransactions oh
     pPrint x
-    let [xs'] = finalizeTransactions [] xs
-    pPrint (renderTransaction xs')
+    case finalizeTransactions [] xs of
+        xs':_ -> pPrint (renderTransaction xs')
+        __ -> error "No finalized transactions! Uh oh"
