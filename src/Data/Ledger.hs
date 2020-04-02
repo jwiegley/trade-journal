@@ -60,6 +60,13 @@ data Account
 
 makePrisms ''Account
 
+-- A pending transaction is a Ledger transaction that pretty much exactly
+-- reflects the downloaded order from TD Ameritrade. A final transaction has
+-- had its cost basis -- and thus, gains or losses -- calculated by reviewing
+-- the history of all prior transaction, to determine what previous positions
+-- are being closed, whether the wash sale rule applies, etc. The final
+-- transaction should represent "reality", and tally with any taxable gains
+-- reports.
 data DataState = Pending | Final
     deriving (Eq, Show, Ord, Enum)
 

@@ -9,19 +9,21 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module ThinkOrSwim.API.TransactionHistory.GetTransactions where
 
-import Control.Lens
-import Control.Monad.State
-import Data.Aeson hiding ((.=))
-import Data.Int
-import Data.List (foldl')
-import Data.Map (Map)
-import Data.Text as T
-import Data.Time
+import           Control.Lens
+import           Control.Monad.State
+import           Data.Aeson hiding ((.=))
+import           Data.Int
+import           Data.List (foldl')
+import           Data.Map (Map)
+import qualified Data.Map as M
+import           Data.Text as T
+import           Data.Time
 
 data FixedIncome = FixedIncome
     { _bondInterestRate :: Double
@@ -328,18 +330,26 @@ instance FromJSON Transaction where
     _type_                         <- obj .:  "type"
     return Transaction{..}
 
-newtype TransactionHistory = TransactionHistory { getTransactionHistory :: [Transaction] }
+type CUSIPMap = Map Text Instrument
+
+data TransactionHistory = TransactionHistory
+    { getTransactionHistory :: [Transaction]
+    , cusipMap              :: CUSIPMap
+    }
+    deriving (Eq, Show)
 
 instance FromJSON TransactionHistory where
-  parseJSON v@(Array _) = TransactionHistory . cleanupTransactions <$> parseJSON v
+  parseJSON v@(Array _) = do
+      (getTransactionHistory, cusipMap) <- cleanupTransactions <$> parseJSON v
+      pure TransactionHistory {..}
   parseJSON v = error $ "Unexpected transaction history value: " ++ show v
 
-cleanupTransactions :: [Transaction] -> [Transaction]
+cleanupTransactions :: [Transaction] -> ([Transaction], CUSIPMap)
 cleanupTransactions xs =
-    flip evalState (mempty :: Map Text Instrument)
+    flip runState (mempty :: CUSIPMap)
         $ mapM (fmap check . go) (Prelude.reverse xs)
   where
-    go :: Transaction -> State (Map Text Instrument) Transaction
+    go :: Transaction -> State CUSIPMap Transaction
     go t =
         case t^.transactionItem_.transactionInstrument of
             Nothing -> pure t
@@ -360,30 +370,18 @@ cleanupTransactions xs =
 newtype OrderHistory = OrderHistory { getOrderHistory :: [Transaction] }
 
 determineOrders :: TransactionHistory -> OrderHistory
-determineOrders (TransactionHistory xs) =
-    OrderHistory $ Data.List.foldl' go [] xs
+determineOrders (TransactionHistory xs _) =
+    let (ts, m) = runState (mapM go xs) (mempty :: Map Text [Transaction])
+    in OrderHistory $ mconcat $ M.elems m <> ts
   where
-    go [] x = [x]
-    go (_p:_acc) _x =
-        -- Sometimes TD Ameritrade divides a transaction into multiple,
-        -- smaller transactions, such as a purchase order for 100 shares that
-        -- gets fulfilled over the course of 5 separate transaction. This is
-        -- reflected in the transaction history by multiple transactions with
-        -- orderIds of the form "Id", "Id.2", "Id.3", etc. They are usually
-        -- grouped in the history, but not always, since they may be
-        -- interleaved among other transactions.
-        --
-        -- From the perspective of TD Ameritrade these are separate events;
-        -- however -- if they should all execute at the same price -- we'd
-        -- like to view them as a single event occurring at the time of the
-        -- last sub-transaction. That is, we prefer the "order view" (an order
-        -- was placed for 100 shares) to the "execution view" (the order was
-        -- fulfilled by 4 executions across different exchanges and at
-        -- slightly different times).
-        --
-        -- The main reason to do this is that the order view will tally up
-        -- with GainsKeeper report, while the execution view does not.
-        undefined
+    go t = case T.splitOn "." <$> (t^.orderId) of
+        Nothing -> pure [t]
+        Just (oid:_) -> do
+            mres <- preuse (ix oid)
+            case mres of
+                Nothing -> at oid ?= [t]
+                Just _  -> ix oid <>= [t]
+            pure []
 
 {- Transformations on the data:
 

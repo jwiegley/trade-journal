@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module ThinkOrSwim.Convert where
+module ThinkOrSwim.Convert (convertTransactions) where
 
 import Control.Lens
 import Data.Ledger as Ledger
@@ -10,6 +10,11 @@ import Data.Map as M
 import Data.Maybe (fromMaybe)
 import Data.Text as T
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+
+convertTransactions :: OrderHistory
+                    -> [Ledger.Transaction API.Transaction 'Pending]
+convertTransactions (OrderHistory xacts) =
+    Prelude.map convertTransaction xacts
 
 convertTransaction :: API.Transaction
                    -> Ledger.Transaction API.Transaction 'Pending

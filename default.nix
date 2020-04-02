@@ -69,6 +69,7 @@ in haskellPackages.developPackage rec {
       haskellPackages.cabal-install
       haskellPackages.hpack
       haskellPackages.aeson-schema
+      haskellPackages.hoogle
     ];
 
     enableLibraryProfiling = doProfiling;

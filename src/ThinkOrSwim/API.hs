@@ -146,7 +146,7 @@ type API =
     :> QueryParam "startDate" ISO8601Date
     :> QueryParam "endDate" ISO8601Date
     :> Header "Authorization" AccessToken
-    :> Get '[JSON] [Transaction]
+    :> Get '[JSON] TransactionHistory
 
 -- User Info and Preferences
 --
@@ -172,6 +172,6 @@ getTransactions
     -> Maybe ISO8601Date
     -> Maybe ISO8601Date
     -> Maybe AccessToken
-    -> ClientM [Transaction]
+    -> ClientM TransactionHistory
 
 getAccounts :<|> getTransactions = client api

@@ -30,7 +30,7 @@ createManager =
                                            (requestHeaders req) }
                 }
 
-downloadTransactions :: Text -> Text -> Manager -> IO [API.Transaction]
+downloadTransactions :: Text -> Text -> Manager -> IO OrderHistory
 downloadTransactions actId accessToken mgr = do
     let call = getTransactions
             (AccountId actId)
@@ -42,7 +42,7 @@ downloadTransactions actId accessToken mgr = do
     res <- runClientM call (env mgr)
     case res of
         Left err -> error $ "Error: " ++ show err
-        Right xs -> return xs
+        Right th -> return $ determineOrders th
   where
     env = flip mkClientEnv $ BaseUrl
         { baseUrlScheme = Https
@@ -51,21 +51,21 @@ downloadTransactions actId accessToken mgr = do
         , baseUrlPath   = "/v1"
         }
 
-readTransactions :: IO [API.Transaction]
+readTransactions :: IO OrderHistory
 readTransactions = do
     eres <- eitherDecode
         <$> BL.readFile "/Users/johnw/Documents/accounts/broker/hist.json"
     case eres of
-        Left err  -> error err
-        Right res -> pure res
+        Left err -> error err
+        Right th -> pure $ determineOrders th
 
 main :: IO ()
 main = do
-    act:token:_ <- Prelude.map T.pack <$> getArgs
-    mgr         <- createManager
-    xs:_        <- cleanupTransactions
-        <$> (readTransactions <|> downloadTransactions act token mgr)
-    pPrint xs
-    pPrint (convertTransaction xs)
-    let [xs'] = finalizeTransactions [] [convertTransaction xs]
+    oh@(OrderHistory (t:_)) <- readTransactions <|> do
+        act:token:_ <- Prelude.map T.pack <$> getArgs
+        downloadTransactions act token =<< createManager
+    pPrint t
+    let xs@(x:_) = convertTransactions oh
+    pPrint x
+    let [xs'] = finalizeTransactions [] xs
     pPrint (renderTransaction xs')
