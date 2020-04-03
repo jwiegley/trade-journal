@@ -16,7 +16,6 @@
 module ThinkOrSwim.API.TransactionHistory.GetTransactions where
 
 import           Control.Applicative
-import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
@@ -439,52 +438,63 @@ baseOrderId t = do
      (oid:_) <- T.splitOn "." <$> (t^.orderId)
      pure oid
 
-mergeSubTransactions :: TransactionInfo -> TransactionInfo -> Maybe TransactionInfo
-mergeSubTransactions x y | conditions = Just TransactionInfo
-    { _transactionId          = undefined
-    , _transactionSubType     = x^.transactionSubType
-    , _transactionDate        =
-      getMax $ Max (x^.transactionDate) <> Max (y^.transactionDate)
-    , _transactionItem_       = undefined
-    , _transactionDescription = x^.transactionDescription
-    }
+mergeTransactionItem :: TransactionItem -> TransactionItem -> Maybe TransactionItem
+mergeTransactionItem x y = do
+    guard conditions
+    _transactionItem_ <- mergeTransactionItem (x^.transactionItem) (y^.transactionItem)
+    pure TransactionItem {..}
   where
     conditions
-        = x^.transactionDescription == y^.transactionDescription
-        && x^.transactionId /= y^.transactionId
+        = x^.accountId == y^.accountId
+          -- These three could certainly be different, such as when assigning
+          -- an option by closing out the short put and buying the equity, but
+          -- in that case we simply don't merge the transactions.
+        && x^.transactionInstrument == y^.transactionInstrument
+        && x^.instruction == y^.instruction
+        && x^.positionEffect == y^.positionEffect
+
+    _accountId             = x^.accountId
+    _amount                = x^.amount <+> y^.amount
+    _cost                  = x^.cost + y^.cost
+    _instruction           = x^.instruction
+    _positionEffect        = x^.positionEffect
+    _price                 = x^.price <+> y^.price
+    _transactionInstrument = x^.transactionInstrument
+
+mergeTransactionInfo :: TransactionInfo -> TransactionInfo -> Maybe TransactionInfo
+mergeTransactionInfo x y = do
+    guard conditions
+    _transactionItem_ <- mergeTransactionItem (x^.transactionItem_) (y^.transactionItem_)
+    pure TransactionInfo {..}
+  where
+    conditions
+        = x^.transactionId /= y^.transactionId
+        && x^.transactionDescription == y^.transactionDescription
         && x^.transactionSubType == y^.transactionSubType
 
-mergeSubTransactions _ _ = Nothing
+    _transactionDate        =
+        getMax $ Max (x^.transactionDate) <> Max (y^.transactionDate)
+    _transactionDescription = x^.transactionDescription
+    _transactionId          = x^.transactionId <> y^.transactionId
+    _transactionSubType     = x^.transactionSubType
+
+infixr 7 <+>
+(<+>) :: (Applicative m, Num a) => m a -> m a -> m a
+(<+>) = liftA2 (+)
 
 -- Merge two transactions that share the same base orderId. It is assumed that
 -- this is the case before this function is called.
-mergeTransactions :: Transaction -> Transaction -> Transaction
-mergeTransactions x y = assert conditions Transaction
-    { _transactionInfo_              = undefined
-      -- mergeSubTransactions (x^.subTransactions) (y^.subTransactions)
-    , _fees_                         = x^.fees_ <> y^.fees_
-    , _accruedInterest               =
-      liftA2 (+) (x^.accruedInterest) (y^.accruedInterest)
-    , _achStatus                     = x^.achStatus
-    , _cashBalanceEffectFlag         = x^.cashBalanceEffectFlag
-    , _orderDate                     = x^.orderDate
-    , _netAmount                     = x^.netAmount + y^.netAmount
-    , _dayTradeBuyingPowerEffect     =
-      liftA2 (+) (x^.dayTradeBuyingPowerEffect) (y^.dayTradeBuyingPowerEffect)
-    , _requirementReallocationAmount =
-      liftA2 (+) (x^.requirementReallocationAmount) (y^.requirementReallocationAmount)
-    , _sma                           = liftA2 (+) (x^.sma) (y^.sma)
-    , _orderId                       = Just xid
-    , _settlementDate                = x^.settlementDate
-    , _subAccount                    = x^.subAccount
-    , _clearingReferenceNumber       = x^.clearingReferenceNumber
-    , _type_                         = x^.type_
-    }
+mergeTransactions :: Transaction -> Transaction -> Maybe Transaction
+mergeTransactions x y = do
+    xid <- baseOrderId x
+    yid <- baseOrderId y
+    guard (conditions xid yid)
+    let _orderId = Just xid
+    _transactionInfo_ <-
+        mergeTransactionInfo (x^.transactionInfo_) (y^.transactionInfo_)
+    pure Transaction {..}
   where
-    Just xid = baseOrderId x
-    Just yid = baseOrderId y
-
-    conditions
+    conditions xid yid
         = xid == yid
         && x^.achStatus == y^.achStatus
         && x^.cashBalanceEffectFlag == y^.cashBalanceEffectFlag
@@ -493,3 +503,19 @@ mergeTransactions x y = assert conditions Transaction
         && x^.settlementDate == y^.settlementDate
         && x^.subAccount == y^.subAccount
         && x^.type_ == y^.type_
+
+    _accruedInterest               = x^.accruedInterest <+> y^.accruedInterest
+    _achStatus                     = x^.achStatus
+    _cashBalanceEffectFlag         = x^.cashBalanceEffectFlag
+    _clearingReferenceNumber       = x^.clearingReferenceNumber
+    _dayTradeBuyingPowerEffect     =
+        x^.dayTradeBuyingPowerEffect <+> y^.dayTradeBuyingPowerEffect
+    _fees_                         = x^.fees_ <> y^.fees_
+    _netAmount                     = x^.netAmount + y^.netAmount
+    _orderDate                     = x^.orderDate
+    _requirementReallocationAmount =
+        x^.requirementReallocationAmount <+> y^.requirementReallocationAmount
+    _settlementDate                = x^.settlementDate
+    _sma                           = x^.sma <+> y^.sma
+    _subAccount                    = x^.subAccount
+    _type_                         = x^.type_
