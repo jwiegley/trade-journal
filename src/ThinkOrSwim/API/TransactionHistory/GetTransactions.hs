@@ -15,14 +15,15 @@
 
 module ThinkOrSwim.API.TransactionHistory.GetTransactions where
 
--- import           Control.Applicative
+import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
 import           Data.Int
+import           Data.List (sortOn)
 import           Data.Map (Map)
 -- import qualified Data.Map as M
--- import           Data.Semigroup hiding (Option, option)
+import           Data.Semigroup hiding (Option, option)
 import           Data.Text as T
 import           Data.Time
 
@@ -30,14 +31,14 @@ data FixedIncome = FixedIncome
     { _bondInterestRate :: Double
     , _bondMaturityDate :: UTCTime
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''FixedIncome
 
 data PutCall
     = Put
     | Call
-    deriving (Eq, Show, Enum, Ord)
+    deriving (Eq, Ord, Show, Enum)
 
 makePrisms ''PutCall
 
@@ -55,14 +56,14 @@ data Option = Option
     , _expirationDate   :: UTCTime
     , _underlyingSymbol :: Text
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Option
 
 data CashEquivalent = CashEquivalent
     { _cashType :: Text
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''CashEquivalent
 
@@ -72,7 +73,7 @@ data AssetType
     | OptionAsset Option
     | FixedIncomeAsset FixedIncome
     | CashEquivalentAsset CashEquivalent
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makePrisms ''AssetType
 
@@ -81,7 +82,7 @@ data Instrument = Instrument
     , _symbol    :: Text
     , _cusip     :: Text
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Instrument
 
@@ -125,7 +126,7 @@ data PositionEffect
     = Opening
     | Closing
     | Automatic
-    deriving (Eq, Show, Enum, Ord)
+    deriving (Eq, Ord, Show, Enum)
 
 makePrisms ''PositionEffect
 
@@ -140,7 +141,7 @@ instance FromJSON PositionEffect where
 data Instruction
     = Buy
     | Sell
-    deriving (Eq, Show, Enum, Ord)
+    deriving (Eq, Ord, Show, Enum)
 
 makePrisms ''Instruction
 
@@ -162,7 +163,7 @@ data TransactionItem = TransactionItem
     , _amount                :: Maybe Double
     , _accountId             :: Int32
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''TransactionItem
 
@@ -189,7 +190,7 @@ data Fees = Fees
     , _optRegFee     :: Double
     , _secFee        :: Double
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Fees
 
@@ -235,7 +236,7 @@ data AchStatus
     | Rejected
     | Cancel
     | Error_
-    deriving (Eq, Show, Enum, Ord)
+    deriving (Eq, Ord, Show, Enum)
 
 makePrisms ''AchStatus
 
@@ -264,7 +265,7 @@ data TransactionType
     | MarginCall
     | MoneyMarket
     | SmaAdjustment
-    deriving (Eq, Enum, Ord)
+    deriving (Eq, Ord, Enum)
 
 makePrisms ''TransactionType
 
@@ -316,7 +317,7 @@ data TransactionInfo = TransactionInfo
     , _transactionItem_       :: TransactionItem
     , _transactionDescription :: Text
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''TransactionInfo
 
@@ -337,7 +338,7 @@ data Transaction = Transaction
     , _clearingReferenceNumber       :: Maybe Text
     , _type_                         :: TransactionType
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Transaction
 
@@ -373,7 +374,7 @@ data Order = Order
     , _orderId      :: Text
     , _orderDate    :: UTCTime
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Order
 
@@ -388,7 +389,7 @@ data TransactionHistory = TransactionHistory
     , _ordersMap       :: OrdersMap
     , _settlementList  :: SettlementList
     }
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''TransactionHistory
 
@@ -409,97 +410,97 @@ instance FromJSON TransactionHistory where
 -- cleanup pass restores the missing information for that instrument, and as a
 -- conesquence builds a complete mapping of CUSIP -> Instrument for all
 -- observed instruments.
+--
+-- Transformations performed on the data from TD Ameritrade:
+--
+-- 1. Infer missing data
+--    a. symbol information lookup
+--
+-- 2. Coalesce multiple executions into orders
+--
+-- 3. Calculate capital gains on closing orders
+--    a. P/L agaisnt opening price
+--    b. wash sale rule
+
 processTransactions :: [Transaction] -> TransactionHistory
 processTransactions xs = (`execState` newTransactionHistory) $ do
     mapM_ go (Prelude.reverse xs)
     allTransactions %= Prelude.reverse
     settlementList %= Prelude.reverse
   where
-    instrument' :: Lens' Transaction (Maybe Instrument)
-    instrument' = transactionInfo_.transactionItem_.transactionInstrument
-
     go :: Transaction -> State TransactionHistory ()
-    go t = case t^?instrument'._Just of
+    go t = case t^?instrument_._Just of
         Nothing -> check t
         Just inst -> case inst^.symbol of
             "" -> preuse (cusipMap.ix (inst^.cusip)) >>= \case
-                Nothing -> error $ "Unknown CUSIP: " ++ T.unpack (inst^.cusip)
-                Just inst' -> check $ t & instrument' ?~ inst'
+                Nothing ->
+                    error $ "Unknown CUSIP: " ++ T.unpack (inst^.cusip)
+                Just inst' ->
+                    check $ t & instrument_ ?~ inst'
             _sym -> do
                 cusipMap.at (inst^.cusip) ?= inst
                 check t
 
     check :: Transaction -> State TransactionHistory ()
-    check t = case t^?instrument'._Just.symbol of
+    check t = case t^?instrument_._Just.symbol of
         Just "" -> error $ "symbol has no name: " ++ show t
         _ -> do
             allTransactions %= (t :)
 
             let sd = t^.settlementDate
-            case (T.splitOn "." <$> t^.transactionOrderId,
-                         t^.transactionOrderDate) of
-                (Just (oid:_), Just date) ->
-                    preuse (ordersMap.ix oid) >>= \case
-                        Nothing -> do
-                            let o = Order
-                                    { _transactions = [t]
-                                    , _orderId      = oid
-                                    , _orderDate    = date
-                                    }
-                            ordersMap.at oid ?= o
-                            settlementList %= ((sd, Right oid) :)
-                        Just _ ->
-                            ordersMap.ix oid.transactions <>= [t]
-                (_, _) ->
+            case orderIdAndDate t of
+                Just (oid, date) -> preuse (ordersMap.ix oid) >>= \case
+                    Nothing -> do
+                        let o = Order
+                                { _transactions = [t]
+                                , _orderId      = oid
+                                , _orderDate    = date
+                                }
+                        ordersMap.at oid ?= o
+                        settlementList %= ((sd, Right oid) :)
+                    Just _ ->
+                        ordersMap.ix oid.transactions <>= [t]
+                _ ->
                     settlementList %= ((sd, Left t) :)
 
-newtype OrderHistory = OrderHistory { getOrderHistory :: [Transaction] }
-
-{-
-determineOrders :: TransactionHistory -> OrderHistory
-determineOrders TransactionHistory {..} =
-    let (ts, m) = runState (mapM go xs) (mempty :: Map Text [Transaction])
-    in OrderHistory $ mconcat $ M.elems m <> ts
-  where
-    go t = case baseOrderId t of
-        Nothing -> pure [t]
-        Just oid -> do
-            mres <- preuse (ix oid)
-            case mres of
-                Nothing -> at oid ?= [t]
-                Just _  -> ix oid <>= [t]
-            pure []
--}
-
-{- Transformations on the data:
-
-- Read transactions from TD Ameritrade
-- Infer any missing data
-- Coalesce executions into orders
-- Calculate effect of capital gains, include the wash sale rule
-
- -}
+orderIdAndDate :: Transaction -> Maybe (OrderId, UTCTime)
+orderIdAndDate t = liftA2 (,) (baseOrderId t) (t^.transactionOrderDate)
 
 baseOrderId :: Transaction -> Maybe Text
 baseOrderId t = do
      (oid:_) <- T.splitOn "." <$> (t^.transactionOrderId)
      pure oid
 
-{-
-mergeTransactionItem :: TransactionItem -> TransactionItem -> Maybe TransactionItem
-mergeTransactionItem x y = do
+instrument_ :: Lens' Transaction (Maybe Instrument)
+instrument_ = transactionInfo_.transactionItem_.transactionInstrument
+
+infixr 7 <+>
+(<+>) :: (Applicative m, Num a) => m a -> m a -> m a
+(<+>) = liftA2 (+)
+
+-- Given an order and all the execution transactions that make it up, find the
+-- "aggregate" transactions that make it up. For example, if an order for 200
+-- shares is executed as four purchases orders of 50 count each, from the
+-- point of view of the order, this is one transaction, even if from the point
+-- of view of the broker it is four.
+orderTransactions :: Order -> [Transaction]
+orderTransactions o =
+    sortOn (^?instrument_._Just.assetType) $
+        sortOn (^?transactionInfo_.transactionDate) (o^.transactions)
+
+mergeTransactionItems :: TransactionItem -> TransactionItem -> Maybe TransactionItem
+mergeTransactionItems x y = do
     guard conditions
-    _transactionItem_ <- mergeTransactionItem (x^.transactionItem) (y^.transactionItem)
     pure TransactionItem {..}
   where
     conditions
-        = x^.accountId == y^.accountId
+        = x^.accountId             == y^.accountId
           -- These three could certainly be different, such as when assigning
           -- an option by closing out the short put and buying the equity, but
           -- in that case we simply don't merge the transactions.
         && x^.transactionInstrument == y^.transactionInstrument
-        && x^.instruction == y^.instruction
-        && x^.positionEffect == y^.positionEffect
+        && x^.instruction           == y^.instruction
+        && x^.positionEffect        == y^.positionEffect
 
     _accountId             = x^.accountId
     _amount                = x^.amount <+> y^.amount
@@ -509,62 +510,56 @@ mergeTransactionItem x y = do
     _price                 = x^.price <+> y^.price
     _transactionInstrument = x^.transactionInstrument
 
-mergeTransactionInfo :: TransactionInfo -> TransactionInfo -> Maybe TransactionInfo
-mergeTransactionInfo x y = do
+mergeTransactionInfos :: TransactionInfo -> TransactionInfo -> Maybe TransactionInfo
+mergeTransactionInfos x y = do
     guard conditions
-    _transactionItem_ <- mergeTransactionItem (x^.transactionItem_) (y^.transactionItem_)
+    _transactionItem_ <- mergeTransactionItems (x^.transactionItem_) (y^.transactionItem_)
     pure TransactionInfo {..}
   where
     conditions
-        = x^.transactionId /= y^.transactionId
+        = x^.transactionId          /=  y^.transactionId
         && x^.transactionDescription == y^.transactionDescription
-        && x^.transactionSubType == y^.transactionSubType
+        && x^.transactionSubType     == y^.transactionSubType
 
-    _transactionDate        =
-        getMax $ Max (x^.transactionDate) <> Max (y^.transactionDate)
     _transactionDescription = x^.transactionDescription
-    _transactionId          = x^.transactionId <> y^.transactionId
     _transactionSubType     = x^.transactionSubType
 
-infixr 7 <+>
-(<+>) :: (Applicative m, Num a) => m a -> m a -> m a
-(<+>) = liftA2 (+)
+    -- jww (2020-04-05): Here is where we discard information when coalescing
+    -- multiple transactions into an order.
+    _transactionId          = getMax $ Max (x^.transactionId) <> Max (y^.transactionId)
+    _transactionDate        = getMax $ Max (x^.transactionDate) <> Max (y^.transactionDate)
 
--- Merge two transactions that share the same base orderId. It is assumed that
--- this is the case before this function is called.
 mergeTransactions :: Transaction -> Transaction -> Maybe Transaction
 mergeTransactions x y = do
-    xid <- baseOrderId x
+    _orderId <- baseOrderId x
     yid <- baseOrderId y
-    guard (conditions xid yid)
-    let _orderId = Just xid
+    guard $ _orderId == yid
+    guard conditions
     _transactionInfo_ <-
-        mergeTransactionInfo (x^.transactionInfo_) (y^.transactionInfo_)
+        mergeTransactionInfos (x^.transactionInfo_) (y^.transactionInfo_)
     pure Transaction {..}
   where
-    conditions xid yid
-        = xid == yid
-        && x^.achStatus == y^.achStatus
-        && x^.cashBalanceEffectFlag == y^.cashBalanceEffectFlag
+    conditions
+        = x^.achStatus               == y^.achStatus
+        && x^.cashBalanceEffectFlag   == y^.cashBalanceEffectFlag
         && x^.clearingReferenceNumber == y^.clearingReferenceNumber
-        && x^.orderDate == y^.orderDate
-        && x^.settlementDate == y^.settlementDate
-        && x^.subAccount == y^.subAccount
-        && x^.type_ == y^.type_
+        && x^.transactionOrderId      == y^.transactionOrderId
+        && x^.transactionOrderDate    == y^.transactionOrderDate
+        && x^.settlementDate          == y^.settlementDate
+        && x^.subAccount              == y^.subAccount
+        && x^.type_                   == y^.type_
 
     _accruedInterest               = x^.accruedInterest <+> y^.accruedInterest
     _achStatus                     = x^.achStatus
     _cashBalanceEffectFlag         = x^.cashBalanceEffectFlag
     _clearingReferenceNumber       = x^.clearingReferenceNumber
-    _dayTradeBuyingPowerEffect     =
-        x^.dayTradeBuyingPowerEffect <+> y^.dayTradeBuyingPowerEffect
+    _dayTradeBuyingPowerEffect     = x^.dayTradeBuyingPowerEffect <+> y^.dayTradeBuyingPowerEffect
     _fees_                         = x^.fees_ <> y^.fees_
     _netAmount                     = x^.netAmount + y^.netAmount
-    _orderDate                     = x^.orderDate
-    _requirementReallocationAmount =
-        x^.requirementReallocationAmount <+> y^.requirementReallocationAmount
+    _transactionOrderId            = x^.transactionOrderId
+    _transactionOrderDate          = x^.transactionOrderDate
+    _requirementReallocationAmount = x^.requirementReallocationAmount <+> y^.requirementReallocationAmount
     _settlementDate                = x^.settlementDate
     _sma                           = x^.sma <+> y^.sma
     _subAccount                    = x^.subAccount
     _type_                         = x^.type_
--}
