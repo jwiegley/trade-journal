@@ -3,6 +3,7 @@
 module Main where
 
 import Control.Applicative
+import Control.Lens
 import Data.Aeson
 import Data.ByteString.Lazy as BL
 import Data.Ledger as Ledger
@@ -30,7 +31,7 @@ createManager =
                                            (requestHeaders req) }
                 }
 
-downloadTransactions :: Text -> Text -> Manager -> IO OrderHistory
+downloadTransactions :: Text -> Text -> Manager -> IO TransactionHistory
 downloadTransactions actId accessToken mgr = do
     let call = getTransactions
             (AccountId actId)
@@ -42,7 +43,7 @@ downloadTransactions actId accessToken mgr = do
     res <- runClientM call (env mgr)
     case res of
         Left err -> error $ "Error: " ++ show err
-        Right th -> return $ determineOrders th
+        Right th -> return th
   where
     env = flip mkClientEnv $ BaseUrl
         { baseUrlScheme = Https
@@ -51,21 +52,27 @@ downloadTransactions actId accessToken mgr = do
         , baseUrlPath   = "/v1"
         }
 
-readTransactions :: IO OrderHistory
+readTransactions :: IO TransactionHistory
 readTransactions = do
     eres <- eitherDecode
-        <$> BL.readFile "/Users/johnw/Documents/accounts/broker/hist.json"
+        <$> BL.readFile "/Users/johnw/Documents/accounts/broker/Ameritrade/hist.json"
     case eres of
         Left err -> error err
-        Right th -> pure $ determineOrders th
+        Right th -> pure th
 
 main :: IO ()
 main = do
-    oh@(OrderHistory (t:_)) <- readTransactions <|> do
+    th <- readTransactions <|> do
         act:token:_ <- Prelude.map T.pack <$> getArgs
         downloadTransactions act token =<< createManager
-    pPrint t
-    let xs@(x:_) = convertTransactions oh
+
+    -- Simplify the output, since it's only for debugging purposes.
+    pPrint $ th & allTransactions %~ Prelude.take 1
+                & settlementList %~ Prelude.take 1
+                & cusipMap .~ mempty
+                & ordersMap .~ mempty
+
+    let xs@(x:_) = convertTransactions th
     pPrint x
     case finalizeTransactions [] xs of
         xs':_ -> pPrint (renderTransaction xs')

@@ -6,13 +6,14 @@ maintainer: johnw@newartisans.com
 
 dependencies:
   - base
-  - containers
-  - text
-  - bytestring
   - aeson
   - aeson-schema
+  - bytestring
+  - containers
+  - lens
   - servant
   - servant-client
+  - text
   - time
   - uri-encode
 
@@ -24,7 +25,6 @@ library:
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
   dependencies:
-    - lens
     - megaparsec
     - reflection
     - tagged

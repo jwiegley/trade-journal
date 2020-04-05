@@ -15,16 +15,14 @@
 
 module ThinkOrSwim.API.TransactionHistory.GetTransactions where
 
-import           Control.Applicative
+-- import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
 import           Data.Int
-import           Data.List.NonEmpty (NonEmpty(..))
--- import qualified Data.List.NonEmpty as NE
 import           Data.Map (Map)
-import qualified Data.Map as M
-import           Data.Semigroup hiding (Option, option)
+-- import qualified Data.Map as M
+-- import           Data.Semigroup hiding (Option, option)
 import           Data.Text as T
 import           Data.Time
 
@@ -308,7 +306,7 @@ instance FromJSON TransactionType where
       "SMA_ADJUSTMENT"       -> return SmaAdjustment
       _                      -> fail $ "transactionType unexpected: " ++ T.unpack text
 
-type TransactionId = NonEmpty Int64
+type TransactionId = Int64
 type TransactionSubType = Text
 
 data TransactionInfo = TransactionInfo
@@ -328,12 +326,12 @@ data Transaction = Transaction
     , _accruedInterest               :: Maybe Double
     , _achStatus                     :: Maybe AchStatus
     , _cashBalanceEffectFlag         :: Bool
-    , _orderDate                     :: Maybe UTCTime
+    , _transactionOrderDate          :: Maybe UTCTime
     , _netAmount                     :: Double
     , _dayTradeBuyingPowerEffect     :: Maybe Double
     , _requirementReallocationAmount :: Maybe Double
     , _sma                           :: Maybe Double
-    , _orderId                       :: Maybe Text
+    , _transactionOrderId            :: Maybe Text
     , _settlementDate                :: UTCTime
     , _subAccount                    :: Text
     , _clearingReferenceNumber       :: Maybe Text
@@ -346,8 +344,7 @@ makeClassy ''Transaction
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
     _transactionItem_       <- obj .: "transactionItem"
-    tid                     <- obj .: "transactionId"
-    let _transactionId = tid :| []
+    _transactionId          <- obj .: "transactionId"
     _transactionSubType     <- obj .: "transactionSubType"
     _transactionDate        <- obj .: "transactionDate"
     _transactionDescription <- obj .: "description"
@@ -356,13 +353,13 @@ instance FromJSON Transaction where
     _accruedInterest               <- obj .:? "accruedInterest"
     _achStatus                     <- obj .:? "achStatus"
     _cashBalanceEffectFlag         <- obj .:? "cashBalanceEffectFlag" .!= False
-    _orderDate                     <- obj .:? "orderDate"
+    _transactionOrderDate          <- obj .:? "orderDate"
     _netAmount                     <- obj .:  "netAmount"
     _fees_                         <- obj .:  "fees"
     _dayTradeBuyingPowerEffect     <- obj .:? "dayTradeBuyingPowerEffect"
     _requirementReallocationAmount <- obj .:? "requirementReallocationAmount"
     _sma                           <- obj .:? "sma"
-    _orderId                       <- obj .:? "orderId"
+    _transactionOrderId            <- obj .:? "orderId"
     _settlementDateText            <- obj .:  "settlementDate"
     let _settlementDate =
             parseTimeOrError False defaultTimeLocale "%Y-%m-%d" _settlementDateText
@@ -371,47 +368,96 @@ instance FromJSON Transaction where
     _type_                         <- obj .:  "type"
     return Transaction{..}
 
-type CUSIPMap = Map Text Instrument
-
-data TransactionHistory = TransactionHistory
-    { getTransactionHistory :: [Transaction]
-    , cusipMap              :: CUSIPMap
+data Order = Order
+    { _transactions :: [Transaction]
+    , _orderId      :: Text
+    , _orderDate    :: UTCTime
     }
     deriving (Eq, Show)
 
+makeClassy ''Order
+
+type CUSIPMap       = Map Text Instrument
+type OrderId        = Text
+type OrdersMap      = Map OrderId Order
+type SettlementList = [(UTCTime, Either Transaction OrderId)]
+
+data TransactionHistory = TransactionHistory
+    { _allTransactions :: [Transaction]
+    , _cusipMap        :: CUSIPMap
+    , _ordersMap       :: OrdersMap
+    , _settlementList  :: SettlementList
+    }
+    deriving (Eq, Show)
+
+makeClassy ''TransactionHistory
+
+newTransactionHistory :: TransactionHistory
+newTransactionHistory = TransactionHistory
+    { _allTransactions = []
+    , _cusipMap        = mempty
+    , _ordersMap       = mempty
+    , _settlementList  = []
+    }
+
 instance FromJSON TransactionHistory where
-  parseJSON v@(Array _) = do
-      (getTransactionHistory, cusipMap) <- cleanupTransactions <$> parseJSON v
-      pure TransactionHistory {..}
+  parseJSON v@(Array _) = processTransactions <$> parseJSON v
   parseJSON v = error $ "Unexpected transaction history value: " ++ show v
 
-cleanupTransactions :: [Transaction] -> ([Transaction], CUSIPMap)
-cleanupTransactions xs =
-    flip runState (mempty :: CUSIPMap)
-        $ mapM (fmap check . go) (Prelude.reverse xs)
+-- Some transactions refer to an instrument, but only by the CUSIP id. It can
+-- happen when an options position is closed by assignment, for example. This
+-- cleanup pass restores the missing information for that instrument, and as a
+-- conesquence builds a complete mapping of CUSIP -> Instrument for all
+-- observed instruments.
+processTransactions :: [Transaction] -> TransactionHistory
+processTransactions xs = (`execState` newTransactionHistory) $ do
+    mapM_ go (Prelude.reverse xs)
+    allTransactions %= Prelude.reverse
+    settlementList %= Prelude.reverse
   where
-    go :: Transaction -> State CUSIPMap Transaction
-    go t =
-        case t^?transactionInfo_.transactionItem_.transactionInstrument._Just of
-            Nothing -> pure t
-            Just i -> case i^.symbol of
-                ""  -> do
-                    i' <- preuse (ix (i^.cusip))
-                    pure $ t & transactionInfo_.transactionItem_.transactionInstrument .~ i'
-                _sym -> do
-                    at (i^.cusip) ?= i
-                    pure t
+    instrument' :: Lens' Transaction (Maybe Instrument)
+    instrument' = transactionInfo_.transactionItem_.transactionInstrument
 
-    check :: Transaction -> Transaction
-    check t =
-        case t^?transactionInfo_.transactionItem_.transactionInstrument._Just.symbol of
-            Just "" -> error $ "symbol has no name: " ++ show t
-            _ -> t
+    go :: Transaction -> State TransactionHistory ()
+    go t = case t^?instrument'._Just of
+        Nothing -> check t
+        Just inst -> case inst^.symbol of
+            "" -> preuse (cusipMap.ix (inst^.cusip)) >>= \case
+                Nothing -> error $ "Unknown CUSIP: " ++ T.unpack (inst^.cusip)
+                Just inst' -> check $ t & instrument' ?~ inst'
+            _sym -> do
+                cusipMap.at (inst^.cusip) ?= inst
+                check t
+
+    check :: Transaction -> State TransactionHistory ()
+    check t = case t^?instrument'._Just.symbol of
+        Just "" -> error $ "symbol has no name: " ++ show t
+        _ -> do
+            allTransactions %= (t :)
+
+            let sd = t^.settlementDate
+            case (T.splitOn "." <$> t^.transactionOrderId,
+                         t^.transactionOrderDate) of
+                (Just (oid:_), Just date) ->
+                    preuse (ordersMap.ix oid) >>= \case
+                        Nothing -> do
+                            let o = Order
+                                    { _transactions = [t]
+                                    , _orderId      = oid
+                                    , _orderDate    = date
+                                    }
+                            ordersMap.at oid ?= o
+                            settlementList %= ((sd, Right oid) :)
+                        Just _ ->
+                            ordersMap.ix oid.transactions <>= [t]
+                (_, _) ->
+                    settlementList %= ((sd, Left t) :)
 
 newtype OrderHistory = OrderHistory { getOrderHistory :: [Transaction] }
 
+{-
 determineOrders :: TransactionHistory -> OrderHistory
-determineOrders (TransactionHistory xs _) =
+determineOrders TransactionHistory {..} =
     let (ts, m) = runState (mapM go xs) (mempty :: Map Text [Transaction])
     in OrderHistory $ mconcat $ M.elems m <> ts
   where
@@ -423,6 +469,7 @@ determineOrders (TransactionHistory xs _) =
                 Nothing -> at oid ?= [t]
                 Just _  -> ix oid <>= [t]
             pure []
+-}
 
 {- Transformations on the data:
 
@@ -435,9 +482,10 @@ determineOrders (TransactionHistory xs _) =
 
 baseOrderId :: Transaction -> Maybe Text
 baseOrderId t = do
-     (oid:_) <- T.splitOn "." <$> (t^.orderId)
+     (oid:_) <- T.splitOn "." <$> (t^.transactionOrderId)
      pure oid
 
+{-
 mergeTransactionItem :: TransactionItem -> TransactionItem -> Maybe TransactionItem
 mergeTransactionItem x y = do
     guard conditions
@@ -519,3 +567,4 @@ mergeTransactions x y = do
     _sma                           = x^.sma <+> y^.sma
     _subAccount                    = x^.subAccount
     _type_                         = x^.type_
+-}

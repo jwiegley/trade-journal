@@ -11,10 +11,11 @@ import Data.Maybe (fromMaybe)
 import Data.Text as T
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 
-convertTransactions :: OrderHistory
+convertTransactions :: TransactionHistory
                     -> [Ledger.Transaction API.Transaction 'Pending]
-convertTransactions (OrderHistory xacts) =
-    Prelude.map convertTransaction xacts
+convertTransactions TransactionHistory {..} =
+    -- jww (2020-04-04): This should map over the orders.
+    Prelude.map convertTransaction _allTransactions
 
 convertTransaction :: API.Transaction
                    -> Ledger.Transaction API.Transaction 'Pending
