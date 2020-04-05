@@ -17,6 +17,9 @@ import ThinkOrSwim.API
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Convert
 
+histSampleData :: FilePath
+histSampleData = "/Users/johnw/Documents/accounts/broker/Ameritrade/hist.json"
+
 createManager :: IO Manager
 createManager =
     newTlsManagerWith $
@@ -54,8 +57,7 @@ downloadTransactions actId accessToken mgr = do
 
 readTransactions :: IO TransactionHistory
 readTransactions = do
-    eres <- eitherDecode
-        <$> BL.readFile "/Users/johnw/Documents/accounts/broker/Ameritrade/hist.json"
+    eres <- eitherDecode <$> BL.readFile histSampleData
     case eres of
         Left err -> error err
         Right th -> pure th
@@ -66,14 +68,9 @@ main = do
         act:token:_ <- Prelude.map T.pack <$> getArgs
         downloadTransactions act token =<< createManager
 
-    -- Simplify the output, since it's only for debugging purposes.
-    pPrint $ th & allTransactions %~ Prelude.take 1
-                & settlementList %~ Prelude.take 1
-                & cusipMap .~ mempty
-                & ordersMap .~ mempty
+    Prelude.putStrLn "--- Data read from JSON ---"
+    pPrint th
 
-    let xs@(x:_) = convertTransactions th
-    pPrint x
-    case finalizeTransactions [] xs of
-        xs':_ -> pPrint (renderTransaction xs')
-        __ -> error "No finalized transactions! Uh oh"
+    Prelude.putStrLn "--- Data converted to Ledger format ---"
+    let xs = convertTransactions th
+    pPrint xs

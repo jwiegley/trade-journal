@@ -24,7 +24,8 @@ import           Data.List (sortOn)
 import           Data.Map (Map)
 -- import qualified Data.Map as M
 import           Data.Semigroup hiding (Option, option)
-import           Data.Text as T
+import           Data.Text (Text)
+import qualified Data.Text as T
 import           Data.Time
 
 data FixedIncome = FixedIncome
@@ -427,6 +428,7 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
     mapM_ go (Prelude.reverse xs)
     allTransactions %= Prelude.reverse
     settlementList %= Prelude.reverse
+    ordersMap.traverse.transactions %= orderTransactions
   where
     go :: Transaction -> State TransactionHistory ()
     go t = case t^?instrument_._Just of
@@ -464,29 +466,49 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
                     settlementList %= ((sd, Left t) :)
 
 orderIdAndDate :: Transaction -> Maybe (OrderId, UTCTime)
-orderIdAndDate t = liftA2 (,) (baseOrderId t) (t^.transactionOrderDate)
+orderIdAndDate t = liftA2 (,) (t^?baseOrderId) (t^.transactionOrderDate)
+{-# INLINE orderIdAndDate #-}
 
-baseOrderId :: Transaction -> Maybe Text
-baseOrderId t = do
-     (oid:_) <- T.splitOn "." <$> (t^.transactionOrderId)
-     pure oid
+-- A Fold over the individual components of a Text split on a separator.
+--
+-- splitOn :: Text -> Fold String String
+-- splitOn :: Text -> Traversal' String String
+--
+-- splitOn :: Text -> IndexedFold Int String String
+-- splitOn :: Text -> IndexedTraversal' Int String String
+--
+-- Note: This function type-checks as a Traversal but it doesn't satisfy the
+-- laws. It's only valid to use it when you don't insert any separator strings
+-- while traversing, and if your original Text contains only isolated split
+-- strings.
+splitOn :: Applicative f => Text -> IndexedLensLike' Int f Text Text
+splitOn s f = fmap (T.intercalate s) . go . T.splitOn s
+  where
+    go = conjoined traverse (indexing traverse) f
+{-# INLINE splitOn #-}
+
+baseOrderId :: Traversal' Transaction Text
+baseOrderId = transactionOrderId.traverse.splitOn ".".index 0
+{-# INLINE baseOrderId #-}
 
 instrument_ :: Lens' Transaction (Maybe Instrument)
 instrument_ = transactionInfo_.transactionItem_.transactionInstrument
+{-# INLINE instrument_ #-}
 
 infixr 7 <+>
 (<+>) :: (Applicative m, Num a) => m a -> m a -> m a
 (<+>) = liftA2 (+)
+{-# INLINE (<+>) #-}
 
 -- Given an order and all the execution transactions that make it up, find the
 -- "aggregate" transactions that make it up. For example, if an order for 200
 -- shares is executed as four purchases orders of 50 count each, from the
 -- point of view of the order, this is one transaction, even if from the point
 -- of view of the broker it is four.
-orderTransactions :: Order -> [Transaction]
-orderTransactions o =
-    sortOn (^?instrument_._Just.assetType) $
-        sortOn (^?transactionInfo_.transactionDate) (o^.transactions)
+orderTransactions :: [Transaction] -> [Transaction]
+orderTransactions =
+    sortOn (^?instrument_._Just.assetType) .
+        sortOn (^?transactionInfo_.transactionDate)
 
 mergeTransactionItems :: TransactionItem -> TransactionItem -> Maybe TransactionItem
 mergeTransactionItems x y = do
@@ -531,8 +553,8 @@ mergeTransactionInfos x y = do
 
 mergeTransactions :: Transaction -> Transaction -> Maybe Transaction
 mergeTransactions x y = do
-    _orderId <- baseOrderId x
-    yid <- baseOrderId y
+    _orderId <- x^?baseOrderId
+    yid <- y^?baseOrderId
     guard $ _orderId == yid
     guard conditions
     _transactionInfo_ <-

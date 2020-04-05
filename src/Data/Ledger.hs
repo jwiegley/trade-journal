@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MonadComprehensions #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -11,17 +12,24 @@ module Data.Ledger where
 
 import           Control.Lens
 import           Data.Map (Map)
--- import qualified Data.Map as M
+import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
 import           Text.Printf
-import           Unsafe.Coerce (unsafeCoerce)
 
 data RefType
     = WashSaleRule Double
+      -- ^ A wash sale rule increases the cost basis of an equity purchase by
+      --   adding previous capital losses, taking those losses off the books.
+
     | RollingOrder Double
-    deriving (Eq, Show, Ord)
+      -- ^ In a rolling order, the closing of one option is followed by the
+      --   opening of another, and any credit or debit is carried across.
+      --
+      --   NOTE: GainsKeeper does not do this, and records one as an immediate
+      --   loss/gain
+    deriving (Eq, Ord, Show)
 
 makePrisms ''RefType
 
@@ -29,7 +37,7 @@ data Ref = Ref
     { _refType :: RefType
     , _refId   :: Text
     }
-    deriving Show
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Ref
 
@@ -43,7 +51,7 @@ data Amount
       , _refs         :: Maybe [Ref]
       , _price        :: Maybe Double
       }
-    deriving Show
+    deriving (Eq, Ord, Show)
 
 makePrisms ''Amount
 
@@ -56,44 +64,36 @@ data Account
     | Cash Text
     | Fees
     | Commissions
-    deriving (Eq, Show, Ord)
+    deriving (Eq, Ord, Show)
 
 makePrisms ''Account
 
--- A pending transaction is a Ledger transaction that pretty much exactly
--- reflects the downloaded order from TD Ameritrade. A final transaction has
--- had its cost basis -- and thus, gains or losses -- calculated by reviewing
--- the history of all prior transaction, to determine what previous positions
--- are being closed, whether the wash sale rule applies, etc. The final
--- transaction should represent "reality", and tally with any taxable gains
--- reports.
-data DataState = Pending | Final
-    deriving (Eq, Show, Ord, Enum)
-
-data Posting (s :: DataState) = Posting
-    { _account   :: Account
-    , _isVirtual :: Bool
-    , _amount    :: Amount
+data Posting = Posting
+    { _account     :: Account
+    , _isVirtual   :: Bool
+    , _isBalancing :: Bool
+    , _amount      :: Amount
     }
-    deriving Show
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Posting
 
-data Transaction p (s :: DataState) = Transaction
-    { _date       :: UTCTime
-    , _code       :: Text
-    , _payee      :: Text
-    , _postings   :: [Posting s]
-    , _metadata   :: Map Text Text
-    , _provenance :: [p]
+data Transaction p = Transaction
+    { _actualDate    :: UTCTime
+    , _effectiveDate :: Maybe UTCTime
+    , _code          :: Text
+    , _payee         :: Text
+    , _postings      :: [Posting]
+    , _metadata      :: Map Text Text
+    , _provenance    :: p
     }
-    deriving Show
+    deriving (Eq, Ord, Show)
 
 makeClassy ''Transaction
 
 -- | Check the transaction to ensure that it fully balances. The result is an
 --   error string, if an error is detected.
-checkTransaction :: Transaction p 'Final -> Maybe String
+checkTransaction :: Transaction p -> Maybe String
 checkTransaction _ = Nothing
 
 renderAmount :: Amount -> Text
@@ -109,7 +109,7 @@ renderAmountSuffix _ = ""
 renderAccount :: Account -> Text
 renderAccount _ = "Account"
 
-renderPosting :: Posting 'Final -> Text
+renderPosting :: Posting -> Text
 renderPosting Posting {..} =
     T.pack $ printf "    %32s%-16s%s"
         (if _isVirtual then "(" <> act <> ")" else act)
@@ -121,16 +121,17 @@ renderPosting Posting {..} =
 renderMetadata :: Map Text Text -> [Text]
 renderMetadata _m = []
 
-renderTransaction :: Transaction p 'Final -> [Text]
-renderTransaction xact@Transaction {..} =
+renderTransaction :: Transaction p -> [Text]
+renderTransaction xact =
     case checkTransaction xact of
         Just err -> error $ "Invalid transaction: " ++ err
-        Nothing -> [ moment <> " * (" <> _code <> ") " <> _payee ]
-            ++ renderMetadata _metadata
-            ++ map renderPosting _postings
+        Nothing
+            ->  [ T.concat
+                   $  [ iso8601 (xact^.actualDate) ]
+                   ++ maybeToList (iso8601 <$> xact^.effectiveDate)
+                   ++ [ " * (", xact^.code, ") ", xact^.payee ]
+               ]
+            ++ renderMetadata (xact^.metadata)
+            ++ map renderPosting (xact^.postings)
   where
-    moment = T.pack $ formatTime defaultTimeLocale "%Y-%m-%d" _date
-
-finalizeTransactions :: [Transaction p 'Final] -> [Transaction p 'Pending]
-                     -> [Transaction p 'Final]
-finalizeTransactions _old new = unsafeCoerce new
+    iso8601 = T.pack . formatTime defaultTimeLocale "%Y-%m-%d"
