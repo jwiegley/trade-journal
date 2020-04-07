@@ -14,7 +14,7 @@ import Data.Time
 -- import Network.URI.Encode as URI
 import Servant.API
 import Servant.Client
-import ThinkOrSwim.API.TransactionHistory.GetTransactions
+import ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (AccountId)
 
 -- HTTP Resource Error Codes
 --

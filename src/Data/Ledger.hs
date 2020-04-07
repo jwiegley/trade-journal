@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MonadComprehensions #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -11,6 +12,7 @@
 module Data.Ledger where
 
 import           Control.Lens
+import           Data.Char (isAlpha)
 import           Data.Map (Map)
 import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
@@ -41,10 +43,19 @@ data Ref = Ref
 
 makeClassy ''Ref
 
+data Instrument
+    = Stock
+    | Option
+    | Future
+    | FutureOption
+    deriving (Eq, Ord, Show, Enum)
+
 data Amount
-    = DollarAmount Double
+    = NoAmount
+    | DollarAmount Double
     | CommodityAmount
-      { _quantity     :: Double
+      { _instrument   :: Instrument
+      , _quantity     :: Double
       , _symbol       :: Text
       , _cost         :: Maybe Double
       , _purchaseDate :: Maybe UTCTime
@@ -96,27 +107,64 @@ makeClassy ''Transaction
 checkTransaction :: Transaction p -> Maybe String
 checkTransaction _ = Nothing
 
-renderAmount :: Amount -> Text
--- jww (2020-03-29): Need to add commas, properly truncate, etc.
-renderAmount (DollarAmount x) = T.pack $ printf "$%.02f" x
-renderAmount CommodityAmount {..} = ""
-    -- T.concat $ L.intersperse " " [
-    -- T.pack $ printf "%s %s {%s} [%s] () @ %s" _quantity _symbol _cost _purchaseDate (show _refs) _price
+thousands :: Show a => Bool -> a -> Text
+thousands decimal d = T.intercalate "." $ case T.splitOn "." (T.pack (show d)) of
+    x:xs -> (T.pack . reverse . go . reverse . T.unpack) x :
+        case xs of
+            y:ys -> (T.pack . expand . T.unpack) y : ys
+            _ | decimal -> ["00"]
+            _ -> []
+    xs -> xs
+  where
+    go (x:y:z:[])    = x:y:z:[]
+    go (x:y:z:['-']) = x:y:z:['-']
+    go (x:y:z:xs)    = x:y:z:',':go xs
+    go xs            = xs
 
-renderAmountSuffix :: Amount -> Text
-renderAmountSuffix _ = ""
+    expand []     = "00"
+    expand (x:[]) = x:"0"
+    expand xs     = xs
+
+renderDouble :: Double -> Text
+renderDouble d | fromIntegral (floor d :: Int) == d =
+    thousands False (floor d :: Int)
+renderDouble d = thousands True d
+
+renderAmount :: Amount -> [Text]
+-- jww (2020-03-29): Need to add commas, properly truncate, etc.
+renderAmount NoAmount = [""]
+renderAmount (DollarAmount amt) = ["$" <> thousands True amt]
+renderAmount CommodityAmount {..} =
+    [ renderDouble _quantity
+    , T.pack $ printf "%s%s%s%s%s"
+          (if T.all isAlpha _symbol then _symbol else "\"" <> _symbol <> "\"")
+          (maybe "" (T.pack . printf " {{$%s}}" . thousands True) _cost)
+          (maybe "" (T.pack . printf " [%s]" . iso8601) _purchaseDate)
+          (maybe "" (T.pack . printf " (%s)" . show) _refs)
+          (maybe "" (T.pack . printf " @ $%s" . thousands True) _price)
+    ]
 
 renderAccount :: Account -> Text
-renderAccount _ = "Account"
+renderAccount = \case
+    Equities actId       -> "Assets:TD:" <> actId <> ":Equities"
+    Futures actId        -> "Assets:TD:" <> actId <> ":Futures"
+    Options actId        -> "Assets:TD:" <> actId <> ":Options"
+    FuturesOptions actId -> "Assets:TD:" <> actId <> ":Futures:Options"
+    Forex actId          -> "Assets:TD:" <> actId <> ":Forex"
+    Cash actId           -> "Assets:TD:" <> actId <> ":Cash"
+    Fees                 -> "Expenses:TD:Fees"
+    Commissions          -> "Expenses:TD:Commission"
 
 renderPosting :: Posting -> Text
 renderPosting Posting {..} =
-    T.pack $ printf "    %32s%-16s%s"
+    T.pack $ printf "    %-32s%16s%s"
         (if _isVirtual then "(" <> act <> ")" else act)
-        (renderAmount _amount)
-        (renderAmountSuffix _amount)
+        (head xs)
+        (case xs of _:y:_ -> " " <> y; _ -> "")
   where
     act = renderAccount _account
+
+    xs = renderAmount _amount
 
 renderMetadata :: Map Text Text -> [Text]
 renderMetadata _m = []
@@ -133,5 +181,6 @@ renderTransaction xact =
                ]
             ++ renderMetadata (xact^.metadata)
             ++ map renderPosting (xact^.postings)
-  where
-    iso8601 = T.pack . formatTime defaultTimeLocale "%Y-%m-%d"
+
+iso8601 :: UTCTime -> Text
+iso8601 = T.pack . formatTime defaultTimeLocale "%Y-%m-%d"

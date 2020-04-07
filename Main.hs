@@ -3,16 +3,16 @@
 module Main where
 
 import Control.Applicative
-import Control.Lens
+import Control.Monad (forM_)
 import Data.Aeson
 import Data.ByteString.Lazy as BL
 import Data.Ledger as Ledger
 import Data.Text as T
+import Data.Text.IO as T
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 import Servant.Client
 import System.Environment
-import Text.Show.Pretty
 import ThinkOrSwim.API
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Convert
@@ -68,9 +68,11 @@ main = do
         act:token:_ <- Prelude.map T.pack <$> getArgs
         downloadTransactions act token =<< createManager
 
-    Prelude.putStrLn "--- Data read from JSON ---"
-    pPrint th
+    -- Prelude.putStrLn "--- Data read from JSON ---"
+    -- pPrint th
 
-    Prelude.putStrLn "--- Data converted to Ledger format ---"
-    let xs = convertTransactions th
-    pPrint xs
+    -- Prelude.putStrLn "--- Data converted to Ledger format ---"
+    forM_ (convertTransactions th) $ \t -> do
+        forM_ (renderTransaction t)
+            T.putStrLn
+        T.putStrLn ""

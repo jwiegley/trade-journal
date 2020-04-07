@@ -20,8 +20,9 @@ import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
 import           Data.Int
-import           Data.List (sortOn)
+import           Data.List (sortBy)
 import           Data.Map (Map)
+import           Data.Ord
 -- import qualified Data.Map as M
 import           Data.Semigroup hiding (Option, option)
 import           Data.Text (Text)
@@ -153,6 +154,8 @@ instance FromJSON Instruction where
       "SELL" -> return Sell
       _      -> fail $ "instruction unexpected: " ++ T.unpack text
 
+type AccountId = Int32
+
 data TransactionItem = TransactionItem
     { _transactionInstrument :: Maybe Instrument
     , _positionEffect        :: Maybe PositionEffect
@@ -162,7 +165,7 @@ data TransactionItem = TransactionItem
     , _cost                  :: Double
     , _price                 :: Maybe Double
     , _amount                :: Maybe Double
-    , _accountId             :: Int32
+    , _accountId             :: AccountId
     }
     deriving (Eq, Ord, Show)
 
@@ -371,9 +374,12 @@ instance FromJSON Transaction where
     return Transaction{..}
 
 data Order = Order
-    { _transactions :: [Transaction]
-    , _orderId      :: Text
-    , _orderDate    :: UTCTime
+    { _transactions     :: [Transaction]
+    , _orderId          :: Text
+    , _orderType        :: TransactionType
+    , _orderDate        :: UTCTime
+    , _orderDescription :: Text
+    , _orderAccountId   :: AccountId
     }
     deriving (Eq, Ord, Show)
 
@@ -454,9 +460,13 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
                 Just (oid, date) -> preuse (ordersMap.ix oid) >>= \case
                     Nothing -> do
                         let o = Order
-                                { _transactions = [t]
-                                , _orderId      = oid
-                                , _orderDate    = date
+                                { _transactions     = [t]
+                                , _orderId          = oid
+                                , _orderType        = t^.type_
+                                , _orderDate        = date
+                                , _orderDescription =
+                                  t^.transactionInfo_.transactionDescription
+                                , _orderAccountId   = t^.accountId_
                                 }
                         ordersMap.at oid ?= o
                         settlementList %= ((sd, Right oid) :)
@@ -467,7 +477,6 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
 
 orderIdAndDate :: Transaction -> Maybe (OrderId, UTCTime)
 orderIdAndDate t = liftA2 (,) (t^?baseOrderId) (t^.transactionOrderDate)
-{-# INLINE orderIdAndDate #-}
 
 -- A Fold over the individual components of a Text split on a separator.
 --
@@ -485,20 +494,19 @@ splitOn :: Applicative f => Text -> IndexedLensLike' Int f Text Text
 splitOn s f = fmap (T.intercalate s) . go . T.splitOn s
   where
     go = conjoined traverse (indexing traverse) f
-{-# INLINE splitOn #-}
 
 baseOrderId :: Traversal' Transaction Text
 baseOrderId = transactionOrderId.traverse.splitOn ".".index 0
-{-# INLINE baseOrderId #-}
 
 instrument_ :: Lens' Transaction (Maybe Instrument)
 instrument_ = transactionInfo_.transactionItem_.transactionInstrument
-{-# INLINE instrument_ #-}
+
+accountId_ :: Lens' Transaction AccountId
+accountId_ = transactionInfo_.transactionItem_.accountId
 
 infixr 7 <+>
 (<+>) :: (Applicative m, Num a) => m a -> m a -> m a
 (<+>) = liftA2 (+)
-{-# INLINE (<+>) #-}
 
 -- Given an order and all the execution transactions that make it up, find the
 -- "aggregate" transactions that make it up. For example, if an order for 200
@@ -507,8 +515,16 @@ infixr 7 <+>
 -- of view of the broker it is four.
 orderTransactions :: [Transaction] -> [Transaction]
 orderTransactions =
-    sortOn (^?instrument_._Just.assetType) .
-        sortOn (^?transactionInfo_.transactionDate)
+    contractList mergeTransactions
+        . sortBy (comparing (^?instrument_._Just.assetType) <>
+                  comparing (^?transactionInfo_.transactionDate))
+
+contractList :: (a -> a -> Maybe a) -> [a] -> [a]
+contractList _ [] = []
+contractList _ [x] = [x]
+contractList f (x:y:xs) = case f x y of
+    Nothing -> x : contractList f (y:xs)
+    Just z  ->     contractList f (z:xs)
 
 mergeTransactionItems :: TransactionItem -> TransactionItem -> Maybe TransactionItem
 mergeTransactionItems x y = do
@@ -554,7 +570,7 @@ mergeTransactionInfos x y = do
 mergeTransactions :: Transaction -> Transaction -> Maybe Transaction
 mergeTransactions x y = do
     _orderId <- x^?baseOrderId
-    yid <- y^?baseOrderId
+    yid      <- y^?baseOrderId
     guard $ _orderId == yid
     guard conditions
     _transactionInfo_ <-
@@ -585,3 +601,13 @@ mergeTransactions x y = do
     _sma                           = x^.sma <+> y^.sma
     _subAccount                    = x^.subAccount
     _type_                         = x^.type_
+
+orderFromTransaction :: Transaction -> Order
+orderFromTransaction t = Order {..}
+  where
+    _transactions     = [t]
+    _orderId          = T.pack . show $ t^.transactionInfo_.transactionId
+    _orderType        = t^.type_
+    _orderDate        = t^.transactionInfo_.transactionDate
+    _orderDescription = t^.transactionInfo_.transactionDescription
+    _orderAccountId   = t^.accountId_
