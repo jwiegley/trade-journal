@@ -38,4 +38,5 @@ executables:
       - thinkorswim
       - http-client
       - http-client-tls
+      - optparse-applicative
       - pretty-show
