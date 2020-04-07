@@ -47,8 +47,8 @@ makePrisms ''PutCall
 instance FromJSON PutCall where
   parseJSON = withText "putCall" $ \text ->
     case text of
-      "PUT"  -> return Put
-      "CALL" -> return Call
+      "PUT"  -> pure Put
+      "CALL" -> pure Call
       _      -> fail $ "putCall unexpected: " ++ T.unpack text
 
 data Option = Option
@@ -103,8 +103,8 @@ instance FromJSON Instrument where
     -- _underlyingSymbol     <- obj .:? "underlyingSymbol"
 
     _assetType <- case _assetTypeText of
-      "EQUITY"      -> return Equity
-      "MUTUAL_FUND" -> return MutualFund
+      "EQUITY"      -> pure Equity
+      "MUTUAL_FUND" -> pure MutualFund
       "OPTION" ->
           fmap OptionAsset $ Option
               <$> obj .:? "description"       .!= ""
@@ -122,7 +122,7 @@ instance FromJSON Instrument where
 
       _ -> fail $ "assetType unexpected: " ++ T.unpack _assetTypeText
 
-    return Instrument{..}
+    pure Instrument{..}
 
 data PositionEffect
     = Opening
@@ -135,9 +135,9 @@ makePrisms ''PositionEffect
 instance FromJSON PositionEffect where
   parseJSON = withText "positionEffect" $ \text ->
     case text of
-      "OPENING"   -> return Opening
-      "CLOSING"   -> return Closing
-      "AUTOMATIC" -> return Automatic
+      "OPENING"   -> pure Opening
+      "CLOSING"   -> pure Closing
+      "AUTOMATIC" -> pure Automatic
       _           -> fail $ "positionEffect unexpected: " ++ T.unpack text
 
 data Instruction
@@ -150,8 +150,8 @@ makePrisms ''Instruction
 instance FromJSON Instruction where
   parseJSON = withText "instruction" $ \text ->
     case text of
-      "BUY"  -> return Buy
-      "SELL" -> return Sell
+      "BUY"  -> pure Buy
+      "SELL" -> pure Sell
       _      -> fail $ "instruction unexpected: " ++ T.unpack text
 
 type AccountId = Int32
@@ -182,7 +182,7 @@ instance FromJSON TransactionItem where
     _price                 <- obj .:? "price"
     _amount                <- obj .:? "amount"
     _accountId             <- obj .:  "accountId"
-    return TransactionItem{..}
+    pure TransactionItem{..}
 
 data Fees = Fees
     { _rFee          :: Double
@@ -233,7 +233,7 @@ instance FromJSON Fees where
     _commission    <- obj .: "commission"
     _optRegFee     <- obj .: "optRegFee"
     _secFee        <- obj .: "secFee"
-    return Fees{..}
+    pure Fees{..}
 
 data AchStatus
     = Approved
@@ -247,10 +247,10 @@ makePrisms ''AchStatus
 instance FromJSON AchStatus where
   parseJSON = withText "achStatus" $ \text ->
     case text of
-      "Approved" -> return Approved
-      "Rejected" -> return Rejected
-      "Cancel"   -> return Cancel
-      "Error"    -> return Error_
+      "Approved" -> pure Approved
+      "Rejected" -> pure Rejected
+      "Cancel"   -> pure Cancel
+      "Error"    -> pure Error_
       _          -> fail $ "achStatus unexpected: " ++ T.unpack text
 
 data TransactionType
@@ -294,39 +294,143 @@ instance Show TransactionType where
 instance FromJSON TransactionType where
   parseJSON = withText "transactionType" $ \text ->
     case text of
-      "TRADE"                -> return Trade
-      "RECEIVE_AND_DELIVER"  -> return ReceiveAndDeliver
-      "DIVIDEND_OR_INTEREST" -> return DividendOrInterest
-      "ACH_RECEIPT"          -> return AchReceipt
-      "ACH_DISBURSEMENT"     -> return AchDisbursement
-      "CASH_RECEIPT"         -> return CashReceipt
-      "CASH_DISBURSEMENT"    -> return CashDisbursement
-      "ELECTRONIC_FUND"      -> return ElectronicFund
-      "WIRE_OUT"             -> return WireOut
-      "WIRE_IN"              -> return WireIn
-      "JOURNAL"              -> return Journal
-      "MEMORANDUM"           -> return Memorandum
-      "MARGIN_CALL"          -> return MarginCall
-      "MONEY_MARKET"         -> return MoneyMarket
-      "SMA_ADJUSTMENT"       -> return SmaAdjustment
+      "TRADE"                -> pure Trade
+      "RECEIVE_AND_DELIVER"  -> pure ReceiveAndDeliver
+      "DIVIDEND_OR_INTEREST" -> pure DividendOrInterest
+      "ACH_RECEIPT"          -> pure AchReceipt
+      "ACH_DISBURSEMENT"     -> pure AchDisbursement
+      "CASH_RECEIPT"         -> pure CashReceipt
+      "CASH_DISBURSEMENT"    -> pure CashDisbursement
+      "ELECTRONIC_FUND"      -> pure ElectronicFund
+      "WIRE_OUT"             -> pure WireOut
+      "WIRE_IN"              -> pure WireIn
+      "JOURNAL"              -> pure Journal
+      "MEMORANDUM"           -> pure Memorandum
+      "MARGIN_CALL"          -> pure MarginCall
+      "MONEY_MARKET"         -> pure MoneyMarket
+      "SMA_ADJUSTMENT"       -> pure SmaAdjustment
       _                      -> fail $ "transactionType unexpected: " ++ T.unpack text
 
 type TransactionId = Int64
-type TransactionSubType = Text
 
-data TransactionInfo = TransactionInfo
+data TransactionSubType
+    = AdrFee                        -- AF
+    | BuyTrade                      -- BY
+    | FreeBalanceInterestAdjustment -- CA
+    | TransferFromCashAccount       -- CI
+    | CloseShortPosition            -- CS
+    | DirectDeposit                 -- DD
+    | TransferFromFuturesAccount    -- FI
+    | TransferToFuturesAccount      -- FO
+    | OffCycleInterest              -- IO
+    | SecuritiesInterestIncome      -- IS
+    | InternalTransfer              -- IT
+    | MiscellaneousJournalEntry     -- JN
+    | MarkToMarket                  -- MK
+    | ForeignTaxWithheld            -- ND
+    | OptionAssignment              -- OA
+    | OptionExpiration              -- OX
+    | CashAlternativesPurchase      -- PM
+    | QualifiedDividend             -- QF
+    | Rebate                        -- RB
+    | BondsRedemption               -- RE
+    | CashAlternativesRedemption    -- RM
+    | SellTrade                     -- SL
+    | ShortSale                     -- SS
+    | TradeCorrection               -- TC
+    | TransferOfSecurityOrOptionIn  -- TI
+    | WireIncoming                  -- WI
+    | TransferFromForexAccount      -- XI
+    | TransferToForexAccount        -- XO
+    deriving (Eq, Ord, Enum)
+
+makePrisms ''TransactionSubType
+
+instance Show TransactionSubType where
+    show = \case
+      AdrFee                        -> "AF" -- "ADR FEE"
+      BuyTrade                      -> "BY" -- "BUY TRADE"
+      FreeBalanceInterestAdjustment -> "CA" -- "FREE BALANCE INTEREST ADJUSTMENT"
+      TransferFromCashAccount       -> "CI" -- "ACH TRANSER FROM CASH ACCOUNT"
+      CloseShortPosition            -> "CS" -- "CLOSE SHORT POSITION"
+      DirectDeposit                 -> "DD" -- "ACH DIRECT DEPOSIT"
+      TransferFromFuturesAccount    -> "FI" -- "TRANSFER FROM FUTURES ACCOUNT"
+      TransferToFuturesAccount      -> "FO" -- "TRANSFER TO FUTURES ACCOUNT"
+      OffCycleInterest              -> "IO" -- "OFF-CYCLE INTEREST"
+      SecuritiesInterestIncome      -> "IS" -- "INTEREST INCOME - SECURITIES"
+      InternalTransfer              -> "IT" -- "INTERNAL TRANSFER BETWEEN ACCOUNTS OR ACCOUNT TYPES"
+      MiscellaneousJournalEntry     -> "JN" -- "MISCELLANEOUS JOURNAL ENTRY"
+      MarkToMarket                  -> "MK" -- "MARK TO THE MARKET"
+      ForeignTaxWithheld            -> "ND" -- "FOREIGN TAX WITHHELD"
+      OptionAssignment              -> "OA" -- "OPTION ASSIGNMENT"
+      OptionExpiration              -> "OX" -- "REMOVAL OF OPTION DUE TO EXPIRATION"
+      CashAlternativesPurchase      -> "PM" -- "CASH ALTERNATIVES PURCHASE"
+      QualifiedDividend             -> "QF" -- "QUALIFIED DIVIDEND"
+      Rebate                        -> "RB" -- "REBATE"
+      BondsRedemption               -> "RE" -- "BONDS - REDEMPTION"
+      CashAlternativesRedemption    -> "RM" -- "CASH ALTERNATIVES REDEMPTION"
+      SellTrade                     -> "SL" -- "SELL TRADE"
+      ShortSale                     -> "SS" -- "SHORT SALE"
+      TradeCorrection               -> "TC" -- "TRADE CORRECTION"
+      TransferOfSecurityOrOptionIn  -> "TI" -- "TRANSFER OF SECURITY OR OPTION IN"
+      WireIncoming                  -> "WI" -- "WIRE INCOMING"
+      TransferFromForexAccount      -> "XI" -- "TRANSFER FROM FOREX ACCOUNT"
+      TransferToForexAccount        -> "XO" -- "TRANSFER TO FOREX ACCOUNT"
+
+instance FromJSON TransactionSubType where
+  parseJSON = withText "transactionSubType" $ \text ->
+    case text of
+      "AF" -> pure AdrFee
+      "BY" -> pure BuyTrade
+      "CA" -> pure FreeBalanceInterestAdjustment
+      "CI" -> pure TransferFromCashAccount
+      "CS" -> pure CloseShortPosition
+      "DD" -> pure DirectDeposit
+      "FI" -> pure TransferFromFuturesAccount
+      "FO" -> pure TransferToFuturesAccount
+      "IO" -> pure OffCycleInterest
+      "IS" -> pure SecuritiesInterestIncome
+      "IT" -> pure InternalTransfer
+      "JN" -> pure MiscellaneousJournalEntry
+      "MK" -> pure MarkToMarket
+      "ND" -> pure ForeignTaxWithheld
+      "OA" -> pure OptionAssignment
+      "OX" -> pure OptionExpiration
+      "PM" -> pure CashAlternativesPurchase
+      "QF" -> pure QualifiedDividend
+      "RB" -> pure Rebate
+      "RE" -> pure BondsRedemption
+      "RM" -> pure CashAlternativesRedemption
+      "SL" -> pure SellTrade
+      "SS" -> pure ShortSale
+      "TC" -> pure TradeCorrection
+      "TI" -> pure TransferOfSecurityOrOptionIn
+      "WI" -> pure WireIncoming
+      "XI" -> pure TransferFromForexAccount
+      "XO" -> pure TransferToForexAccount
+      _    -> fail $ "transactionSubType unexpected: " ++ T.unpack text
+
+data TransactionInfo t = TransactionInfo
     { _transactionId          :: TransactionId
     , _transactionSubType     :: TransactionSubType
     , _transactionDate        :: UTCTime
     , _transactionItem_       :: TransactionItem
     , _transactionDescription :: Text
+    , _transactionRelated     :: [t]
+      -- ^ If this is a closing transaction, the '_transactionRelated' field
+      --   gives the transaction(s) that it closed. This is needed to
+      --   establish the capital gain or loss of this transaction.
+      --
+      --   If it is an opening transaction, the '_transactionRelated' field
+      --   refers to the transactions for whom the wash sale rule applies to
+      --   the cost basis of this transaction.
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''TransactionInfo
 
 data Transaction = Transaction
-    { _transactionInfo_              :: TransactionInfo
+    { _transactionInfo_              :: TransactionInfo Transaction
     , _fees_                         :: Fees
     , _accruedInterest               :: Maybe Double
     , _achStatus                     :: Maybe AchStatus
@@ -353,7 +457,8 @@ instance FromJSON Transaction where
     _transactionSubType     <- obj .: "transactionSubType"
     _transactionDate        <- obj .: "transactionDate"
     _transactionDescription <- obj .: "description"
-    let _transactionInfo_ = TransactionInfo {..}
+    let _transactionRelated = [] -- filled in by 'processTransactions'
+        _transactionInfo_ = TransactionInfo {..}
 
     _accruedInterest               <- obj .:? "accruedInterest"
     _achStatus                     <- obj .:? "achStatus"
@@ -371,7 +476,7 @@ instance FromJSON Transaction where
     _subAccount                    <- obj .:  "subAccount"
     _clearingReferenceNumber       <- obj .:? "clearingReferenceNumber"
     _type_                         <- obj .:  "type"
-    return Transaction{..}
+    pure Transaction{..}
 
 data Order = Order
     { _transactions     :: [Transaction]
@@ -450,6 +555,8 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
                 check t
 
     check :: Transaction -> State TransactionHistory ()
+    check t | t^.transactionInfo_.transactionSubType == TradeCorrection =
+        pure ()
     check t = case t^?instrument_._Just.symbol of
         Just "" -> error $ "symbol has no name: " ++ show t
         _ -> do
@@ -548,7 +655,7 @@ mergeTransactionItems x y = do
     _price                 = x^.price <+> y^.price
     _transactionInstrument = x^.transactionInstrument
 
-mergeTransactionInfos :: TransactionInfo -> TransactionInfo -> Maybe TransactionInfo
+mergeTransactionInfos :: TransactionInfo t -> TransactionInfo t -> Maybe (TransactionInfo t)
 mergeTransactionInfos x y = do
     guard conditions
     _transactionItem_ <- mergeTransactionItems (x^.transactionItem_) (y^.transactionItem_)
@@ -561,6 +668,7 @@ mergeTransactionInfos x y = do
 
     _transactionDescription = x^.transactionDescription
     _transactionSubType     = x^.transactionSubType
+    _transactionRelated     = [] -- jww (2020-04-07): NYI
 
     -- jww (2020-04-05): Here is where we discard information when coalescing
     -- multiple transactions into an order.
