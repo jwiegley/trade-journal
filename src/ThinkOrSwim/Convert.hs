@@ -79,14 +79,16 @@ convertPostings actId t =
               Just (FixedIncomeAsset _)    -> Ledger.Stock
               Just (CashEquivalentAsset _) -> Ledger.Stock
               Nothing                      -> error "Unexpected"
-          , _quantity     =
+
+          , _quantity =
               let n = fromMaybe 0 (t^.item.API.amount)
               in (if t^.item.cost < 0 then n else (-n))
-          , _symbol       = sym
+          , _symbol   = sym
+          , _price    = t^.item.price
+
           , _cost         = if cst /= 0 then Just cst else Nothing
           , _purchaseDate = Just date
           , _refs         = [Ref OpeningOrder xactId]
-          , _price        = t^.item.price
           }
           & postMetadata .~
               (M.empty & at "SubType" ?~ T.pack (show subtyp)
@@ -114,11 +116,11 @@ convertPostings actId t =
     subtyp = t^.transactionInfo_.transactionSubType
     date   = t^.transactionInfo_.transactionDate
 
-    sym =
-        let s = fromMaybe "???" (t^?item.transactionInstrument._Just.symbol)
-        in if s == " "
-           then fromMaybe "!!!" (t^?item.transactionInstrument._Just.cusip)
-           else s
+    sym = case t^.item.transactionInstrument of
+        Nothing -> error $ "Transaction instrument missing for XID " ++ show xactId
+        Just inst -> case inst^.symbol of
+            " " -> inst^.cusip
+            s   -> s
 
     act  = case atype of
         Just Equity                  -> Equities actId
