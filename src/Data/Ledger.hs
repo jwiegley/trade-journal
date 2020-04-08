@@ -52,6 +52,8 @@ data Instrument
     | Option
     | Future
     | FutureOption
+    | Bond
+    | MoneyMarket
     deriving (Eq, Ord, Show, Enum)
 
 data Amount
@@ -77,6 +79,8 @@ data Account
     | FuturesOptions Text
     | Forex Text
     | Cash Text
+    | Bonds Text
+    | MoneyMarkets Text
     | Fees
     | Charges
     | Commissions
@@ -181,6 +185,8 @@ renderAccount = \case
     FuturesOptions actId -> "Assets:TD:" <> actId <> ":Futures:Options"
     Forex actId          -> "Assets:TD:" <> actId <> ":Forex"
     Cash actId           -> "Assets:TD:" <> actId <> ":Cash"
+    Bonds actId          -> "Assets:TD:" <> actId <> ":Bonds"
+    MoneyMarkets actId   -> "Assets:TD:" <> actId <> ":MoneyMarkets"
     Fees                 -> "Expenses:TD:Fees"
     Charges              -> "Expenses:TD:Charges"
     Commissions          -> "Expenses:TD:Commission"

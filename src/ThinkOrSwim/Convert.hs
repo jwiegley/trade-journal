@@ -6,121 +6,111 @@
 
 module ThinkOrSwim.Convert (convertTransactions) where
 
-import Control.Lens
-import Data.Ledger as Ledger
-import Data.Map as M
-import Data.Maybe (isJust, isNothing, fromMaybe)
-import Data.Text as T
-import Data.Text.Lens
-import Data.Time
-import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           Control.Lens
+import           Control.Monad.State
+import           Data.Ledger as Ledger
+import           Data.Map (Map)
+import qualified Data.Map as M
+import           Data.Maybe (isJust, isNothing, fromMaybe)
+import           Data.Text as T
+import           Data.Text.Lens
+import           Data.Time
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 
 convertTransactions :: TransactionHistory
                     -> [Ledger.Transaction API.Order]
-convertTransactions hist =
-    Prelude.map (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
+convertTransactions hist = (`evalState` M.empty) $
+    Prelude.mapM (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
 
 getOrder :: OrdersMap -> Either API.Transaction API.OrderId -> API.Order
 getOrder _ (Left t) = orderFromTransaction t
 getOrder m (Right oid) = m^?!ix oid
 
+type OpenTransactions = Map Text [TransactionItem]
+
 convertTransaction
     :: OrdersMap
     -> (UTCTime, Either API.Transaction API.OrderId)
-    -> Ledger.Transaction API.Order
-convertTransaction m (sd, getOrder m -> o) = Ledger.Transaction {..}
-  where
-    _actualDate    = sd
-    _effectiveDate = Nothing
-    _code          = o^.orderId
-    _payee         = o^.orderDescription
-    _xactMetadata  = M.empty
-        & at "Type"   ?~ T.pack (show (o^.orderType))
-        & at "Symbol" ?~ underlying
-    _provenance    = o
-    _postings      =
-        Prelude.concatMap
+    -> State OpenTransactions (Ledger.Transaction API.Order)
+convertTransaction m (sd, getOrder m -> o) = do
+    let _actualDate    = sd
+        _effectiveDate = Nothing
+        _code          = o^.orderId
+        _payee         = o^.orderDescription
+        _xactMetadata  =
+            M.empty & at "Type"   ?~ T.pack (show (o^.orderType))
+                    & at "Symbol" ?~ underlying
+        _provenance    = o
+    _postings <-
+        Prelude.concat <$> mapM
             (convertPostings (T.pack (show (o^.orderAccountId))))
             (o^.transactions)
-
+    pure Ledger.Transaction {..}
+  where
     underlying =
         let xs = Prelude.map (^.baseSymbol) (o^.transactions)
         in if Prelude.all (== Prelude.head xs) (Prelude.tail xs)
            then Prelude.head xs
            else error $ "Transaction deals with various symbols: " ++ show xs
 
-convertPostings :: Text -> API.Transaction -> [Ledger.Posting]
+convertPostings :: Text -> API.Transaction
+                -> State OpenTransactions [Ledger.Posting]
 convertPostings _ t
-    | t^.transactionInfo_.transactionSubType == TradeCorrection = []
-convertPostings actId t =
-    [ Posting
-        { _account      = Ledger.Fees
-        , _isVirtual    = True
-        , _isBalancing  = True
-        , _amount       = DollarAmount (t^.fees_.regFee)
-        , _postMetadata = M.empty
-        }
-    | t^.fees_.regFee /= 0 ]
-      ++
-    [ Posting
-        { _account      = Ledger.Charges
-        , _isVirtual    = True
-        , _isBalancing  = True
-        , _amount       = DollarAmount (t^.fees_.otherCharges)
-        , _postMetadata = M.empty
-        }
-    | t^.fees_.otherCharges /= 0 ]
-      ++
-    [ Posting
-        { _account      = Ledger.Commissions
-        , _isVirtual    = True
-        , _isBalancing  = True
-        , _amount       = DollarAmount (t^.fees_.commission)
-        , _postMetadata = M.empty
-        }
-    | t^.fees_.commission /= 0 ]
-      ++
-    [ post act CommodityAmount
-          { _instrument   = case atype of
-              Just Equity                  -> Ledger.Stock
-              Just MutualFund              -> Ledger.Stock
-              Just (OptionAsset _)         -> Ledger.Option
-              Just (FixedIncomeAsset _)    -> Ledger.Stock
-              Just (CashEquivalentAsset _) -> Ledger.Stock
-              Nothing                      -> error "Unexpected"
-
-          , _quantity =
-              let n = fromMaybe 0 (t^.item.API.amount)
-              in (if t^.item.cost < 0 then n else (-n))
-          , _symbol   = sym
-          , _price    = t^.item.price
-
-          , _cost         = if cst /= 0 then Just cst else Nothing
-          , _purchaseDate = Just date
-          , _refs         = [Ref OpeningOrder xactId]
-          }
-          & postMetadata .~ meta
-    | isJust (t^.item.API.amount) ]
-      ++
-    [ case t^.item.price of
-          Just _  -> post (Ledger.Cash actId) (DollarAmount (t^.netAmount))
-          Nothing
-              | t^.netAmount /= 0 -> post (Cash actId) (DollarAmount (t^.netAmount))
-              | otherwise -> post OpeningBalances NoAmount
-    | case t^.item.price of
-          Just _  -> t^.netAmount /= 0
-          Nothing -> True
-    ]
-      ++
-    [ post OpeningBalances NoAmount
-    | isNothing (t^.item.API.amount)
-    ]
+    | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
+convertPostings actId t = pure posts
   where
+    posts =
+        [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
+        | t^.fees_.regFee /= 0 ]
+          ++
+        [ post Ledger.Charges True (DollarAmount (t^.fees_.otherCharges))
+        | t^.fees_.otherCharges /= 0 ]
+          ++
+        [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
+        | t^.fees_.commission /= 0 ]
+          ++
+        [ post act False CommodityAmount
+              { _instrument = case atype of
+                  Just Equity               -> Ledger.Stock
+                  Just MutualFund           -> Ledger.Stock
+                  Just (OptionAsset _)      -> Ledger.Option
+                  Just (FixedIncomeAsset _) -> Ledger.Bond
+                  Just (CashEquivalentAsset
+                        CashMoneyMarket)    -> Ledger.MoneyMarket
+                  Nothing                   -> error "Unexpected"
+
+              , _quantity =
+                  let n = fromMaybe 0 (t^.item.API.amount)
+                  in case t^.item.instruction of Just Sell -> (-n); _ -> n
+              , _symbol   = sym
+              , _price    = t^.item.price
+
+              , _cost         = if cst /= 0 then Just cst else Nothing
+              , _purchaseDate = Just date
+              , _refs         = [Ref OpeningOrder xactId]
+              }
+              & postMetadata .~ meta
+        | isJust (t^.item.API.amount) ]
+          ++
+        [ case t^.item.price of
+              Just _                     -> cashPost
+              Nothing | t^.netAmount /= 0 -> cashPost
+                      | otherwise        -> post act False NoAmount
+        | case t^.item.price of
+              Just _  -> t^.netAmount /= 0
+              Nothing -> not fromEquity
+        ]
+          ++
+        [ post OpeningBalances False NoAmount
+        | isNothing (t^.item.API.amount) || fromEquity ]
+
+    cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
+
     xactId = t^.transactionInfo_.transactionId
     date   = t^.transactionInfo_.transactionDate
 
     meta = M.empty
-        & at "Subtype"     ?~ t^.transactionInfo_.transactionSubType.to show.packed
+        & at "Subtype"     ?~ T.pack (show subtyp)
         & at "XID"         ?~ T.pack (show xactId)
         & at "Instruction" .~ t^?item.instruction._Just.to show.packed
         & at "Effect"      .~ t^?item.positionEffect._Just.to show.packed
@@ -143,22 +133,25 @@ convertPostings actId t =
             " " -> inst^.cusip
             s   -> s
 
+    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
+
     act = case atype of
         Just Equity                  -> Equities actId
         Just MutualFund              -> Equities actId
         Just (OptionAsset _)         -> Options  actId
-        Just (FixedIncomeAsset _)    -> Equities actId
-        Just (CashEquivalentAsset _) -> Equities actId
-        Nothing                      -> Cash     actId
+        Just (FixedIncomeAsset _)    -> Bonds actId
+        Just (CashEquivalentAsset _) -> MoneyMarkets actId
+        Nothing                      -> OpeningBalances
 
-    fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-    cst   = abs (t^.item.cost - fees')
-    atype = t^?instr._Just.assetType
+    fees'  = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
+    cst    = abs (t^.item.cost - fees')
+    atype  = t^?instr._Just.assetType
+    subtyp = t^.transactionInfo_.transactionSubType
 
-    post a m = Posting
+    post a b m = Posting
         { _account      = a
-        , _isVirtual    = False
-        , _isBalancing  = True
+        , _isVirtual    = b
+        , _isBalancing  = not b
         , _amount       = m
         , _postMetadata = M.empty
         }

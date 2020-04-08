@@ -62,12 +62,17 @@ data Option = Option
 
 makeClassy ''Option
 
-data CashEquivalent = CashEquivalent
-    { _cashType :: Text
-    }
-    deriving (Eq, Ord, Show)
+data CashEquivalent
+    = CashMoneyMarket
+    deriving (Eq, Ord, Show, Enum)
 
 makeClassy ''CashEquivalent
+
+instance FromJSON CashEquivalent where
+  parseJSON = withText "cashEquivalent" $ \text ->
+    case text of
+      "MONEY_MARKET" -> pure CashMoneyMarket
+      _              -> fail $ "cashEquivalent unexpected: " ++ T.unpack text
 
 data AssetType
     = Equity
@@ -125,7 +130,7 @@ instance FromJSON Instrument where
               <$> obj .: "bondInterestRate"
               <*> obj .: "bondMaturityDate"
       "CASH_EQUIVALENT" ->
-          CashEquivalentAsset . CashEquivalent
+          CashEquivalentAsset
               <$> obj .: "type"
 
       _ -> fail $ "assetType unexpected: " ++ T.unpack _assetTypeText
