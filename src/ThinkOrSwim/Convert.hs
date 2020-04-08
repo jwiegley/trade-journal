@@ -71,8 +71,8 @@ convertPostings actId t =
         [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
         | t^.fees_.commission /= 0 ]
           ++
-        [ post act False (CommodityAmount c) & postMetadata .~ meta
-        | c <- cs ]
+        [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta
+        | (_gain, cmdtyLot) <- cs ]
           ++
         [ case t^.item.API.price of
               Just _                     -> cashPost
