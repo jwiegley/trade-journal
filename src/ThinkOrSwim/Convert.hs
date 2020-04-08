@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -10,6 +11,7 @@ import Data.Ledger as Ledger
 import Data.Map as M
 import Data.Maybe (isJust, isNothing, fromMaybe)
 import Data.Text as T
+import Data.Text.Lens
 import Data.Time
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 
@@ -33,12 +35,19 @@ convertTransaction m (sd, getOrder m -> o) = Ledger.Transaction {..}
     _code          = o^.orderId
     _payee         = o^.orderDescription
     _xactMetadata  = M.empty
-        & at "Type" ?~ T.pack (show (o^.orderType))
+        & at "Type"   ?~ T.pack (show (o^.orderType))
+        & at "Symbol" ?~ underlying
     _provenance    = o
     _postings      =
         Prelude.concatMap
             (convertPostings (T.pack (show (o^.orderAccountId))))
             (o^.transactions)
+
+    underlying =
+        let xs = Prelude.map (^.baseSymbol) (o^.transactions)
+        in if Prelude.all (== Prelude.head xs) (Prelude.tail xs)
+           then Prelude.head xs
+           else error $ "Transaction deals with various symbols: " ++ show xs
 
 convertPostings :: Text -> API.Transaction -> [Ledger.Posting]
 convertPostings _ t
@@ -90,9 +99,7 @@ convertPostings actId t =
           , _purchaseDate = Just date
           , _refs         = [Ref OpeningOrder xactId]
           }
-          & postMetadata .~
-              (M.empty & at "SubType" ?~ T.pack (show subtyp)
-                       & at "XID"     ?~ T.pack (show xactId))
+          & postMetadata .~ meta
     | isJust (t^.item.API.amount) ]
       ++
     [ case t^.item.price of
@@ -109,20 +116,34 @@ convertPostings actId t =
     | isNothing (t^.item.API.amount)
     ]
   where
-    item :: Lens' API.Transaction TransactionItem
-    item = transactionInfo_.transactionItem_
-
     xactId = t^.transactionInfo_.transactionId
-    subtyp = t^.transactionInfo_.transactionSubType
     date   = t^.transactionInfo_.transactionDate
 
-    sym = case t^.item.transactionInstrument of
+    meta = M.empty
+        & at "Subtype"     ?~ t^.transactionInfo_.transactionSubType.to show.packed
+        & at "XID"         ?~ T.pack (show xactId)
+        & at "Instruction" .~ t^?item.instruction._Just.to show.packed
+        & at "Effect"      .~ t^?item.positionEffect._Just.to show.packed
+        & at "CUSIP"       .~ t^?instr._Just.cusip
+        & at "Instrument"  .~ t^?instr._Just.assetType.to assetKind
+        & at "Side"        .~ t^?option'.putCall.to show.packed
+        & at "Strike"      .~ t^?option'.strikePrice._Just.to (thousands . Right)
+        & at "Expiration"  .~ t^?option'.expirationDate.to iso8601
+        & at "Contract"    .~ t^?option'.description
+
+    instr :: Lens' API.Transaction (Maybe API.Instrument)
+    instr = item.transactionInstrument
+
+    option' :: Traversal' API.Transaction Option
+    option' = instr._Just.assetType._OptionAsset
+
+    sym = case t^.instr of
         Nothing -> error $ "Transaction instrument missing for XID " ++ show xactId
         Just inst -> case inst^.symbol of
             " " -> inst^.cusip
             s   -> s
 
-    act  = case atype of
+    act = case atype of
         Just Equity                  -> Equities actId
         Just MutualFund              -> Equities actId
         Just (OptionAsset _)         -> Options  actId
@@ -132,7 +153,7 @@ convertPostings actId t =
 
     fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
     cst   = abs (t^.item.cost - fees')
-    atype = t^?item.transactionInstrument._Just.assetType
+    atype = t^?instr._Just.assetType
 
     post a m = Posting
         { _account      = a

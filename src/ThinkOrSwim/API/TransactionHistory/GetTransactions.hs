@@ -54,7 +54,7 @@ instance FromJSON PutCall where
 data Option = Option
     { _description      :: Text
     , _putCall          :: PutCall
-    , _strikePrice      :: Double
+    , _strikePrice      :: Maybe Double
     , _expirationDate   :: UTCTime
     , _underlyingSymbol :: Text
     }
@@ -78,6 +78,14 @@ data AssetType
     deriving (Eq, Ord, Show)
 
 makePrisms ''AssetType
+
+assetKind :: AssetType -> Text
+assetKind = \case
+    Equity                -> "Equity"
+    MutualFund            -> "MutualFund"
+    OptionAsset _         -> "Option"
+    FixedIncomeAsset _    -> "FixedIncome"
+    CashEquivalentAsset _ -> "CashEquivalent"
 
 data Instrument = Instrument
     { _assetType :: AssetType
@@ -109,7 +117,7 @@ instance FromJSON Instrument where
           fmap OptionAsset $ Option
               <$> obj .:? "description"       .!= ""
               <*> obj .:? "putCall"           .!= Call
-              <*> obj .:? "optionStrikePrice" .!= 0.0
+              <*> obj .:? "optionStrikePrice"
               <*> obj .:  "optionExpirationDate"
               <*> obj .:? "underlyingSymbol"  .!= ""
       "FIXED_INCOME"    ->
@@ -125,8 +133,8 @@ instance FromJSON Instrument where
     pure Instrument{..}
 
 data PositionEffect
-    = Opening
-    | Closing
+    = Open
+    | Close
     | Automatic
     deriving (Eq, Ord, Show, Enum)
 
@@ -135,8 +143,8 @@ makePrisms ''PositionEffect
 instance FromJSON PositionEffect where
   parseJSON = withText "positionEffect" $ \text ->
     case text of
-      "OPENING"   -> pure Opening
-      "CLOSING"   -> pure Closing
+      "OPENING"   -> pure Open
+      "CLOSING"   -> pure Close
       "AUTOMATIC" -> pure Automatic
       _           -> fail $ "positionEffect unexpected: " ++ T.unpack text
 
@@ -604,6 +612,13 @@ splitOn s f = fmap (T.intercalate s) . go . T.splitOn s
 
 baseOrderId :: Traversal' Transaction Text
 baseOrderId = transactionOrderId.traverse.splitOn ".".index 0
+
+baseSymbol :: Traversal' Transaction Text
+baseSymbol =
+    instrument_._Just.failing (assetType._OptionAsset.underlyingSymbol) symbol
+
+item :: Lens' Transaction TransactionItem
+item = transactionInfo_.transactionItem_
 
 instrument_ :: Lens' Transaction (Maybe Instrument)
 instrument_ = transactionInfo_.transactionItem_.transactionInstrument
