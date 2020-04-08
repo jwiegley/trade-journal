@@ -23,7 +23,6 @@ import           Data.Int
 import           Data.List (sortBy)
 import           Data.Map (Map)
 import           Data.Ord
--- import qualified Data.Map as M
 import           Data.Semigroup hiding (Option, option)
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -622,6 +621,25 @@ baseSymbol :: Traversal' Transaction Text
 baseSymbol =
     instrument_._Just.failing (assetType._OptionAsset.underlyingSymbol) symbol
 
+symbolName :: Transaction -> Text
+symbolName t = case t^.instr of
+    Nothing ->
+        error $ "Transaction instrument missing for XID " ++ show (t^.xactId)
+    Just inst -> case inst^.symbol of
+        " " -> inst^.cusip
+        s   -> s
+
+xactId :: Lens' Transaction Int64
+xactId = transactionInfo_.transactionId
+
+xactDate :: Lens' Transaction UTCTime
+xactDate = transactionInfo_.transactionDate
+
+getXactAmount :: Transaction -> Double
+getXactAmount t =
+    let n = t^.item.amount.non 0
+    in case t^.item.instruction of Just Sell -> (-n); _ -> n
+
 item :: Lens' Transaction TransactionItem
 item = transactionInfo_.transactionItem_
 
@@ -630,6 +648,12 @@ instrument_ = transactionInfo_.transactionItem_.transactionInstrument
 
 accountId_ :: Lens' Transaction AccountId
 accountId_ = transactionInfo_.transactionItem_.accountId
+
+instr :: Lens' Transaction (Maybe Instrument)
+instr = item.transactionInstrument
+
+option' :: Traversal' Transaction Option
+option' = instr._Just.assetType._OptionAsset
 
 infixr 7 <+>
 (<+>) :: (Applicative m, Num a) => m a -> m a -> m a

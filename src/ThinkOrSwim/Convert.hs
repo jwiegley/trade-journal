@@ -9,13 +9,14 @@ module ThinkOrSwim.Convert (convertTransactions) where
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Ledger as Ledger
-import           Data.Map (Map)
 import qualified Data.Map as M
-import           Data.Maybe (isJust, isNothing, fromMaybe)
+import           Data.Maybe (isNothing)
 import           Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           ThinkOrSwim.Gains
+import           ThinkOrSwim.Types
 
 convertTransactions :: TransactionHistory
                     -> [Ledger.Transaction API.Order]
@@ -25,8 +26,6 @@ convertTransactions hist = (`evalState` M.empty) $
 getOrder :: OrdersMap -> Either API.Transaction API.OrderId -> API.Order
 getOrder _ (Left t) = orderFromTransaction t
 getOrder m (Right oid) = m^?!ix oid
-
-type OpenTransactions = Map Text [TransactionItem]
 
 convertTransaction
     :: OrdersMap
@@ -57,9 +56,12 @@ convertPostings :: Text -> API.Transaction
                 -> State OpenTransactions [Ledger.Posting]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings actId t = posts <$> gainsKeeper t lot
+convertPostings actId t =
+    posts <$> case t^.item.API.amount of
+        Just _  -> gainsKeeper t lot
+        Nothing -> pure []
   where
-    posts c =
+    posts cs =
         [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
         | t^.fees_.regFee /= 0 ]
           ++
@@ -70,7 +72,7 @@ convertPostings actId t = posts <$> gainsKeeper t lot
         | t^.fees_.commission /= 0 ]
           ++
         [ post act False (CommodityAmount c) & postMetadata .~ meta
-        | isJust (t^.item.API.amount) ]
+        | c <- cs ]
           ++
         [ case t^.item.API.price of
               Just _                     -> cashPost
@@ -83,8 +85,8 @@ convertPostings actId t = posts <$> gainsKeeper t lot
         [ post OpeningBalances False NoAmount
         | isNothing (t^.item.API.amount) || fromEquity ]
 
-    lot = CommodityLot
-        { _instrument = case atype of
+    lot = newCommodityLot
+        & Ledger.instrument .~ case atype of
             Just Equity               -> Ledger.Stock
             Just MutualFund           -> Ledger.Stock
             Just (OptionAsset _)      -> Ledger.Option
@@ -93,25 +95,15 @@ convertPostings actId t = posts <$> gainsKeeper t lot
                   CashMoneyMarket)    -> Ledger.MoneyMarket
             Nothing                   -> error "Unexpected"
 
-        , _quantity =
-            let n = fromMaybe 0 (t^.item.API.amount)
-            in case t^.item.instruction of Just Sell -> (-n); _ -> n
-        , _symbol   = sym
-        , _price    = t^.item.API.price
-
-        , _cost         = if cst /= 0 then Just cst else Nothing
-        , _purchaseDate = Just date
-        , _refs         = [Ref OpeningOrder xactId]
-        }
+        & Ledger.symbol   .~ symbolName t
+        & Ledger.price    .~ t^.item.API.price
+        & Ledger.quantity .~ getXactAmount t
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 
-    xactId = t^.transactionInfo_.transactionId
-    date   = t^.transactionInfo_.transactionDate
-
     meta = M.empty
         & at "Subtype"     ?~ T.pack (show subtyp)
-        & at "XID"         ?~ T.pack (show xactId)
+        & at "XID"         ?~ T.pack (show (t^.xactId))
         & at "Instruction" .~ t^?item.instruction._Just.to show.packed
         & at "Effect"      .~ t^?item.positionEffect._Just.to show.packed
         & at "CUSIP"       .~ t^?instr._Just.cusip
@@ -120,18 +112,6 @@ convertPostings actId t = posts <$> gainsKeeper t lot
         & at "Strike"      .~ t^?option'.strikePrice._Just.to (thousands . Right)
         & at "Expiration"  .~ t^?option'.expirationDate.to iso8601
         & at "Contract"    .~ t^?option'.description
-
-    instr :: Lens' API.Transaction (Maybe API.Instrument)
-    instr = item.transactionInstrument
-
-    option' :: Traversal' API.Transaction Option
-    option' = instr._Just.assetType._OptionAsset
-
-    sym = case t^.instr of
-        Nothing -> error $ "Transaction instrument missing for XID " ++ show xactId
-        Just inst -> case inst^.API.symbol of
-            " " -> inst^.cusip
-            s   -> s
 
     fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn
                           , OptionAssignment
@@ -145,8 +125,6 @@ convertPostings actId t = posts <$> gainsKeeper t lot
         Just (CashEquivalentAsset _) -> MoneyMarkets actId
         Nothing                      -> OpeningBalances
 
-    fees'  = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-    cst    = abs (t^.item.API.cost - fees')
     atype  = t^?instr._Just.assetType
     subtyp = t^.transactionInfo_.transactionSubType
 
@@ -157,10 +135,3 @@ convertPostings actId t = posts <$> gainsKeeper t lot
         , _amount       = m
         , _postMetadata = M.empty
         }
-
--- The function replicates the logic used by GainsKeeper to determine what
--- impact a given transaction, based on existing positions, should have on an
--- account.
-gainsKeeper :: API.Transaction -> CommodityLot
-            -> State OpenTransactions CommodityLot
-gainsKeeper _t lot = pure lot

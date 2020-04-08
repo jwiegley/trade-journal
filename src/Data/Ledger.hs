@@ -56,6 +56,8 @@ data Instrument
     | MoneyMarket
     deriving (Eq, Ord, Show, Enum)
 
+makePrisms ''Instrument
+
 data CommodityLot = CommodityLot
     { _instrument   :: Instrument
     , _quantity     :: Double
@@ -68,6 +70,17 @@ data CommodityLot = CommodityLot
     deriving (Eq, Ord, Show)
 
 makeClassy ''CommodityLot
+
+newCommodityLot :: CommodityLot
+newCommodityLot = CommodityLot
+    { _instrument   = Stock
+    , _quantity     = 0.0
+    , _symbol       = "???"
+    , _cost         = Nothing
+    , _purchaseDate = Nothing
+    , _refs         = []
+    , _price        = Nothing
+    }
 
 data Amount
     = NoAmount
