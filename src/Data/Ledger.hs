@@ -56,18 +56,23 @@ data Instrument
     | MoneyMarket
     deriving (Eq, Ord, Show, Enum)
 
+data CommodityLot = CommodityLot
+    { _instrument   :: Instrument
+    , _quantity     :: Double
+    , _symbol       :: Text
+    , _cost         :: Maybe Double
+    , _purchaseDate :: Maybe UTCTime
+    , _refs         :: [Ref]
+    , _price        :: Maybe Double
+    }
+    deriving (Eq, Ord, Show)
+
+makeClassy ''CommodityLot
+
 data Amount
     = NoAmount
     | DollarAmount Double
-    | CommodityAmount
-      { _instrument   :: Instrument
-      , _quantity     :: Double
-      , _symbol       :: Text
-      , _cost         :: Maybe Double
-      , _purchaseDate :: Maybe UTCTime
-      , _refs         :: [Ref]
-      , _price        :: Maybe Double
-      }
+    | CommodityAmount CommodityLot
     deriving (Eq, Ord, Show)
 
 makePrisms ''Amount
@@ -167,7 +172,7 @@ renderAmount :: Amount -> [Text]
 -- jww (2020-03-29): Need to add commas, properly truncate, etc.
 renderAmount NoAmount = [""]
 renderAmount (DollarAmount amt) = ["$" <> thousands (Right amt)]
-renderAmount CommodityAmount {..} =
+renderAmount (CommodityAmount CommodityLot {..}) =
     [ renderDouble _quantity
     , T.pack $ printf "%s%s%s%s%s"
           (if T.all isAlpha _symbol then _symbol else "\"" <> _symbol <> "\"")

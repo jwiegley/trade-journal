@@ -57,9 +57,9 @@ convertPostings :: Text -> API.Transaction
                 -> State OpenTransactions [Ledger.Posting]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings actId t = pure posts
+convertPostings actId t = posts <$> gainsKeeper t lot
   where
-    posts =
+    posts c =
         [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
         | t^.fees_.regFee /= 0 ]
           ++
@@ -69,40 +69,40 @@ convertPostings actId t = pure posts
         [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
         | t^.fees_.commission /= 0 ]
           ++
-        [ post act False CommodityAmount
-              { _instrument = case atype of
-                  Just Equity               -> Ledger.Stock
-                  Just MutualFund           -> Ledger.Stock
-                  Just (OptionAsset _)      -> Ledger.Option
-                  Just (FixedIncomeAsset _) -> Ledger.Bond
-                  Just (CashEquivalentAsset
-                        CashMoneyMarket)    -> Ledger.MoneyMarket
-                  Nothing                   -> error "Unexpected"
-
-              , _quantity =
-                  let n = fromMaybe 0 (t^.item.API.amount)
-                  in case t^.item.instruction of Just Sell -> (-n); _ -> n
-              , _symbol   = sym
-              , _price    = t^.item.price
-
-              , _cost         = if cst /= 0 then Just cst else Nothing
-              , _purchaseDate = Just date
-              , _refs         = [Ref OpeningOrder xactId]
-              }
-              & postMetadata .~ meta
+        [ post act False (CommodityAmount c) & postMetadata .~ meta
         | isJust (t^.item.API.amount) ]
           ++
-        [ case t^.item.price of
+        [ case t^.item.API.price of
               Just _                     -> cashPost
               Nothing | t^.netAmount /= 0 -> cashPost
                       | otherwise        -> post act False NoAmount
-        | case t^.item.price of
+        | case t^.item.API.price of
               Just _  -> t^.netAmount /= 0
-              Nothing -> not fromEquity
-        ]
+              Nothing -> not fromEquity ]
           ++
         [ post OpeningBalances False NoAmount
         | isNothing (t^.item.API.amount) || fromEquity ]
+
+    lot = CommodityLot
+        { _instrument = case atype of
+            Just Equity               -> Ledger.Stock
+            Just MutualFund           -> Ledger.Stock
+            Just (OptionAsset _)      -> Ledger.Option
+            Just (FixedIncomeAsset _) -> Ledger.Bond
+            Just (CashEquivalentAsset
+                  CashMoneyMarket)    -> Ledger.MoneyMarket
+            Nothing                   -> error "Unexpected"
+
+        , _quantity =
+            let n = fromMaybe 0 (t^.item.API.amount)
+            in case t^.item.instruction of Just Sell -> (-n); _ -> n
+        , _symbol   = sym
+        , _price    = t^.item.API.price
+
+        , _cost         = if cst /= 0 then Just cst else Nothing
+        , _purchaseDate = Just date
+        , _refs         = [Ref OpeningOrder xactId]
+        }
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 
@@ -129,11 +129,13 @@ convertPostings actId t = pure posts
 
     sym = case t^.instr of
         Nothing -> error $ "Transaction instrument missing for XID " ++ show xactId
-        Just inst -> case inst^.symbol of
+        Just inst -> case inst^.API.symbol of
             " " -> inst^.cusip
             s   -> s
 
-    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
+    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn
+                          , OptionAssignment
+                          , OptionExpiration ]
 
     act = case atype of
         Just Equity                  -> Equities actId
@@ -144,7 +146,7 @@ convertPostings actId t = pure posts
         Nothing                      -> OpeningBalances
 
     fees'  = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-    cst    = abs (t^.item.cost - fees')
+    cst    = abs (t^.item.API.cost - fees')
     atype  = t^?instr._Just.assetType
     subtyp = t^.transactionInfo_.transactionSubType
 
@@ -155,3 +157,10 @@ convertPostings actId t = pure posts
         , _amount       = m
         , _postMetadata = M.empty
         }
+
+-- The function replicates the logic used by GainsKeeper to determine what
+-- impact a given transaction, based on existing positions, should have on an
+-- account.
+gainsKeeper :: API.Transaction -> CommodityLot
+            -> State OpenTransactions CommodityLot
+gainsKeeper _t lot = pure lot
