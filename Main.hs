@@ -3,22 +3,26 @@
 
 module Main where
 
-import Control.Applicative
-import Control.Monad (forM_)
-import Data.Aeson
-import Data.ByteString.Lazy as BL
-import Data.Data (Data)
-import Data.Ledger as Ledger
-import Data.Text as T
-import Data.Text.IO as T
-import Data.Typeable (Typeable)
-import Network.HTTP.Client
-import Network.HTTP.Client.TLS
-import Options.Applicative
-import Servant.Client
-import ThinkOrSwim.API
-import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import ThinkOrSwim.Convert
+import           Control.Applicative
+import           Control.Lens
+import           Control.Monad (forM_)
+import           Data.Aeson
+import           Data.ByteString.Lazy as BL
+import           Data.Data (Data)
+import           Data.Ledger as Ledger
+import qualified Data.Map as M
+import           Data.Text as T
+import           Data.Text.IO as T
+import           Data.Time
+import           Data.Typeable (Typeable)
+import           Network.HTTP.Client
+import           Network.HTTP.Client.TLS
+import           Options.Applicative
+import           Servant.Client
+import           ThinkOrSwim.API
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           ThinkOrSwim.Convert
+import           ThinkOrSwim.Gains
 
 version :: String
 version = "0.0.1"
@@ -90,11 +94,34 @@ main = do
     -- Prelude.putStrLn "--- Data read from JSON ---"
     -- pPrint th
 
+    let priceData = M.empty
+            & at "ZM"   ?~
+                [ lot Stock  30 "ZM" 106.68   "2019-06-24"
+                , lot Stock 140 "ZM"  99.7792 "2019-06-24"
+                , lot Stock  10 "ZM"  89.785  "2019-06-24"
+                , lot Stock 170 "ZM"  85.8415 "2019-06-25" ]
+            & at "CRWD" ?~
+                [ lot Stock 140 "CRWD" 73.7914 "2019-06-20"
+                , lot Stock 140 "CRWD" 69.683  "2019-06-21" ]
+            & at "WORK" ?~
+                [ lot Stock 250 "WORK" 38.97284 "2019-06-20" ]
+
     -- Prelude.putStrLn "--- Data converted to Ledger format ---"
-    forM_ (convertTransactions th) $ \t -> do
+    forM_ (convertTransactions priceData th) $ \t -> do
         forM_ (renderTransaction t)
             T.putStrLn
         T.putStrLn ""
+  where
+    lot i q s p d = CommodityLot
+        { _instrument    = i
+        , _quantity      = q
+        , Ledger._symbol = s
+        , Ledger._cost   = Just (q * p)
+        , _purchaseDate  = Just (parseTimeOrError False defaultTimeLocale
+                                                  "%Y-%m-%d" d)
+        , _refs          = []
+        , Ledger._price  = Just p
+        }
 
 createManager :: IO Manager
 createManager =

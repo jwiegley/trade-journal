@@ -1,11 +1,14 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module ThinkOrSwim.Convert (convertTransactions) where
 
+import           Control.Arrow (first)
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Ledger as Ledger
@@ -18,9 +21,11 @@ import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Types
 
-convertTransactions :: TransactionHistory
-                    -> [Ledger.Transaction API.Order]
-convertTransactions hist = (`evalState` M.empty) $
+convertTransactions
+    :: OpenTransactions
+    -> TransactionHistory
+    -> [Ledger.Transaction API.Order]
+convertTransactions m hist = (`evalState` m) $
     Prelude.mapM (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
 
 getOrder :: OrdersMap -> Either API.Transaction API.OrderId -> API.Order
@@ -58,7 +63,8 @@ convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings actId t =
     posts <$> case t^.item.API.amount of
-        Just _  -> gainsKeeper t lot
+        Just _  -> fmap (first (fromRational . toRational))
+            <$> gainsKeeper t lot
         Nothing -> pure []
   where
     posts cs =
@@ -71,8 +77,11 @@ convertPostings actId t =
         [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
         | t^.fees_.commission /= 0 ]
           ++
-        [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta
-        | (_gain, cmdtyLot) <- cs ]
+        (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
+            if | gain < 0  -> [ post CapitalLossShort False (DollarAmount (-gain)) ]
+               | gain > 0  -> [ post CapitalGainShort False (DollarAmount (-gain)) ]
+               | otherwise -> []
+            ++ [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta ])
           ++
         [ case t^.item.API.price of
               Just _                     -> cashPost

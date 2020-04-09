@@ -11,6 +11,7 @@ dependencies:
   - bytestring
   - containers
   - lens
+  - pretty-show
   - servant
   - servant-client
   - text
@@ -24,12 +25,15 @@ library:
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
+    - ThinkOrSwim.Gains
   dependencies:
     - megaparsec
     - reflection
     - tagged
     - vector
     - mtl
+    - tasty
+    - tasty-hunit
 
 executables:
   thinkorswim:
@@ -39,4 +43,3 @@ executables:
       - http-client
       - http-client-tls
       - optparse-applicative
-      - pretty-show
