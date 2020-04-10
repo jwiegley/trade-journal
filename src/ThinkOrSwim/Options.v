@@ -25,18 +25,7 @@ Definition Symbol := string.
 Definition Amount := R.
 
 Inductive Month :=
-  | Jan
-  | Feb
-  | Mar
-  | Apr
-  | May
-  | Jun
-  | Jul
-  | Aug
-  | Sep
-  | Oct
-  | Nov
-  | Dec.
+  Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec.
 
 Definition Day  := nat.
 Definition Year := nat.
