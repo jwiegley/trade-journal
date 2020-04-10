@@ -1,4 +1,5 @@
-{ compiler ? "ghc882"
+{ ghcCompiler ? "ghc882"
+, coqPackages ? "coqPackages_8_11"
 
 , doBenchmark ? false
 , doProfiling ? false
@@ -25,16 +26,32 @@
     config.allowUnfree = true;
     config.allowBroken = true;
     overlays = [
-      (self: super: {
+      (self: super:
+       let
+         nixpkgs = { rev, sha256 }:
+           import (super.fetchFromGitHub {
+             owner = "NixOS";
+             repo  = "nixpkgs";
+             inherit rev sha256;
+           }) { config.allowUnfree = true; };
+
+         known-good-20191113_070954 = nixpkgs {
+           rev    = "620124b130c9e678b9fe9dd4a98750968b1f749a";
+           sha256 = "0xgy2rn2pxii3axa0d9y4s25lsq7d9ykq30gvg2nzgmdkmy375rr";
+         };
+       in
+       {
+         inherit (known-good-20191113_070954) shared-mime-info;
+
          haskell = super.haskell // {
            packages = super.haskell.packages // {
-             ${compiler} = super.haskell.packages.${compiler} //
-               (let hask = super.haskell.packages.${compiler};
+             ${ghcCompiler} = super.haskell.packages.${ghcCompiler} //
+               (let hask = super.haskell.packages.${ghcCompiler};
                 in with super.haskell.lib; rec {
                   aeson-schema = aeson-schema-f hask;
-                  ghc = super.haskell.packages.${compiler}.ghc //
+                  ghc = super.haskell.packages.${ghcCompiler}.ghc //
                     { withPackages =
-                        super.haskell.packages.${compiler}.ghc.withHoogle; };
+                        super.haskell.packages.${ghcCompiler}.ghc.withHoogle; };
                   ghcWithPackages = ghc.withPackages;
                 });
            };
@@ -47,10 +64,12 @@
 , returnShellEnv ? pkgs.lib.inNixShell
 }:
 
-let haskellPackages = pkgs.haskell.packages.${compiler};
+let haskellPackages = pkgs.haskell.packages.${ghcCompiler};
 
-in haskellPackages.developPackage rec {
-  name = "haskell-${compiler}-thinkorswim";
+in with pkgs.${coqPackages};
+
+haskellPackages.developPackage rec {
+  name = "haskell-${ghcCompiler}-thinkorswim";
   root = ./.;
 
   source-overrides = {
@@ -70,6 +89,10 @@ in haskellPackages.developPackage rec {
       haskellPackages.hpack
       haskellPackages.aeson-schema
       haskellPackages.hoogle
+      coq
+      coq.ocaml
+      coq.camlp5
+      coq.findlib
     ];
 
     enableLibraryProfiling = doProfiling;
@@ -86,6 +109,7 @@ in haskellPackages.developPackage rec {
 
     passthru = {
       nixpkgs = pkgs;
+      compatibleCoqVersions = v: builtins.elem v [ "8.11" ];
       inherit haskellPackages;
     };
   });
