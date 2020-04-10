@@ -22,7 +22,6 @@ import           Servant.Client
 import           ThinkOrSwim.API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Convert
-import           ThinkOrSwim.Gains
 
 version :: String
 version = "0.0.1"
@@ -96,8 +95,8 @@ main = do
 
     let priceData = M.empty
             & at "ZM"   ?~
-                [ lot Stock  30 "ZM" 106.68   "2019-06-24"
-                , lot Stock 140 "ZM"  99.7792 "2019-06-24"
+                [ lot Stock 140 "ZM"  99.7792 "2019-06-24"
+                , lot Stock  30 "ZM" 106.68   "2019-06-24"
                 , lot Stock  10 "ZM"  89.785  "2019-06-24"
                 , lot Stock 170 "ZM"  85.8415 "2019-06-25" ]
             & at "CRWD" ?~
@@ -117,8 +116,7 @@ main = do
         , _quantity      = q
         , Ledger._symbol = s
         , Ledger._cost   = Just (q * p)
-        , _purchaseDate  = Just (parseTimeOrError False defaultTimeLocale
-                                                  "%Y-%m-%d" d)
+        , _purchaseDate  = Just (parseTimeOrError False defaultTimeLocale "%Y-%m-%d" d)
         , _refs          = []
         , Ledger._price  = Just p
         }
