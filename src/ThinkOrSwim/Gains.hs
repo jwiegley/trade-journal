@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
@@ -16,7 +17,7 @@ import Test.Tasty.HUnit
 
 -- import Data.List (intercalate)
 -- import Data.Text (unpack)
--- import Debug.Trace
+import Debug.Trace
 
 -- The function replicates the logic used by GainsKeeper to determine what
 -- impact a given transaction, based on existing positions, should have on an
@@ -86,11 +87,11 @@ applyLots x y
       || x^.quantity > 0 && y^.quantity > 0 =
     (0.0, (Nothing, Just x), Just y)
 applyLots x y =
-    -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
-    -- trace ("x^.quantity = " ++ show (x^.quantity))      $
-    -- trace ("x^.refs     = " ++ show (x^.refs))          $
-    -- trace ("y^.quantity = " ++ show (y^.quantity))      $
-    -- trace ("y^.refs     = " ++ show (y^.refs))          $
+    trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
+    trace ("x^.quantity = " ++ show (x^.quantity))      $
+    trace ("x^.refs     = " ++ show (x^.refs))          $
+    trace ("y^.quantity = " ++ show (y^.quantity))      $
+    trace ("y^.refs     = " ++ show (y^.refs))          $
     let xcst = roundTo 2 (lotCost x)
         ycst = roundTo 2 (lotCost y)
         xps  = xcst / x^.quantity
@@ -106,15 +107,16 @@ applyLots x y =
         gain = - (if | xq < yq   -> n * yps + xc
                      | xq > yq   -> yc + n * xps
                      | otherwise -> yc + xc)
-    in -- trace ("xcst = " ++ show xcst) $
-       -- trace ("ycst = " ++ show ycst) $
-       -- trace ("xps  = " ++ show xps)  $
-       -- trace ("yps  = " ++ show yps)  $
-       -- trace ("xq   = " ++ show xq)   $
-       -- trace ("yq   = " ++ show yq)   $
-       -- trace ("n    = " ++ show n)    $
-       -- trace ("gain = " ++ show gain) $
-       ( roundTo 2 gain
+    in trace ("xcst = " ++ show xcst) $
+       trace ("ycst = " ++ show ycst) $
+       trace ("xps  = " ++ show xps)  $
+       trace ("yps  = " ++ show yps)  $
+       trace ("xq   = " ++ show xq)   $
+       trace ("yq   = " ++ show yq)   $
+       trace ("n    = " ++ show n)    $
+       trace ("gain = " ++ show gain) $
+       trace ("gain = " ++ show (roundTo 2 (roundTo 3 gain))) $
+       ( roundTo 2 (roundTo 3 gain)
        , ( Just $ x & quantity     .~ (- xn)
                     & Ledger.cost  ?~ n * abs xps
                     & Ledger.price .~ y^.Ledger.price

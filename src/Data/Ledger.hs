@@ -12,8 +12,8 @@
 module Data.Ledger where
 
 import           Control.Applicative
-import           Control.Monad
 import           Control.Lens
+import           Control.Monad
 import           Data.Char (isAlpha)
 import           Data.Either (isRight)
 import           Data.Int
@@ -23,6 +23,7 @@ import           Data.Maybe (fromMaybe, maybeToList)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
+import           Numeric.Rounded
 import           Text.Printf
 
 data RefType
@@ -165,7 +166,12 @@ renderRefs = T.intercalate "," . map go
                 OpeningOrder      -> "") <> T.pack (show (r^.refId))
 
 roundTo :: Int -> Double -> Double
-roundTo n x = fromIntegral (round (x * (10^n)) :: Int) / 10^n
+-- roundTo n x = fromIntegral (round (x * (10^n)) :: Int) / 10^n
+roundTo n x = toDouble
+    (fromInteger
+     (toInteger'
+      (fromDouble x * (10^n) :: Rounded 'TowardNearest 128))
+        / 10^n :: Rounded 'TowardNearest 128)
 
 doubleToText :: Int -> Double -> Text
 doubleToText n =
