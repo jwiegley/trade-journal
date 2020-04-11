@@ -27,10 +27,12 @@ import           Data.Semigroup hiding (Option, option)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
+import           Data.Amount
+import           Prelude hiding (Float, Double)
 import           System.IO.Unsafe
 
 data FixedIncome = FixedIncome
-    { _bondInterestRate :: Double
+    { _bondInterestRate :: Amount 2
     , _bondMaturityDate :: UTCTime
     }
     deriving (Eq, Ord, Show)
@@ -54,7 +56,7 @@ instance FromJSON PutCall where
 data Option = Option
     { _description      :: Text
     , _putCall          :: PutCall
-    , _strikePrice      :: Maybe Double
+    , _strikePrice      :: Maybe (Amount 2)
     , _expirationDate   :: UTCTime
     , _underlyingSymbol :: Text
     }
@@ -175,9 +177,9 @@ data TransactionItem = TransactionItem
     , _instruction           :: Maybe Instruction
     -- , _parentChildIndicator  :: Maybe Text
     -- , _parentOrderKey        :: Maybe Int32
-    , _cost                  :: Double
-    , _price                 :: Maybe Double
-    , _amount                :: Maybe Double
+    , _cost                  :: Amount 6
+    , _price                 :: Maybe (Amount 6)
+    , _amount                :: Maybe (Amount 6)
     , _accountId             :: AccountId
     }
     deriving (Eq, Ord, Show)
@@ -198,14 +200,14 @@ instance FromJSON TransactionItem where
     pure TransactionItem{..}
 
 data Fees = Fees
-    { _rFee          :: Double
-    , _additionalFee :: Double
-    , _cdscFee       :: Double
-    , _regFee        :: Double
-    , _otherCharges  :: Double
-    , _commission    :: Double
-    , _optRegFee     :: Double
-    , _secFee        :: Double
+    { _rFee          :: Amount 2
+    , _additionalFee :: Amount 2
+    , _cdscFee       :: Amount 2
+    , _regFee        :: Amount 2
+    , _otherCharges  :: Amount 2
+    , _commission    :: Amount 2
+    , _optRegFee     :: Amount 2
+    , _secFee        :: Amount 2
     }
     deriving (Eq, Ord, Show)
 
@@ -445,14 +447,14 @@ makeClassy ''TransactionInfo
 data Transaction = Transaction
     { _transactionInfo_              :: TransactionInfo Transaction
     , _fees_                         :: Fees
-    , _accruedInterest               :: Maybe Double
+    , _accruedInterest               :: Maybe (Amount 2)
     , _achStatus                     :: Maybe AchStatus
     , _cashBalanceEffectFlag         :: Bool
     , _transactionOrderDate          :: Maybe UTCTime
-    , _netAmount                     :: Double
-    , _dayTradeBuyingPowerEffect     :: Maybe Double
-    , _requirementReallocationAmount :: Maybe Double
-    , _sma                           :: Maybe Double
+    , _netAmount                     :: Amount 2
+    , _dayTradeBuyingPowerEffect     :: Maybe (Amount 2)
+    , _requirementReallocationAmount :: Maybe (Amount 2)
+    , _sma                           :: Maybe (Amount 2)
     , _transactionOrderId            :: Maybe Text
     , _settlementDate                :: UTCTime
     , _subAccount                    :: Text
@@ -640,7 +642,7 @@ xactId = transactionInfo_.transactionId
 xactDate :: Lens' Transaction UTCTime
 xactDate = transactionInfo_.transactionDate
 
-getXactAmount :: Transaction -> Double
+getXactAmount :: Transaction -> Amount 6
 getXactAmount t =
     let n = t^.item.amount.non 0
     in case t^.item.instruction of Just Sell -> (-n); _ -> n

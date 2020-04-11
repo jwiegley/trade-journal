@@ -2,13 +2,16 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 module ThinkOrSwim.Gains where
 
 import Control.Lens
 import Control.Monad.State
+import Data.Amount
 import Data.Foldable (foldl')
 import Data.Ledger as Ledger
+import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
@@ -23,11 +26,11 @@ import Debug.Trace
 -- impact a given transaction, based on existing positions, should have on an
 -- account.
 gainsKeeper :: API.Transaction -> CommodityLot
-            -> State OpenTransactions [(Double, CommodityLot)]
+            -> State OpenTransactions [(Amount 2, CommodityLot)]
 gainsKeeper t lot = do
     let sym   = lot^.Ledger.symbol
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-        cst   = abs (t^.item.API.cost - fees')
+        cst   = abs (t^.item.API.cost - unroundFrom fees')
 
     use (at sym) >>= \case
         -- If there are no existing lots, then this is either a purchase or a
@@ -64,7 +67,7 @@ gainsKeeper t lot = do
         & purchaseDate ?~ t^.xactDate
         & refs         .~ [Ref OpeningOrder (t^.xactId)]
 
-(@@) :: Double -> Double -> CommodityLot
+(@@) :: Amount 6 -> Amount 6 -> CommodityLot
 q @@ c = newCommodityLot
     & quantity .~ q
     & Ledger.cost ?~ c
@@ -76,7 +79,7 @@ q @@ c = newCommodityLot
 -- remains to be further deducted from, and how much was consumed, and
 -- similarly for 'y'.
 applyLots :: CommodityLot -> CommodityLot
-             -> ( Double
+             -> ( Amount 2
                , ( Maybe CommodityLot -- the portion subtracted out
                  , Maybe CommodityLot -- what remains
                  )
@@ -92,8 +95,8 @@ applyLots x y =
     trace ("x^.refs     = " ++ show (x^.refs))          $
     trace ("y^.quantity = " ++ show (y^.quantity))      $
     trace ("y^.refs     = " ++ show (y^.refs))          $
-    let xcst = roundTo 2 (lotCost x)
-        ycst = roundTo 2 (lotCost y)
+    let xcst = roundTo (lotCost x)
+        ycst = roundTo (lotCost y)
         xps  = xcst / x^.quantity
         yps  = ycst / y^.quantity
         xq   = abs (x^.quantity)
@@ -115,8 +118,8 @@ applyLots x y =
        trace ("yq   = " ++ show yq)   $
        trace ("n    = " ++ show n)    $
        trace ("gain = " ++ show gain) $
-       trace ("gain = " ++ show (roundTo 2 (roundTo 3 gain))) $
-       ( roundTo 2 (roundTo 3 gain)
+       trace ("gain = " ++ show (roundTo @6 @2 gain)) $
+       ( roundTo gain
        , ( Just $ x & quantity     .~ (- xn)
                     & Ledger.cost  ?~ n * abs xps
                     & Ledger.price .~ y^.Ledger.price
@@ -133,21 +136,21 @@ testApplyLots :: TestTree
 testApplyLots = testGroup "Gains"
     [ testCase "12@@300 `applyLots` -10@@500" $
       (12@@300) `applyLots` ((-10)@@500)
-          @?= ( roundTo 2 (10.0 * ((500 / 10) - (300 / 12)))
+          @?= ( roundTo @2 (10.0 * ((500 / 10) - (300 / 12)))
               , ( Just ((-10)@@(10 * (300/12)))
                 , Just (2@@(2 * (300/12))))
               , Nothing)
 
     , testCase "10@@500 `applyLots` -12@@300" $
       (10@@500) `applyLots` ((-12)@@300)
-          @?= ( roundTo 2 (10.0 * ((300 / 12) - (500 / 10)))
+          @?= ( roundTo @2 (10.0 * ((300 / 12) - (500 / 10)))
               , ( Just ((-10)@@(10 * (500/10)))
                 , Nothing)
               , Just ((-2)@@(2 * (300/12))))
 
     , testCase "12@@500 `applyLots` -10@@300" $
       (12@@500) `applyLots` ((-10)@@300)
-          @?= ( roundTo 2 (10.0 * ((300 / 10) - (500 / 12)))
+          @?= ( roundTo @2 (10.0 * ((300 / 10) - (500 / 12)))
               , ( Just ((-10)@@(10 * (500/12)))
                 , Just (2@@(2 * (500/12))))
               , Nothing)
@@ -168,7 +171,7 @@ testApplyLots = testGroup "Gains"
 
     , testCase "-10@@500 `applyLots` 12@@300" $
       ((-10)@@500) `applyLots` (12@@300)
-          @?= ( roundTo 2 ((-10.0) * ((300 / 12) - (500 / 10)))
+          @?= ( roundTo @2 ((-10.0) * ((300 / 12) - (500 / 10)))
               , ( Just (10@@(10 * (500/10)))
                 , Nothing)
               , Just (2@@(2 * (300/12))))
@@ -204,16 +207,16 @@ testApplyLots = testGroup "Gains"
                 , 300.0 @@ 5165.97 ] )
     ]
 
-fifo :: (Maybe CommodityLot, [(Double, CommodityLot)], [CommodityLot])
+fifo :: (Maybe CommodityLot, [(Amount 2, CommodityLot)], [CommodityLot])
      -> CommodityLot
-     -> (Maybe CommodityLot, [(Double, CommodityLot)], [CommodityLot])
+     -> (Maybe CommodityLot, [(Amount 2, CommodityLot)], [CommodityLot])
 fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
 fifo (Just l, res, keep) x =
     let (gain, (used, kept), left) = x `applyLots` l
     in (left, maybe res ((:res) . (gain,)) used, maybe keep (:keep) kept)
 
 calculateGains :: CommodityLot -> [CommodityLot]
-               -> ([(Double, CommodityLot)], [CommodityLot])
+               -> ([(Amount 2, CommodityLot)], [CommodityLot])
 calculateGains l ls =
     let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
         xs' = maybe (reverse xs) (reverse . (:xs) . (0,)) x

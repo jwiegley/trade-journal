@@ -11,12 +11,14 @@ module ThinkOrSwim.Convert (convertTransactions) where
 
 import           Control.Lens
 import           Control.Monad.State
+import           Data.Amount
 import           Data.Ledger as Ledger
 import qualified Data.Map as M
 import           Data.Maybe (isNothing)
 import           Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
+import           Prelude hiding (Float, Double)
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Types
@@ -84,7 +86,7 @@ convertPostings actId t = do
         [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
         | t^.fees_.commission /= 0 ]
           ++
-        (flip Prelude.concatMap cs $ \((gain :: Double), cmdtyLot) ->
+        (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
             if | gain < 0  -> [ post CapitalLossShort False (DollarAmount (-gain)) ]
                | gain > 0  -> [ post CapitalGainShort False (DollarAmount (-gain)) ]
                | otherwise -> []
@@ -120,11 +122,11 @@ convertPostings actId t = do
         & Ledger.price    .~ t^.item.API.price
         & Ledger.quantity .~ getXactAmount t
 
-    rounding :: [(Double, CommodityLot)] -> Double
-    rounding cs = roundTo 2 $ sum (Prelude.map net cs) + t^.netAmount
+    rounding :: [(Amount 2, CommodityLot)] -> Amount 2
+    rounding cs = roundTo $ sum (Prelude.map net cs) + t^.netAmount
 
-    net :: (Double, CommodityLot) -> Double
-    net (g, x) = g + roundTo 2 (lotCost x)
+    net :: (Amount 2, CommodityLot) -> Amount 2
+    net (g, x) = g + roundTo (lotCost x)
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 
@@ -136,7 +138,7 @@ convertPostings actId t = do
         & at "CUSIP"       .~ t^?instr._Just.cusip
         & at "Instrument"  .~ t^?instr._Just.assetType.to assetKind
         & at "Side"        .~ t^?option'.putCall.to show.packed
-        & at "Strike"      .~ t^?option'.strikePrice._Just.to (thousands 2 . Right)
+        & at "Strike"      .~ t^?option'.strikePrice._Just.to thousands
         & at "Expiration"  .~ t^?option'.expirationDate.to iso8601
         & at "Contract"    .~ t^?option'.description
 
