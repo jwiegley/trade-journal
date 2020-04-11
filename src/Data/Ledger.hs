@@ -7,31 +7,30 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Data.Ledger where
 
+import           Control.Applicative
+import           Control.Monad
 import           Control.Lens
 import           Data.Char (isAlpha)
 import           Data.Either (isRight)
-import           Data.Fixed
 import           Data.Int
 import           Data.Map (Map)
 import qualified Data.Map as M
-import           Data.Maybe (maybeToList)
+import           Data.Maybe (fromMaybe, maybeToList)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
 import           Text.Printf
 
 data RefType
-    = WashSaleRule (Fixed E6)
+    = WashSaleRule Double
       -- ^ A wash sale rule increases the cost basis of an equity purchase by
       --   adding previous capital losses, taking those losses off the books.
 
-    | RollingOrder (Fixed E6)
+    | RollingOrder Double
       -- ^ In a rolling order, the closing of one option is followed by the
       --   opening of another, and any credit or debit is carried across.
       --
@@ -63,16 +62,25 @@ makePrisms ''Instrument
 
 data CommodityLot = CommodityLot
     { _instrument   :: Instrument
-    , _quantity     :: Fixed E6
+    , _quantity     :: Double
     , _symbol       :: Text
-    , _cost         :: Maybe (Fixed E6)
+    , _cost         :: Maybe Double
     , _purchaseDate :: Maybe UTCTime
     , _refs         :: [Ref]
-    , _price        :: Maybe (Fixed E6)
+    , _price        :: Maybe Double
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''CommodityLot
+
+lotPrice :: CommodityLot -> Maybe Double
+lotPrice l = do
+    guard $ l^.instrument `notElem` [ Option, FutureOption ]
+    p <- l^.price
+    pure $ if l^.quantity < 0 then (-p) else p
+
+lotCost :: CommodityLot -> Double
+lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
 newCommodityLot :: CommodityLot
 newCommodityLot = CommodityLot
@@ -91,7 +99,7 @@ showCommodityLot CommodityLot {..} =
 
 data Amount
     = NoAmount
-    | DollarAmount (Fixed E2)
+    | DollarAmount Double
     | CommodityAmount CommodityLot
     deriving (Eq, Ord, Show)
 
@@ -113,6 +121,7 @@ data Account
     | CapitalGainLong
     | CapitalLossShort
     | CapitalLossLong
+    | RoundingError
     | OpeningBalances
     deriving (Eq, Ord, Show)
 
@@ -151,21 +160,25 @@ renderRefs :: [Ref] -> Text
 renderRefs = T.intercalate "," . map go
   where
     go r = (case r^.refType of
-                WashSaleRule wash -> "WASH[$" <> fixedToText 2 wash <> "]:"
-                RollingOrder roll -> "ROLL[$" <> fixedToText 2 roll <> "]:"
+                WashSaleRule wash -> "WASH[$" <> doubleToText 2 wash <> "]:"
+                RollingOrder roll -> "ROLL[$" <> doubleToText 2 roll <> "]:"
                 OpeningOrder      -> "") <> T.pack (show (r^.refId))
 
-fixedToText :: HasResolution a => Int -> (Fixed a) -> Text
-fixedToText n = cleanup . T.pack . showFixed False
+roundTo :: Int -> Double -> Double
+roundTo n x = fromIntegral (round (x * (10^n)) :: Int) / 10^n
+
+doubleToText :: Int -> Double -> Text
+doubleToText n =
+    cleanup 2 . T.pack . printf ("%0." ++ show n ++ "f") . roundTo n
   where
-    cleanup t =
+    cleanup m t =
         let len = T.length (last (T.splitOn "." t)) in
-        if len > n && T.last t == '0'
-        then cleanup (T.take (T.length t - 1) t)
+        if len > m && T.last t == '0'
+        then cleanup m (T.take (T.length t - 1) t)
         else t
 
-thousands :: HasResolution a => Either Int (Fixed a) -> Text
-thousands d = T.intercalate "." $
+thousands :: Int -> Either Int Double -> Text
+thousands n d = T.intercalate "." $
     case T.splitOn "." str of
         x:xs -> (T.pack . reverse . go . reverse . T.unpack) x :
             case xs of
@@ -175,7 +188,7 @@ thousands d = T.intercalate "." $
         xs -> xs
   where
     str = case d of
-        Right f -> fixedToText 2 f
+        Right f -> doubleToText n f
         Left  i -> T.pack (show i)
 
     go (x:y:z:[])    = x:y:z:[]
@@ -187,23 +200,23 @@ thousands d = T.intercalate "." $
     expand (x:[]) = x:"0"
     expand xs     = xs
 
-renderFixed :: forall a. HasResolution a => Fixed a -> Text
-renderFixed d | fromIntegral (floor d :: Int) == d =
-    thousands @a (Left (floor d :: Int))
-renderFixed d = thousands (Right d)
+renderDouble :: Double -> Text
+renderDouble d | fromIntegral (floor d :: Int) == d =
+    thousands 2 (Left (floor d :: Int))
+renderDouble d = thousands 2 (Right d)
 
 renderAmount :: Amount -> [Text]
 -- jww (2020-03-29): Need to add commas, properly truncate, etc.
 renderAmount NoAmount = [""]
-renderAmount (DollarAmount amt) = ["$" <> thousands (Right amt)]
+renderAmount (DollarAmount amt) = ["$" <> thousands 2 (Right amt)]
 renderAmount (CommodityAmount CommodityLot {..}) =
-    [ renderFixed _quantity
+    [ renderDouble _quantity
     , T.pack $ printf "%s%s%s%s%s"
           (if T.all isAlpha _symbol then _symbol else "\"" <> _symbol <> "\"")
-          (maybe "" (T.pack . printf " {{$%s}}" . thousands . Right . abs) _cost)
+          (maybe "" (T.pack . printf " {{$%s}}" . thousands 6 . Right . abs) _cost)
           (maybe "" (T.pack . printf " [%s]" . iso8601) _purchaseDate)
           (case _refs of [] -> ""; xs -> (T.pack . printf " (%s)" . renderRefs) xs)
-          (maybe "" (T.pack . printf " @ $%s" . thousands . Right) _price)
+          (maybe "" (T.pack . printf " @ $%s" . thousands 6 . Right) _price)
     ]
 
 renderAccount :: Account -> Text
@@ -223,6 +236,7 @@ renderAccount = \case
     CapitalGainLong      -> "Income:Capital:Long"
     CapitalLossShort     -> "Expenses:Capital:Short"
     CapitalLossLong      -> "Expenses:Capital:Long"
+    RoundingError        -> "Expenses:TD:Rounding"
     OpeningBalances      -> "Equity:TD:Opening Balances"
 
 renderPosting :: Posting -> [Text]

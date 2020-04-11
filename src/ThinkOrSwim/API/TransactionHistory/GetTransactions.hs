@@ -19,7 +19,6 @@ import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
-import           Data.Fixed
 import           Data.Int
 import           Data.List (sortBy)
 import           Data.Map (Map)
@@ -28,9 +27,10 @@ import           Data.Semigroup hiding (Option, option)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
+import           System.IO.Unsafe
 
 data FixedIncome = FixedIncome
-    { _bondInterestRate :: Fixed E6
+    { _bondInterestRate :: Double
     , _bondMaturityDate :: UTCTime
     }
     deriving (Eq, Ord, Show)
@@ -54,7 +54,7 @@ instance FromJSON PutCall where
 data Option = Option
     { _description      :: Text
     , _putCall          :: PutCall
-    , _strikePrice      :: Maybe (Fixed E2)
+    , _strikePrice      :: Maybe Double
     , _expirationDate   :: UTCTime
     , _underlyingSymbol :: Text
     }
@@ -175,9 +175,9 @@ data TransactionItem = TransactionItem
     , _instruction           :: Maybe Instruction
     -- , _parentChildIndicator  :: Maybe Text
     -- , _parentOrderKey        :: Maybe Int32
-    , _cost                  :: Fixed E6
-    , _price                 :: Maybe (Fixed E6)
-    , _amount                :: Maybe (Fixed E6)
+    , _cost                  :: Double
+    , _price                 :: Maybe Double
+    , _amount                :: Maybe Double
     , _accountId             :: AccountId
     }
     deriving (Eq, Ord, Show)
@@ -198,14 +198,14 @@ instance FromJSON TransactionItem where
     pure TransactionItem{..}
 
 data Fees = Fees
-    { _rFee          :: Fixed E2
-    , _additionalFee :: Fixed E2
-    , _cdscFee       :: Fixed E2
-    , _regFee        :: Fixed E2
-    , _otherCharges  :: Fixed E2
-    , _commission    :: Fixed E2
-    , _optRegFee     :: Fixed E2
-    , _secFee        :: Fixed E2
+    { _rFee          :: Double
+    , _additionalFee :: Double
+    , _cdscFee       :: Double
+    , _regFee        :: Double
+    , _otherCharges  :: Double
+    , _commission    :: Double
+    , _optRegFee     :: Double
+    , _secFee        :: Double
     }
     deriving (Eq, Ord, Show)
 
@@ -445,14 +445,14 @@ makeClassy ''TransactionInfo
 data Transaction = Transaction
     { _transactionInfo_              :: TransactionInfo Transaction
     , _fees_                         :: Fees
-    , _accruedInterest               :: Maybe (Fixed E2)
+    , _accruedInterest               :: Maybe Double
     , _achStatus                     :: Maybe AchStatus
     , _cashBalanceEffectFlag         :: Bool
     , _transactionOrderDate          :: Maybe UTCTime
-    , _netAmount                     :: Fixed E2
-    , _dayTradeBuyingPowerEffect     :: Maybe (Fixed E2)
-    , _requirementReallocationAmount :: Maybe (Fixed E2)
-    , _sma                           :: Maybe (Fixed E2)
+    , _netAmount                     :: Double
+    , _dayTradeBuyingPowerEffect     :: Maybe Double
+    , _requirementReallocationAmount :: Maybe Double
+    , _sma                           :: Maybe Double
     , _transactionOrderId            :: Maybe Text
     , _settlementDate                :: UTCTime
     , _subAccount                    :: Text
@@ -527,7 +527,8 @@ newTransactionHistory = TransactionHistory
     }
 
 instance FromJSON TransactionHistory where
-  parseJSON v@(Array _) = processTransactions <$> parseJSON v
+  parseJSON v@(Array _) = processTransactions
+      <$> parseJSON (unsafePerformIO $ encodeFile "data.json" v >> pure v)
   parseJSON v = error $ "Unexpected transaction history value: " ++ show v
 
 -- Some transactions refer to an instrument, but only by the CUSIP id. It can
@@ -639,7 +640,7 @@ xactId = transactionInfo_.transactionId
 xactDate :: Lens' Transaction UTCTime
 xactDate = transactionInfo_.transactionDate
 
-getXactAmount :: Transaction -> Fixed E6
+getXactAmount :: Transaction -> Double
 getXactAmount t =
     let n = t^.item.amount.non 0
     in case t^.item.instruction of Just Sell -> (-n); _ -> n

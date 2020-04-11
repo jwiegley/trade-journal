@@ -3,12 +3,12 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module ThinkOrSwim.Convert (convertTransactions) where
 
-import           Control.Arrow (first)
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Ledger as Ledger
@@ -20,6 +20,8 @@ import           Data.Time
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Types
+
+-- import           Debug.Trace
 
 convertTransactions
     :: OpenTransactions
@@ -61,13 +63,18 @@ convertPostings :: Text -> API.Transaction
                 -> State OpenTransactions [Ledger.Posting]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings actId t =
-    posts <$> case t^.item.API.amount of
-        Just _  -> fmap (first (fromRational . toRational))
-            <$> gainsKeeper t lot
+convertPostings actId t = do
+    xs <- posts <$> case t^.item.API.amount of
+        Just _  -> gainsKeeper t lot
         Nothing -> pure []
+    pure xs
   where
-    posts cs =
+    posts cs = -- trace ("Rounding for "
+               --        ++ show (t^.transactionOrderId)
+               --        ++ " @ "  ++ T.unpack (thousands 2 (Right (t^.netAmount)))
+               --        ++ " = "  ++ T.unpack (thousands 2 (Right roundingError))
+               --        ++ " <= " ++ show (Prelude.map (thousands 2 . Right . net) cs)
+               --        ++ " == " ++ T.unpack (thousands 2 (Right (sum (Prelude.map net cs))))) $
         [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
         | t^.fees_.regFee /= 0 ]
           ++
@@ -77,7 +84,7 @@ convertPostings actId t =
         [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
         | t^.fees_.commission /= 0 ]
           ++
-        (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
+        (flip Prelude.concatMap cs $ \((gain :: Double), cmdtyLot) ->
             if | gain < 0  -> [ post CapitalLossShort False (DollarAmount (-gain)) ]
                | gain > 0  -> [ post CapitalGainShort False (DollarAmount (-gain)) ]
                | otherwise -> []
@@ -93,6 +100,11 @@ convertPostings actId t =
           ++
         [ post OpeningBalances False NoAmount
         | isNothing (t^.item.API.amount) || fromEquity ]
+          ++
+        [ post RoundingError False (DollarAmount roundingError)
+        | roundingError /= 0 && abs roundingError < 0.05 ]
+      where
+        roundingError = rounding cs
 
     lot = newCommodityLot
         & Ledger.instrument .~ case atype of
@@ -108,6 +120,12 @@ convertPostings actId t =
         & Ledger.price    .~ t^.item.API.price
         & Ledger.quantity .~ getXactAmount t
 
+    rounding :: [(Double, CommodityLot)] -> Double
+    rounding cs = roundTo 2 $ sum (Prelude.map net cs) + t^.netAmount
+
+    net :: (Double, CommodityLot) -> Double
+    net (g, x) = g + roundTo 2 (lotCost x)
+
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 
     meta = M.empty
@@ -118,7 +136,7 @@ convertPostings actId t =
         & at "CUSIP"       .~ t^?instr._Just.cusip
         & at "Instrument"  .~ t^?instr._Just.assetType.to assetKind
         & at "Side"        .~ t^?option'.putCall.to show.packed
-        & at "Strike"      .~ t^?option'.strikePrice._Just.to (thousands . Right)
+        & at "Strike"      .~ t^?option'.strikePrice._Just.to (thousands 2 . Right)
         & at "Expiration"  .~ t^?option'.expirationDate.to iso8601
         & at "Contract"    .~ t^?option'.description
 

@@ -90,22 +90,20 @@ main = do
             downloadTransactions (T.pack (Main.account opts)) (T.pack key)
                 =<< createManager
 
-    -- Prelude.putStrLn "--- Data read from JSON ---"
-    -- pPrint th
-
     let priceData = M.empty
             & at "ZM"   ?~
-                [ lot Stock 140 "ZM"  99.7792 "2019-06-24"
-                , lot Stock  30 "ZM" 106.68   "2019-06-24"
-                , lot Stock  10 "ZM"  89.785  "2019-06-24"
-                , lot Stock 170 "ZM"  85.8415 "2019-06-25" ]
+                [ lot Stock (-140) "ZM"  99.7792 "2019-06-24"
+                , lot Stock (- 10) "ZM"  89.785  "2019-06-24"
+                , lot Stock (- 30) "ZM" 106.68   "2019-06-24"
+                , lot Stock (-170) "ZM"  85.8415 "2019-06-25" ]
             & at "CRWD" ?~
-                [ lot Stock 140 "CRWD" 73.7914 "2019-06-20"
-                , lot Stock 140 "CRWD" 69.683  "2019-06-21" ]
+                [ lot Stock (-140) "CRWD" 73.7914 "2019-06-20"
+                , lot Stock (-140) "CRWD" 69.683  "2019-06-21" ]
             & at "WORK" ?~
-                [ lot Stock 250 "WORK" 38.97284 "2019-06-20" ]
+                [ lot Stock (-250) "WORK" 38.97284 "2019-06-20" ]
 
-    -- Prelude.putStrLn "--- Data converted to Ledger format ---"
+    Prelude.putStrLn "; -*- ledger -*-"
+    Prelude.putStrLn ""
     forM_ (convertTransactions priceData th) $ \t -> do
         forM_ (renderTransaction t)
             T.putStrLn
