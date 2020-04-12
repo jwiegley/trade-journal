@@ -12,6 +12,7 @@ module ThinkOrSwim.Convert (convertTransactions) where
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
+import           Data.Coerce
 import           Data.Ledger as Ledger
 import qualified Data.Map as M
 import           Data.Maybe (isNothing)
@@ -87,9 +88,9 @@ convertPostings actId t =
           ++
         (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
             if | gain < 0  ->
-                 [ post CapitalLossShort False (DollarAmount (gain^.from rounded)) ]
+                 [ post CapitalLossShort False (DollarAmount (coerce gain)) ]
                | gain > 0  ->
-                 [ post CapitalGainShort False (DollarAmount (gain^.from rounded)) ]
+                 [ post CapitalGainShort False (DollarAmount (coerce gain)) ]
                | otherwise ->
                  []
             ++ [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta ])
@@ -125,7 +126,7 @@ convertPostings actId t =
         & Ledger.quantity .~ getXactAmount t
 
     rounding :: [(Amount 6, CommodityLot)] -> Amount 2
-    rounding cs = sum (Prelude.map net cs)^.from rounded + t^.netAmount
+    rounding cs = coerce (sum (Prelude.map net cs)) + t^.netAmount
 
     net :: (Amount 6, CommodityLot) -> Amount 6
     net (g, x) = lotCost x - g

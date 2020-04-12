@@ -10,6 +10,7 @@ module ThinkOrSwim.Gains where
 import Control.Lens
 import Control.Monad.State
 import Data.Amount
+import Data.Coerce
 import Data.Foldable (foldl')
 import Data.Ledger as Ledger
 import Prelude hiding (Float, Double)
@@ -28,7 +29,7 @@ gainsKeeper :: API.Transaction -> CommodityLot
 gainsKeeper t lot = do
     let sym   = lot^.Ledger.symbol
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-        cst   = abs (t^.item.API.cost - fees'^.from rounded)
+        cst   = abs (t^.item.API.cost - coerce fees')
 
     use (at sym) >>= \case
         -- If there are no existing lots, then this is either a purchase or a
@@ -109,8 +110,8 @@ applyLot x y =
     sign l | l^.quantity < 0 = negate
            | otherwise = id
 
-    xcst = lotCost x^.from rounded
-    ycst = lotCost y^.from rounded
+    xcst = lotCost x
+    ycst = lotCost y
     xps  = xcst / x^.quantity
     yps  = ycst / y^.quantity
     xq   = abs (x^.quantity)
