@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -19,11 +20,11 @@ import ThinkOrSwim.Types
 -- import Data.Text (unpack)
 -- import Debug.Trace
 
--- The function replicates the logic used by GainsKeeper to determine what
--- impact a given transaction, based on existing positions, should have on an
--- account.
+-- The function seeks to replicate the logic used by GainsKeeper to determine
+-- what impact a given transaction, based on existing positions, should have
+-- on an account.
 gainsKeeper :: API.Transaction -> CommodityLot
-            -> State OpenTransactions [(Amount 2, CommodityLot)]
+            -> State OpenTransactions [(Amount 6, CommodityLot)]
 gainsKeeper t lot = do
     let sym   = lot^.Ledger.symbol
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
@@ -69,24 +70,26 @@ q @@ c = newCommodityLot
     & quantity .~ q
     & Ledger.cost ?~ c
 
+data LotApplied = LotApplied
+    { gain :: Amount 6
+    , used :: Maybe CommodityLot -- the portion subtracted out
+    , kept :: Maybe CommodityLot -- what remains
+    , left :: Maybe CommodityLot -- the portion unsubtracted
+    }
+    deriving (Eq, Ord, Show)
+
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
 -- a share sell; a buy for the reverse. If both have the same sign, nothing is
 -- done. If the cost basis per share of the two are different, there will be a
 -- gain (or less, if negative). Also, we need to return the part of 'x' that
 -- remains to be further deducted from, and how much was consumed, and
 -- similarly for 'y'.
-applyLots :: CommodityLot -> CommodityLot
-             -> ( Amount 2
-               , ( Maybe CommodityLot -- the portion subtracted out
-                 , Maybe CommodityLot -- what remains
-                 )
-               , Maybe CommodityLot   -- the portion unsubtracted
-               )
-applyLots x y
+applyLot :: CommodityLot -> CommodityLot -> LotApplied
+applyLot x y
     |   x^.quantity < 0 && y^.quantity < 0
       || x^.quantity > 0 && y^.quantity > 0 =
-    (0.0, (Nothing, Just x), Just y)
-applyLots x y =
+    LotApplied 0.0 Nothing (Just x) (Just y)
+applyLot x y =
     -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
     -- trace ("x^.quantity = " ++ show (x^.quantity))      $
     -- trace ("x^.refs     = " ++ show (x^.refs))          $
@@ -104,9 +107,21 @@ applyLots x y =
         yn   = sign y n
         xc   = sign x xcst
         yc   = sign y ycst
-        gain = - (if | xq < yq   -> n * yps + xc
-                     | xq > yq   -> yc + n * xps
-                     | otherwise -> yc + xc)
+        gain :: Amount 6
+        gain = if | xq < yq   -> n * yps + xc
+                  | xq > yq   -> yc + n * xps
+                  | otherwise -> yc + xc
+        used = Just $ x & quantity     .~ (- xn)
+               & Ledger.cost  ?~ n * abs xps
+               & Ledger.price .~ y^.Ledger.price
+        kept = if n < xq
+               then Just $ x & quantity    -~ xn
+                             & Ledger.cost ?~ (xq - n) * abs xps
+               else Nothing
+        left = if n < yq
+               then Just $ y & quantity    -~ yn
+                             & Ledger.cost ?~ (yq - n) * abs yps
+               else Nothing
     in -- trace ("xcst = " ++ show xcst) $
        -- trace ("ycst = " ++ show ycst) $
        -- trace ("xps  = " ++ show xps)  $
@@ -116,31 +131,19 @@ applyLots x y =
        -- trace ("n    = " ++ show n)    $
        -- trace ("gain = " ++ show gain) $
        -- trace ("gain = " ++ show (gain^.from (rounded @2))) $
-       ( gain^.from rounded
-       , ( Just $ x & quantity     .~ (- xn)
-                    & Ledger.cost  ?~ n * abs xps
-                    & Ledger.price .~ y^.Ledger.price
-         , if n < xq
-           then Just $ x & quantity    -~ xn
-                         & Ledger.cost ?~ (xq - n) * abs xps
-           else Nothing)
-       , if n < yq
-         then Just $ y & quantity    -~ yn
-                       & Ledger.cost ?~ (yq - n) * abs yps
-         else Nothing)
+       LotApplied {..}
 
-fifo :: (Maybe CommodityLot, [(Amount 2, CommodityLot)], [CommodityLot])
+fifo :: (Maybe CommodityLot, [(Amount 6, CommodityLot)], [CommodityLot])
      -> CommodityLot
-     -> (Maybe CommodityLot, [(Amount 2, CommodityLot)], [CommodityLot])
+     -> (Maybe CommodityLot, [(Amount 6, CommodityLot)], [CommodityLot])
 fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
 fifo (Just l, res, keep) x =
-    let (gain, (used, kept), left) = x `applyLots` l
+    let LotApplied {..} = x `applyLot` l
     in (left, maybe res ((:res) . (gain,)) used, maybe keep (:keep) kept)
 
 calculateGains :: CommodityLot -> [CommodityLot]
-               -> ([(Amount 2, CommodityLot)], [CommodityLot])
+               -> ([(Amount 6, CommodityLot)], [CommodityLot])
 calculateGains l ls =
     let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
-        xs' = maybe (reverse xs) (reverse . (:xs) . (0,)) x
-        ys' = maybe (reverse ys) (reverse . (:ys)) x
-    in (xs', ys')
+    in (maybe (reverse xs) (reverse . (:xs) . (0,)) x,
+        maybe (reverse ys) (reverse . (:ys)) x)

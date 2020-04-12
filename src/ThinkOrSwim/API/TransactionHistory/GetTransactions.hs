@@ -42,7 +42,7 @@ makeClassy ''FixedIncome
 data PutCall
     = Put
     | Call
-    deriving (Eq, Ord, Show, Enum)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''PutCall
 
@@ -66,7 +66,7 @@ makeClassy ''Option
 
 data CashEquivalent
     = CashMoneyMarket
-    deriving (Eq, Ord, Show, Enum)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 makeClassy ''CashEquivalent
 
@@ -143,7 +143,7 @@ data PositionEffect
     = Open
     | Close
     | Automatic
-    deriving (Eq, Ord, Show, Enum)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''PositionEffect
 
@@ -158,7 +158,7 @@ instance FromJSON PositionEffect where
 data Instruction
     = Buy
     | Sell
-    deriving (Eq, Ord, Show, Enum)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Instruction
 
@@ -255,7 +255,7 @@ data AchStatus
     | Rejected
     | Cancel
     | Error_
-    deriving (Eq, Ord, Show, Enum)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''AchStatus
 
@@ -284,7 +284,7 @@ data TransactionType
     | MarginCall
     | MoneyMarket
     | SmaAdjustment
-    deriving (Eq, Ord, Enum)
+    deriving (Eq, Ord, Enum, Bounded)
 
 makePrisms ''TransactionType
 
@@ -357,7 +357,7 @@ data TransactionSubType
     | WireIncoming                  -- WI
     | TransferFromForexAccount      -- XI
     | TransferToForexAccount        -- XO
-    deriving (Eq, Ord, Enum)
+    deriving (Eq, Ord, Enum, Bounded)
 
 makePrisms ''TransactionSubType
 

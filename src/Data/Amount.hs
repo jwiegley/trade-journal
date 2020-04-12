@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -54,12 +55,18 @@ instance forall n. KnownNat n => Show (Amount n) where
     show = T.unpack . amountToText
 
 instance forall n. KnownNat n => Read (Amount n) where
-    readsPrec _d r =
-        let num       = takeWhile isDigit r
-            ('.':den) = dropWhile isDigit r
-            den'      = takeWhile isDigit den
-            rem'      = dropWhile isDigit den
-        in [(Amount (read (num ++ den') % 10 ^ length den'), rem')]
+    readsPrec _d = \case
+        '-':xs -> map (\(x, y) -> (negate x, y)) (readNum xs)
+        xs     -> readNum xs
+      where
+        readNum r = case takeWhile isDigit r of
+            [] -> error $ "Not an amount: " ++ r
+            num -> case dropWhile isDigit r of
+                ('.':den) ->
+                    let den' = takeWhile isDigit den
+                        rem' = dropWhile isDigit den
+                    in [(Amount (read (num ++ den') % 10 ^ length den'), rem')]
+                xs -> [(Amount (read num % 1), xs)]
 
 instance forall n. KnownNat n => ToJSON (Amount n) where
   toJSON = String . T.pack . show

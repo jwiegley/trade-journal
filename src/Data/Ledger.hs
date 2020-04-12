@@ -57,7 +57,7 @@ data Instrument
     | FutureOption
     | Bond
     | MoneyMarket
-    deriving (Eq, Ord, Show, Enum)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Instrument
 

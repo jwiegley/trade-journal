@@ -65,11 +65,10 @@ convertPostings :: Text -> API.Transaction
                 -> State OpenTransactions [Ledger.Posting]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings actId t = do
-    xs <- posts <$> case t^.item.API.amount of
+convertPostings actId t =
+    posts <$> case t^.item.API.amount of
         Just _  -> gainsKeeper t lot
         Nothing -> pure []
-    pure xs
   where
     posts cs = -- trace ("Rounding for "
                --        ++ show (t^.transactionOrderId)
@@ -87,9 +86,12 @@ convertPostings actId t = do
         | t^.fees_.commission /= 0 ]
           ++
         (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
-            if | gain < 0  -> [ post CapitalLossShort False (DollarAmount (-gain)) ]
-               | gain > 0  -> [ post CapitalGainShort False (DollarAmount (-gain)) ]
-               | otherwise -> []
+            if | gain < 0  ->
+                 [ post CapitalLossShort False (DollarAmount (gain^.from rounded)) ]
+               | gain > 0  ->
+                 [ post CapitalGainShort False (DollarAmount (gain^.from rounded)) ]
+               | otherwise ->
+                 []
             ++ [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta ])
           ++
         [ case t^.item.API.price of
@@ -122,11 +124,11 @@ convertPostings actId t = do
         & Ledger.price    .~ t^.item.API.price
         & Ledger.quantity .~ getXactAmount t
 
-    rounding :: [(Amount 2, CommodityLot)] -> Amount 2
-    rounding cs = sum (Prelude.map net cs) + t^.netAmount
+    rounding :: [(Amount 6, CommodityLot)] -> Amount 2
+    rounding cs = sum (Prelude.map net cs)^.from rounded + t^.netAmount
 
-    net :: (Amount 2, CommodityLot) -> Amount 2
-    net (g, x) = g + lotCost x^.from rounded
+    net :: (Amount 6, CommodityLot) -> Amount 6
+    net (g, x) = lotCost x - g
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 
