@@ -123,10 +123,10 @@ convertPostings actId t = do
         & Ledger.quantity .~ getXactAmount t
 
     rounding :: [(Amount 2, CommodityLot)] -> Amount 2
-    rounding cs = roundTo $ sum (Prelude.map net cs) + t^.netAmount
+    rounding cs = (sum (Prelude.map net cs) + t^.netAmount)^.from rounded
 
     net :: (Amount 2, CommodityLot) -> Amount 2
-    net (g, x) = g + roundTo (lotCost x)
+    net (g, x) = g + lotCost x^.from rounded
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 

@@ -20,6 +20,11 @@ dependencies:
 
 library:
   source-dirs: src
+  c-sources:
+    - src/Data/mpfr_printf.c
+  extra-libraries:
+    - mpfr
+    - gmp
   exposed-modules:
     - Data.Ledger
     - ThinkOrSwim.API

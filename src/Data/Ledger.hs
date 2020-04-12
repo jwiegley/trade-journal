@@ -161,16 +161,16 @@ renderRefs :: [Ref] -> Text
 renderRefs = T.intercalate "," . map go
   where
     go r = (case r^.refType of
-                WashSaleRule wash -> "WASH[$" <> doubleToText wash <> "]:"
-                RollingOrder roll -> "ROLL[$" <> doubleToText roll <> "]:"
+                WashSaleRule wash -> "WASH[$" <> T.pack (show wash) <> "]:"
+                RollingOrder roll -> "ROLL[$" <> T.pack (show roll) <> "]:"
                 OpeningOrder      -> "") <> T.pack (show (r^.refId))
 
-renderAmount :: PostingAmount -> [Text]
+renderPostingAmount :: PostingAmount -> [Text]
 -- jww (2020-03-29): Need to add commas, properly truncate, etc.
-renderAmount NoAmount = [""]
-renderAmount (DollarAmount amt) = ["$" <> thousands amt]
-renderAmount (CommodityAmount CommodityLot {..}) =
-    [ renderDouble _quantity
+renderPostingAmount NoAmount = [""]
+renderPostingAmount (DollarAmount amt) = ["$" <> thousands amt]
+renderPostingAmount (CommodityAmount CommodityLot {..}) =
+    [ renderAmount _quantity
     , T.pack $ printf "%s%s%s%s%s"
           (if T.all isAlpha _symbol then _symbol else "\"" <> _symbol <> "\"")
           (maybe "" (T.pack . printf " {{$%s}}" . thousands . abs) _cost)
@@ -209,7 +209,7 @@ renderPosting Posting {..} =
     ++ renderMetadata _postMetadata
   where
     act = renderAccount _account
-    xs  = renderAmount _amount
+    xs  = renderPostingAmount _amount
 
 renderMetadata :: Map Text Text -> [Text]
 renderMetadata = Prelude.map go . M.assocs

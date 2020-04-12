@@ -7,43 +7,73 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Data.Amount where
+module Data.Amount
+    ( Amount(..)
+    , _Amount
+    , rounded
+    , thousands
+    , renderAmount
+    ) where
 
+import           Control.Lens
 import           Data.Aeson
+import           Data.Char (isDigit)
+import           Data.Coerce
+import           Data.Int (Int64)
 import           Data.Proxy
+import           Data.Ratio
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Foreign.C.String
+import           Foreign.C.Types
+import           Foreign.Marshal.Alloc
 import           GHC.TypeLits
-import           Numeric.Rounded
 import           Prelude hiding (Float, Double)
-import qualified Prelude
-import           Text.Printf
+import           System.IO.Unsafe
 
-newtype Amount (dec :: Nat) = Amount { getAmount :: Prelude.Double }
-    deriving (Show, Read, Eq, Ord, Num,
-              Floating, Fractional, Real, RealFloat, RealFrac,
-              ToJSON, FromJSON, PrintfArg)
+foreign import ccall unsafe "rational_to_str" rational_to_str
+    :: CLong -> CULong -> CSize -> CString -> IO ()
 
-unroundFrom :: forall n m. (KnownNat n, KnownNat m, n <= m)
-            => Amount n -> Amount m
-unroundFrom = Amount . getAmount
+showAmount :: forall n. KnownNat n => Amount n -> String
+showAmount (Amount r) =
+    unsafePerformIO $ allocaBytes 256 $ \buf -> do
+        rational_to_str
+            (CLong (numerator r))
+            (CULong (fromIntegral (denominator r)))
+            (CSize (fromIntegral (natVal (Proxy :: Proxy n))))
+            buf
+        peekCString buf
 
-roundTo :: forall n m. (KnownNat n, KnownNat m, m <= n)
-        => Amount n -> Amount m
--- roundTo n x = fromIntegral (round (x * (10^n)) :: Int) / 10^n
-roundTo = Amount . go . getAmount
-  where
-    go x =
-        let n = natVal (Proxy :: Proxy m) in
-        toDouble
-         (rint_round_
-          (fromDouble x * (10^n) :: Rounded 'TowardNearest 128)
-            / 10^n :: Rounded 'TowardNearest 128)
+newtype Amount (dec :: Nat) = Amount { getAmount :: Ratio Int64 }
+    deriving (Eq, Ord, Num, Fractional, Real, RealFrac)
 
-doubleToText :: forall n. KnownNat n => Amount n -> Text
-doubleToText =
-    let n = natVal (Proxy :: Proxy n) in
-    cleanup 2 . T.pack . printf ("%0." ++ show n ++ "f") . roundTo @n @n
+instance forall n. KnownNat n => Show (Amount n) where
+    show = T.unpack . amountToText
+
+instance forall n. KnownNat n => Read (Amount n) where
+    readsPrec _d r =
+        let num       = takeWhile isDigit r
+            ('.':den) = dropWhile isDigit r
+            den'      = takeWhile isDigit den
+            rem'      = dropWhile isDigit den
+        in [(Amount (read (num ++ den') % 10 ^ length den'), rem')]
+
+instance forall n. KnownNat n => ToJSON (Amount n) where
+  toJSON = String . T.pack . show
+
+instance forall n. KnownNat n => FromJSON (Amount n) where
+  parseJSON (String s) = pure $ Amount (read (T.unpack s))
+  parseJSON (Number n) = pure $ Amount (fromRational (toRational n))
+  parseJSON v = error $ "Expected Amount, saw: " ++ show v
+
+_Amount :: forall n. KnownNat n => Prism' Text (Amount n)
+_Amount = prism' (T.pack . show) (read . T.unpack)
+
+rounded :: forall n m. (KnownNat n, KnownNat m) => Iso' (Amount n) (Amount m)
+rounded = iso coerce coerce
+
+amountToText :: forall n. KnownNat n => Amount n -> Text
+amountToText = cleanup 2 . T.pack . showAmount
   where
     cleanup m t =
         let len = T.length (last (T.splitOn "." t)) in
@@ -66,7 +96,7 @@ thousands d = T.intercalate "." $
         _ -> False
 
     str | isInt     = T.pack (show (floor d :: Int))
-        | otherwise = doubleToText d
+        | otherwise = amountToText d
 
     go (x:y:z:[])    = x:y:z:[]
     go (x:y:z:['-']) = x:y:z:['-']
@@ -77,7 +107,8 @@ thousands d = T.intercalate "." $
     expand (x:[]) = x:"0"
     expand xs     = xs
 
-renderDouble :: forall n. KnownNat n => Amount n -> Text
-renderDouble d | fromIntegral (floor d :: Int) == d =
-    thousands @0 (roundTo d)
-renderDouble d = thousands d
+renderAmount :: forall n. KnownNat n => Amount n -> Text
+renderAmount d
+    | fromIntegral (floor d :: Int) == d
+    = thousands @0 (d^.from rounded)
+renderAmount d = thousands d

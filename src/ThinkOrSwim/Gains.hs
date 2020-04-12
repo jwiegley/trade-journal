@@ -20,7 +20,7 @@ import Test.Tasty.HUnit
 
 -- import Data.List (intercalate)
 -- import Data.Text (unpack)
-import Debug.Trace
+-- import Debug.Trace
 
 -- The function replicates the logic used by GainsKeeper to determine what
 -- impact a given transaction, based on existing positions, should have on an
@@ -30,7 +30,7 @@ gainsKeeper :: API.Transaction -> CommodityLot
 gainsKeeper t lot = do
     let sym   = lot^.Ledger.symbol
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-        cst   = abs (t^.item.API.cost - unroundFrom fees')
+        cst   = abs (t^.item.API.cost - fees'^.from rounded)
 
     use (at sym) >>= \case
         -- If there are no existing lots, then this is either a purchase or a
@@ -90,13 +90,13 @@ applyLots x y
       || x^.quantity > 0 && y^.quantity > 0 =
     (0.0, (Nothing, Just x), Just y)
 applyLots x y =
-    trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
-    trace ("x^.quantity = " ++ show (x^.quantity))      $
-    trace ("x^.refs     = " ++ show (x^.refs))          $
-    trace ("y^.quantity = " ++ show (y^.quantity))      $
-    trace ("y^.refs     = " ++ show (y^.refs))          $
-    let xcst = roundTo (lotCost x)
-        ycst = roundTo (lotCost y)
+    -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
+    -- trace ("x^.quantity = " ++ show (x^.quantity))      $
+    -- trace ("x^.refs     = " ++ show (x^.refs))          $
+    -- trace ("y^.quantity = " ++ show (y^.quantity))      $
+    -- trace ("y^.refs     = " ++ show (y^.refs))          $
+    let xcst = lotCost x^.from rounded
+        ycst = lotCost y^.from rounded
         xps  = xcst / x^.quantity
         yps  = ycst / y^.quantity
         xq   = abs (x^.quantity)
@@ -110,16 +110,16 @@ applyLots x y =
         gain = - (if | xq < yq   -> n * yps + xc
                      | xq > yq   -> yc + n * xps
                      | otherwise -> yc + xc)
-    in trace ("xcst = " ++ show xcst) $
-       trace ("ycst = " ++ show ycst) $
-       trace ("xps  = " ++ show xps)  $
-       trace ("yps  = " ++ show yps)  $
-       trace ("xq   = " ++ show xq)   $
-       trace ("yq   = " ++ show yq)   $
-       trace ("n    = " ++ show n)    $
-       trace ("gain = " ++ show gain) $
-       trace ("gain = " ++ show (roundTo @6 @2 gain)) $
-       ( roundTo gain
+    in -- trace ("xcst = " ++ show xcst) $
+       -- trace ("ycst = " ++ show ycst) $
+       -- trace ("xps  = " ++ show xps)  $
+       -- trace ("yps  = " ++ show yps)  $
+       -- trace ("xq   = " ++ show xq)   $
+       -- trace ("yq   = " ++ show yq)   $
+       -- trace ("n    = " ++ show n)    $
+       -- trace ("gain = " ++ show gain) $
+       -- trace ("gain = " ++ show (gain^.from (rounded @2))) $
+       ( gain^.from rounded
        , ( Just $ x & quantity     .~ (- xn)
                     & Ledger.cost  ?~ n * abs xps
                     & Ledger.price .~ y^.Ledger.price
@@ -136,21 +136,21 @@ testApplyLots :: TestTree
 testApplyLots = testGroup "Gains"
     [ testCase "12@@300 `applyLots` -10@@500" $
       (12@@300) `applyLots` ((-10)@@500)
-          @?= ( roundTo @2 (10.0 * ((500 / 10) - (300 / 12)))
+          @?= ( (10.0 * ((500 / 10) - (300 / 12)))^.from (rounded @2 @2)
               , ( Just ((-10)@@(10 * (300/12)))
                 , Just (2@@(2 * (300/12))))
               , Nothing)
 
     , testCase "10@@500 `applyLots` -12@@300" $
       (10@@500) `applyLots` ((-12)@@300)
-          @?= ( roundTo @2 (10.0 * ((300 / 12) - (500 / 10)))
+          @?= ( (10.0 * ((300 / 12) - (500 / 10)))^.from (rounded @2 @2)
               , ( Just ((-10)@@(10 * (500/10)))
                 , Nothing)
               , Just ((-2)@@(2 * (300/12))))
 
     , testCase "12@@500 `applyLots` -10@@300" $
       (12@@500) `applyLots` ((-10)@@300)
-          @?= ( roundTo @2 (10.0 * ((300 / 10) - (500 / 12)))
+          @?= ( (10.0 * ((300 / 10) - (500 / 12)))^.from (rounded @2 @2)
               , ( Just ((-10)@@(10 * (500/12)))
                 , Just (2@@(2 * (500/12))))
               , Nothing)
@@ -171,7 +171,7 @@ testApplyLots = testGroup "Gains"
 
     , testCase "-10@@500 `applyLots` 12@@300" $
       ((-10)@@500) `applyLots` (12@@300)
-          @?= ( roundTo @2 ((-10.0) * ((300 / 12) - (500 / 10)))
+          @?= ( ((-10.0) * ((300 / 12) - (500 / 10)))^.from (rounded @2 @2)
               , ( Just (10@@(10 * (500/10)))
                 , Nothing)
               , Just (2@@(2 * (300/12))))

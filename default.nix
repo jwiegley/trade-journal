@@ -93,6 +93,8 @@ haskellPackages.developPackage rec {
       coq.ocaml
       coq.camlp5
       coq.findlib
+      pkgs.mpfr.out
+      pkgs.mpfr.dev
     ];
 
     enableLibraryProfiling = doProfiling;
