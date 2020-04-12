@@ -90,56 +90,56 @@ applyLot x y
       || x^.quantity > 0 && y^.quantity > 0 =
     LotApplied 0.0 Nothing (Just x) (Just y)
 applyLot x y =
-    -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
-    -- trace ("x^.quantity = " ++ show (x^.quantity))      $
-    -- trace ("x^.refs     = " ++ show (x^.refs))          $
-    -- trace ("y^.quantity = " ++ show (y^.quantity))      $
-    -- trace ("y^.refs     = " ++ show (y^.refs))          $
-    let xcst = lotCost x^.from rounded
-        ycst = lotCost y^.from rounded
-        xps  = xcst / x^.quantity
-        yps  = ycst / y^.quantity
-        xq   = abs (x^.quantity)
-        yq   = abs (y^.quantity)
-        n    = min xq yq
-        sign = \l -> if l^.quantity < 0 then negate else id
-        xn   = sign x n
-        yn   = sign y n
-        xc   = sign x xcst
-        yc   = sign y ycst
-        gain :: Amount 6
-        gain = if | xq < yq   -> n * yps + xc
-                  | xq > yq   -> yc + n * xps
-                  | otherwise -> yc + xc
-        used = Just $ x & quantity     .~ (- xn)
-               & Ledger.cost  ?~ n * abs xps
-               & Ledger.price .~ y^.Ledger.price
-        kept = if n < xq
-               then Just $ x & quantity    -~ xn
-                             & Ledger.cost ?~ (xq - n) * abs xps
-               else Nothing
-        left = if n < yq
-               then Just $ y & quantity    -~ yn
-                             & Ledger.cost ?~ (yq - n) * abs yps
-               else Nothing
-    in -- trace ("xcst = " ++ show xcst) $
-       -- trace ("ycst = " ++ show ycst) $
-       -- trace ("xps  = " ++ show xps)  $
-       -- trace ("yps  = " ++ show yps)  $
-       -- trace ("xq   = " ++ show xq)   $
-       -- trace ("yq   = " ++ show yq)   $
-       -- trace ("n    = " ++ show n)    $
-       -- trace ("gain = " ++ show gain) $
-       -- trace ("gain = " ++ show (gain^.from (rounded @2))) $
-       LotApplied {..}
+    -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol))        $
+    -- trace ("x^.quantity = " ++ show (x^.quantity))             $
+    -- trace ("x^.refs     = " ++ show (x^.refs))                 $
+    -- trace ("y^.quantity = " ++ show (y^.quantity))             $
+    -- trace ("y^.refs     = " ++ show (y^.refs))                 $
+    -- trace ("xcst        = " ++ show xcst)                      $
+    -- trace ("ycst        = " ++ show ycst)                      $
+    -- trace ("xps         = " ++ show xps)                       $
+    -- trace ("yps         = " ++ show yps)                       $
+    -- trace ("xq          = " ++ show xq)                        $
+    -- trace ("yq          = " ++ show yq)                        $
+    -- trace ("n           = " ++ show n)                         $
+    -- trace ("gain        = " ++ show gain)                      $
+    -- trace ("gain        = " ++ show (gain^.from (rounded @2))) $
+    LotApplied {..}
+  where
+    sign l | l^.quantity < 0 = negate
+           | otherwise = id
 
-fifo :: (Maybe CommodityLot, [(Amount 6, CommodityLot)], [CommodityLot])
-     -> CommodityLot
-     -> (Maybe CommodityLot, [(Amount 6, CommodityLot)], [CommodityLot])
-fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
-fifo (Just l, res, keep) x =
-    let LotApplied {..} = x `applyLot` l
-    in (left, maybe res ((:res) . (gain,)) used, maybe keep (:keep) kept)
+    xcst = lotCost x^.from rounded
+    ycst = lotCost y^.from rounded
+    xps  = xcst / x^.quantity
+    yps  = ycst / y^.quantity
+    xq   = abs (x^.quantity)
+    yq   = abs (y^.quantity)
+    n    = min xq yq
+    xn   = sign x n
+    yn   = sign y n
+    xc   = sign x xcst
+    yc   = sign y ycst
+
+    gain :: Amount 6
+    gain | xq < yq   = n * yps + xc
+         | xq > yq   = yc + n * xps
+         | otherwise = yc + xc
+
+    used = Just $
+        x & quantity     .~ (- xn)
+          & Ledger.cost  ?~ n * abs xps
+          & Ledger.price .~ y^.Ledger.price
+
+    kept | n < xq =
+           Just $ x & quantity    -~ xn
+                    & Ledger.cost ?~ (xq - n) * abs xps
+         | otherwise = Nothing
+
+    left | n < yq =
+           Just $ y & quantity    -~ yn
+                    & Ledger.cost ?~ (yq - n) * abs yps
+         | otherwise = Nothing
 
 calculateGains :: CommodityLot -> [CommodityLot]
                -> ([(Amount 6, CommodityLot)], [CommodityLot])
@@ -147,3 +147,12 @@ calculateGains l ls =
     let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
     in (maybe (reverse xs) (reverse . (:xs) . (0,)) x,
         maybe (reverse ys) (reverse . (:ys)) x)
+  where
+    fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
+    fifo (Just z, res, keep) x =
+        ( left
+        , maybe res ((:res) . (gain,)) used
+        , maybe keep (:keep) kept
+        )
+      where
+        LotApplied {..} = x `applyLot` z
