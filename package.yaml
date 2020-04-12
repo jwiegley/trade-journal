@@ -11,12 +11,14 @@ dependencies:
   - bytestring
   - containers
   - lens
+  - mtl
   - pretty-show
   - servant
   - servant-client
   - text
   - time
   - uri-encode
+  - vector
 
 library:
   source-dirs: src
@@ -26,20 +28,21 @@ library:
     - mpfr
     - gmp
   exposed-modules:
+    - Data.Amount
     - Data.Ledger
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
     - ThinkOrSwim.Gains
-  dependencies:
-    - megaparsec
-    - reflection
-    - tagged
-    - vector
-    - mtl
-    - rounded
-    - tasty
-    - tasty-hunit
+
+tests:
+  thinkorswim-tests:
+    main: Main.hs
+    source-dirs: tests
+    dependencies:
+      - thinkorswim
+      - tasty
+      - tasty-hunit
 
 executables:
   thinkorswim:

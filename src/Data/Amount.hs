@@ -45,7 +45,10 @@ showAmount (Amount r) =
         peekCString buf
 
 newtype Amount (dec :: Nat) = Amount { getAmount :: Ratio Int64 }
-    deriving (Eq, Ord, Num, Fractional, Real, RealFrac)
+    deriving (Ord, Num, Fractional, Real, RealFrac)
+
+instance forall n. KnownNat n => Eq (Amount n) where
+    x == y = show x == show y
 
 instance forall n. KnownNat n => Show (Amount n) where
     show = T.unpack . amountToText
