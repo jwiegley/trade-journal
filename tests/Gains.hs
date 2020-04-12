@@ -111,6 +111,7 @@ testApplyLots = testGroup "Gains"
     --           === lotCost x
     ]
 
+{-
 genAmount :: MonadGen m => m (Amount n)
 genAmount = Amount <$> liftM2 (%)
     (integral (Range.constantFrom 100 (-1000) 1000))
@@ -136,3 +137,4 @@ genUTCTime = do
     secs <- toInteger <$> Gen.int (Range.constant 0 86401)
     let delta = secondsToDiffTime secs
     pure $ UTCTime day delta
+-}
