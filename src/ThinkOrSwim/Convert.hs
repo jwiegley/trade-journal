@@ -140,7 +140,7 @@ convertPostings actId t =
         & at "CUSIP"       .~ t^?instr._Just.cusip
         & at "Instrument"  .~ t^?instr._Just.assetType.to assetKind
         & at "Side"        .~ t^?option'.putCall.to show.packed
-        & at "Strike"      .~ t^?option'.strikePrice._Just.to thousands
+        & at "Strike"      .~ t^?option'.strikePrice._Just.to thousands.packed
         & at "Expiration"  .~ t^?option'.expirationDate.to iso8601
         & at "Contract"    .~ t^?option'.description
 

@@ -9,7 +9,7 @@ int stream_out_mpq(
   size_t     precision,
   int        zeros_prec /* = -1 */,
   mpfr_rnd_t rnd /* = GMP_RNDN */,
-  char *     buf)
+  char **    bufPtr)
 {
   static const size_t extend_by_digits = 6U;
 
@@ -45,12 +45,14 @@ int stream_out_mpq(
   mpfr_set_prec(tempfb, num_prec + den_prec);
   mpfr_div(tempfb, tempfnum, tempfden, rnd);
 
-  if (mpfr_sprintf(buf, "%.*RNf", precision, tempfb) < 0) {
+  if (mpfr_asprintf(bufPtr, "%.*RNf", precision, tempfb) < 0) {
     mpfr_clear(tempfb);
     mpfr_clear(tempfnum);
     mpfr_clear(tempfden);
     return -1;
   }
+
+  char * buf = *bufPtr;
 
   if (zeros_prec >= 0) {
     size_t index = strlen(buf);
@@ -78,22 +80,15 @@ int stream_out_mpq(
   return 0;
 }
 
-void rational_to_str(long num, unsigned long den, size_t prec, char * buf)
+void rational_to_str(
+  signed long num,
+  unsigned long den,
+  size_t prec,
+  char ** bufPtr)
 {
   mpq_t val;
   mpq_init(val);
   mpq_set_si(val, num, den);
-  stream_out_mpq(val, prec, -1, GMP_RNDN, buf);
+  stream_out_mpq(val, prec, -1, GMP_RNDN, bufPtr);
   mpq_clear(val);
 }
-
-/*
-int main(int argc, char *argv[])
-{
-  char buf[256];
-  rational_to_str(1243849999999984, 10000000000000, 2, buf);
-  printf("%s\n", buf);
-  rational_to_str(124385, 1000, 2, buf);
-  printf("%s\n", buf);
-}
-*/

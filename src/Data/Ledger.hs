@@ -168,9 +168,9 @@ renderRefs = T.intercalate "," . map go
 renderPostingAmount :: PostingAmount -> [Text]
 -- jww (2020-03-29): Need to add commas, properly truncate, etc.
 renderPostingAmount NoAmount = [""]
-renderPostingAmount (DollarAmount amt) = ["$" <> thousands amt]
+renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
 renderPostingAmount (CommodityAmount CommodityLot {..}) =
-    [ renderAmount _quantity
+    [ T.pack (renderAmount _quantity)
     , T.pack $ printf "%s%s%s%s%s"
           (if T.all isAlpha _symbol then _symbol else "\"" <> _symbol <> "\"")
           (maybe "" (T.pack . printf " {{$%s}}" . thousands . abs) _cost)
