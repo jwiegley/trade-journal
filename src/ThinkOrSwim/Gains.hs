@@ -123,9 +123,10 @@ data LotApplied t = LotApplied
     }
     deriving (Eq, Ord, Show)
 
-isExpiringOption :: CommodityLot API.Transaction -> Bool
-isExpiringOption y = case y^.refs of
-    [r] | r^.refOrig.transactionInfo_.transactionSubType == OptionExpiration -> True
+isTransactionSubType :: TransactionSubType -> CommodityLot API.Transaction
+                     -> Bool
+isTransactionSubType subty y = case y^.refs of
+    [r] | r^.refOrig.transactionInfo_.transactionSubType == subty -> True
     _ -> False
 
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
@@ -138,7 +139,8 @@ applyLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
          -> LotApplied API.Transaction
 applyLot x y
     |   x^.quantity < 0 && y^.quantity < 0
-      || (x^.quantity > 0 && y^.quantity > 0 && not (isExpiringOption y)) =
+      || (  x^.quantity > 0 && y^.quantity > 0
+         && not (isTransactionSubType OptionExpiration y)) =
     LotApplied 0.0 Nothing (Just x) (Just y)
 applyLot x y' =
     -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
@@ -162,7 +164,7 @@ applyLot x y' =
     sign l | l^.quantity < 0 = negate
            | otherwise = id
 
-    y | isExpiringOption y' = y' & quantity %~ negate
+    y | isTransactionSubType OptionExpiration y' = y' & quantity %~ negate
       | otherwise = y'
 
     xcst = lotCost x
@@ -178,7 +180,9 @@ applyLot x y' =
     yn   = sign y n
 
     gain :: Amount 2
-    gain = coerce (normalizeAmount mpfr_RNDN (coerce go :: Amount 3))
+    gain | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
+         | otherwise =
+           coerce (normalizeAmount mpfr_RNDN (coerce go :: Amount 3))
       where
         go | xq < yq   = n * yps + xc
            | xq > yq   = yc + n * xps
