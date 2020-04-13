@@ -29,25 +29,29 @@ gainsKeeper :: API.Transaction -> CommodityLot
 gainsKeeper t lot = do
     let sym   = lot^.Ledger.symbol
         cst   = abs (t^.item.API.cost)
-    res <- use (at sym) >>= \case
+        fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
+        nog   = fmap (0,)
+
+    use (at sym) >>= \case
         -- If there are no existing lots, then this is either a purchase or a
         -- short sale.
         Nothing -> do
-            let l = lot' cst
-            let keep = if l^.quantity /= 0 then [l] else []
+            let l = lot' (coerce cst)
+                ls = if l^.quantity /= 0 then [l] else []
+                keep = handleFees fees' (nog ls)
             -- traceM (unpack sym ++ ": // ["
-            --         ++ intercalate "," (map showCommodityLot keep)
+            --         ++ intercalate "," (map (showCommodityLot . snd) keep)
             --         ++ "]")
-            at sym .= case keep of [] -> Nothing; xs -> Just xs
-            pure $ (0,) <$> keep
+            at sym .= case keep of [] -> Nothing; xs -> Just (map snd xs)
+            pure keep
 
         -- If there are existing lots for this symbol, then if the current
         -- would add to or deduct from those positions, then it closes as much
         -- of that previous positions as quantities dictate.
         Just ls -> do
-            let (res, keep) = calculateGains (lot' cst) ls
+            let (res, keep) = calculateGains (lot' (coerce cst)) ls
             -- traceM (unpack sym ++ ": calculateGains ("
-            --         ++ showCommodityLot (lot' cst)
+            --         ++ showCommodityLot (lot' (coerce cst))
             --         ++ ") ["
             --         ++ intercalate "," (map showCommodityLot ls)
             --         ++ "]\n"
@@ -56,11 +60,11 @@ gainsKeeper t lot = do
             --         ++ " // ["
             --         ++ intercalate "," (map showCommodityLot keep)
             --         ++ "]")
-            at sym .= case keep of [] -> Nothing; xs -> Just xs
-            pure res
-
-    let fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-    pure $ handleFees fees' res
+            at sym .= case keep of
+                [] -> Nothing
+                xs | null res  -> Just (map snd (handleFees fees' (nog xs)))
+                   | otherwise -> Just xs
+            pure $ handleFees fees' res
   where
     lot' cst = lot
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
@@ -74,9 +78,9 @@ gainsKeeper t lot = do
 -- instances of .01. See tests for examples.
 handleFees :: Amount 2 -> [(Amount 2, CommodityLot)] -> [(Amount 2, CommodityLot)]
 handleFees _ [] = []
-handleFees fee [(0.0, x)]
-    | x^.quantity < 0 = [(0.0, x & Ledger.cost.mapped -~ coerce fee)]
-    | otherwise       = [(0.0, x & Ledger.cost.mapped +~ coerce fee)]
+-- handleFees fee [(0.0, x)]
+--     | x^.quantity < 0 = [(0.0, x & Ledger.cost.mapped -~ coerce fee)]
+--     | otherwise       = [(0.0, x & Ledger.cost.mapped +~ coerce fee)]
 handleFees fee lots = go True lots
   where
     shares = sum (map (^._2.quantity) lots)
@@ -95,7 +99,7 @@ handleFees fee lots = go True lots
     sumOfParts :: CommodityLot -> Amount 2
     sumOfParts l = normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
 
-(@@) :: Amount 6 -> Amount 6 -> CommodityLot
+(@@) :: Amount 4 -> Amount 4 -> CommodityLot
 q @@ c = newCommodityLot & quantity .~ q & Ledger.cost ?~ c
 
 data LotApplied = LotApplied

@@ -63,24 +63,24 @@ makePrisms ''Instrument
 
 data CommodityLot = CommodityLot
     { _instrument   :: Instrument
-    , _quantity     :: Amount 6
+    , _quantity     :: Amount 4
     , _symbol       :: Text
-    , _cost         :: Maybe (Amount 6)
+    , _cost         :: Maybe (Amount 4)
     , _purchaseDate :: Maybe UTCTime
     , _refs         :: [Ref]
-    , _price        :: Maybe (Amount 6)
+    , _price        :: Maybe (Amount 4)
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''CommodityLot
 
-lotPrice :: CommodityLot -> Maybe (Amount 6)
+lotPrice :: CommodityLot -> Maybe (Amount 4)
 lotPrice l = do
     guard $ l^.instrument == Stock
     p <- l^.price
     pure $ if l^.quantity < 0 then (-p) else p
 
-lotCost :: CommodityLot -> Amount 6
+lotCost :: CommodityLot -> Amount 4
 lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
 newCommodityLot :: CommodityLot

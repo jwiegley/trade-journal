@@ -104,7 +104,7 @@ testApplyLots = testGroup "Gains"
 
     , testCase "handleFees opening position" $
       handleFees 0.81 [(0.0, 100 @@ 1000.00)]
-          @?= [(0.0, 100 @@ 1000.81)]
+          @?= [(0.81, 100 @@ 1000.00)]
 
     , testCase "handleFees closing single position" $
       handleFees 0.81 [(199.19, (-100) @@ 1000.81)]

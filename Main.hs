@@ -90,16 +90,17 @@ main = do
             downloadTransactions (T.pack (Main.account opts)) (T.pack key)
                 =<< createManager
 
-    let priceData = M.empty
-            & at "ZM"   ?~
+    let addLots xs = xs ++ Prelude.map (& quantity %~ negate) xs
+        priceData = M.empty
+            & at "ZM"   ?~ addLots
                 [ lot Stock (-140) "ZM"  99.7792 "2019-06-24"
                 , lot Stock (- 10) "ZM"  89.785  "2019-06-24"
                 , lot Stock (- 30) "ZM" 106.68   "2019-06-24"
                 , lot Stock (-170) "ZM"  85.8415 "2019-06-25" ]
-            & at "CRWD" ?~
+            & at "CRWD" ?~ addLots
                 [ lot Stock (-140) "CRWD" 73.7914 "2019-06-20"
                 , lot Stock (-140) "CRWD" 69.683  "2019-06-21" ]
-            & at "WORK" ?~
+            & at "WORK" ?~ addLots
                 [ lot Stock (-250) "WORK" 38.97284 "2019-06-20" ]
 
     Prelude.putStrLn "; -*- ledger -*-"
@@ -113,7 +114,7 @@ main = do
         { _instrument    = i
         , _quantity      = q
         , Ledger._symbol = s
-        , Ledger._cost   = Just (q * p)
+        , Ledger._cost   = Just (abs (q * p))
         , _purchaseDate  = Just (parseTimeOrError False defaultTimeLocale "%Y-%m-%d" d)
         , _refs          = []
         , Ledger._price  = Just p

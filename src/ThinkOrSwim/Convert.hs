@@ -12,6 +12,7 @@ module ThinkOrSwim.Convert (convertTransactions) where
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
+import           Data.Coerce
 import           Data.Ledger as Ledger
 import qualified Data.Map as M
 import           Data.Maybe (isNothing)
@@ -113,8 +114,8 @@ convertPostings actId t =
             Nothing                   -> error "Unexpected"
 
         & Ledger.symbol   .~ symbolName t
-        & Ledger.price    .~ t^.item.API.price
-        & Ledger.quantity .~ getXactAmount t
+        & Ledger.price    .~ coerce (t^.item.API.price)
+        & Ledger.quantity .~ coerce (getXactAmount t)
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 
