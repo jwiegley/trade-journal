@@ -25,13 +25,11 @@ import ThinkOrSwim.Types
 -- what impact a given transaction, based on existing positions, should have
 -- on an account.
 gainsKeeper :: API.Transaction -> CommodityLot
-            -> State OpenTransactions [(Amount 6, CommodityLot)]
+            -> State OpenTransactions [(Amount 2, CommodityLot)]
 gainsKeeper t lot = do
     let sym   = lot^.Ledger.symbol
-        fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-        cst   = abs (t^.item.API.cost - coerce fees')
-
-    use (at sym) >>= \case
+        cst   = abs (t^.item.API.cost)
+    res <- use (at sym) >>= \case
         -- If there are no existing lots, then this is either a purchase or a
         -- short sale.
         Nothing -> do
@@ -60,19 +58,48 @@ gainsKeeper t lot = do
             --         ++ "]")
             at sym .= case keep of [] -> Nothing; xs -> Just xs
             pure res
+
+    let fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
+    pure $ handleFees fees' res
   where
     lot' cst = lot
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
         & purchaseDate ?~ t^.xactDate
         & refs         .~ [Ref OpeningOrder (t^.xactId)]
 
+-- Handling fees is a touch tricky, since if we end up closing multiple
+-- positions via a single sale or purchase, the fees must be applied evenly
+-- across all of them. Yet if the fee is odd, we must carry the remaining
+-- penny, since otherwise .03 divided by 2 (for example) will round to two
+-- instances of .01. See tests for examples.
+handleFees :: Amount 2 -> [(Amount 2, CommodityLot)] -> [(Amount 2, CommodityLot)]
+handleFees _ [] = []
+handleFees fee [(0.0, x)]
+    | x^.quantity < 0 = [(0.0, x & Ledger.cost.mapped -~ coerce fee)]
+    | otherwise       = [(0.0, x & Ledger.cost.mapped +~ coerce fee)]
+handleFees fee lots = go True lots
+  where
+    shares = sum (map (^._2.quantity) lots)
+    perShare = coerce fee / shares
+
+    go :: Bool -> [(Amount 2, CommodityLot)] -> [(Amount 2, CommodityLot)]
+    go _ [] = []
+    go b ((g, x):xs) =
+        ( normalizeAmount mpfr_RNDNA g +
+          normalizeAmount mpfr_RNDZ (sumOfParts x + if b then diff else 0)
+        , x
+        ) : go False xs
+      where
+        diff = fee - sum (map (sumOfParts . snd) lots)
+
+    sumOfParts :: CommodityLot -> Amount 2
+    sumOfParts l = normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
+
 (@@) :: Amount 6 -> Amount 6 -> CommodityLot
-q @@ c = newCommodityLot
-    & quantity .~ q
-    & Ledger.cost ?~ c
+q @@ c = newCommodityLot & quantity .~ q & Ledger.cost ?~ c
 
 data LotApplied = LotApplied
-    { gain :: Amount 6
+    { gain :: Amount 2
     , used :: Maybe CommodityLot -- the portion subtracted out
     , kept :: Maybe CommodityLot -- what remains
     , left :: Maybe CommodityLot -- the portion unsubtracted
@@ -91,20 +118,22 @@ applyLot x y
       || x^.quantity > 0 && y^.quantity > 0 =
     LotApplied 0.0 Nothing (Just x) (Just y)
 applyLot x y =
-    -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol))        $
-    -- trace ("x^.quantity = " ++ show (x^.quantity))             $
-    -- trace ("x^.refs     = " ++ show (x^.refs))                 $
-    -- trace ("y^.quantity = " ++ show (y^.quantity))             $
-    -- trace ("y^.refs     = " ++ show (y^.refs))                 $
-    -- trace ("xcst        = " ++ show xcst)                      $
-    -- trace ("ycst        = " ++ show ycst)                      $
-    -- trace ("xps         = " ++ show xps)                       $
-    -- trace ("yps         = " ++ show yps)                       $
-    -- trace ("xq          = " ++ show xq)                        $
-    -- trace ("yq          = " ++ show yq)                        $
-    -- trace ("n           = " ++ show n)                         $
-    -- trace ("gain        = " ++ show gain)                      $
-    -- trace ("gain        = " ++ show (gain^.from (rounded @2))) $
+    -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
+    -- trace ("x^.quantity = " ++ show (x^.quantity)) $
+    -- trace ("x^.refs     = " ++ show (x^.refs)) $
+    -- trace ("y^.quantity = " ++ show (y^.quantity)) $
+    -- trace ("y^.refs     = " ++ show (y^.refs)) $
+    -- trace ("xcst        = " ++ show xcst) $
+    -- trace ("ycst        = " ++ show ycst) $
+    -- trace ("xc          = " ++ show xc) $
+    -- trace ("yc          = " ++ show yc) $
+    -- trace ("xps         = " ++ show xps) $
+    -- trace ("yps         = " ++ show yps) $
+    -- trace ("xq          = " ++ show xq) $
+    -- trace ("yq          = " ++ show yq) $
+    -- trace ("n           = " ++ show n) $
+    -- trace ("n * yps     = " ++ show (n * yps)) $
+    -- trace ("gain        = " ++ show gain) $
     LotApplied {..}
   where
     sign l | l^.quantity < 0 = negate
@@ -112,6 +141,8 @@ applyLot x y =
 
     xcst = lotCost x
     ycst = lotCost y
+    xc   = sign x xcst
+    yc   = sign y ycst
     xps  = xcst / x^.quantity
     yps  = ycst / y^.quantity
     xq   = abs (x^.quantity)
@@ -119,13 +150,13 @@ applyLot x y =
     n    = min xq yq
     xn   = sign x n
     yn   = sign y n
-    xc   = sign x xcst
-    yc   = sign y ycst
 
-    gain :: Amount 6
-    gain | xq < yq   = n * yps + xc
-         | xq > yq   = yc + n * xps
-         | otherwise = yc + xc
+    gain :: Amount 2
+    gain = coerce (normalizeAmount mpfr_RNDN (coerce go :: Amount 3))
+      where
+        go | xq < yq   = n * yps + xc
+           | xq > yq   = yc + n * xps
+           | otherwise = yc + xc
 
     used = Just $
         x & quantity     .~ (- xn)
@@ -143,7 +174,7 @@ applyLot x y =
          | otherwise = Nothing
 
 calculateGains :: CommodityLot -> [CommodityLot]
-               -> ([(Amount 6, CommodityLot)], [CommodityLot])
+               -> ([(Amount 2, CommodityLot)], [CommodityLot])
 calculateGains l ls =
     let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
     in (maybe (reverse xs) (reverse . (:xs) . (0,)) x,

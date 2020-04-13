@@ -233,3 +233,6 @@ Definition Exercise (strat : Strategy) (price value : Amount) : Settlement :=
 (** jww (2020-04-10): Define the concept of risk/reward equivalence. *)
 
 Definition RiskEquivalent (x y : Strategy) : Prop := True.
+
+Theorem NakedPut ... =~ CoveredCall ...
+

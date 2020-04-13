@@ -14,6 +14,15 @@ module Data.Amount
     , rounded
     , thousands
     , renderAmount
+    , normalizeAmount
+    , showAmount
+    , mpfr_RNDN
+    , mpfr_RNDZ
+    , mpfr_RNDU
+    , mpfr_RNDD
+    , mpfr_RNDA
+    , mpfr_RNDF
+    , mpfr_RNDNA
     ) where
 
 import Data.Aeson
@@ -35,27 +44,31 @@ import GHC.TypeLits
 import Prelude hiding (Float, Double)
 import System.IO.Unsafe
 
--- mpfr_RNDN = 0       -- round to nearest, with ties to even
--- mpfr_RNDZ = 1       -- round toward zero
--- mpfr_RNDU = 2       -- round toward +Inf
--- mpfr_RNDD = 3       -- round toward -Inf
--- mpfr_RNDA = 4       -- round away from zero
--- mpfr_RNDF = 5       -- faithful rounding
--- mpfr_RNDNA = 6      -- round to nearest, with ties away from zero (mpfr_round)
+mpfr_RNDN, mpfr_RNDZ, mpfr_RNDU, mpfr_RNDD, mpfr_RNDA, mpfr_RNDF :: CUInt
+mpfr_RNDNA :: CUInt
+
+mpfr_RNDN = 0       -- round to nearest, with ties to even
+mpfr_RNDZ = 1       -- round toward zero
+mpfr_RNDU = 2       -- round toward +Inf
+mpfr_RNDD = 3       -- round toward -Inf
+mpfr_RNDA = 4       -- round away from zero
+mpfr_RNDF = 5       -- faithful rounding
+mpfr_RNDNA = 6      -- round to nearest, with ties away from zero (mpfr_round)
 
 foreign import ccall unsafe "mpfr_free_str" c'mpfr_free_str :: CString -> IO ()
 foreign import ccall unsafe "rational_to_str" c'rational_to_str
-    :: CLong -> CULong -> CSize -> Ptr CString -> IO ()
+    :: CLong -> CULong -> CUInt -> CSize -> Ptr CString -> IO ()
 
 newtype Amount (dec :: Nat) = Amount { getAmount :: Ratio Int64 }
     deriving (Ord, Num, Fractional, Real, RealFrac)
 
-showAmount :: forall n. KnownNat n => Amount n -> String
-showAmount (Amount r) =
+showAmount :: forall n. KnownNat n => CUInt -> Amount n -> String
+showAmount rnd (Amount r) =
     unsafePerformIO $ alloca $ \bufPtr -> do
         c'rational_to_str
             (CLong (numerator r))
             (CULong (fromIntegral (denominator r)))
+            rnd
             (CSize (fromIntegral (natVal (Proxy :: Proxy n))))
             bufPtr
         buf <- peek bufPtr
@@ -101,7 +114,7 @@ rounded :: forall m n p f. (Profunctor p, Functor f)
 rounded = dimap coerce (fmap coerce)
 
 amountToString :: forall n. KnownNat n => Amount n -> String
-amountToString = cleanup 2 . showAmount
+amountToString = cleanup 2 . showAmount mpfr_RNDNA
   where
     cleanup m t =
         let len = length (last (splitOn "." t)) in
@@ -134,8 +147,11 @@ thousands d = intercalate "." $ case splitOn "." str of
     expand (x:[]) = x:"0"
     expand xs     = xs
 
-renderAmount :: forall n. KnownNat n => Amount n -> String
+renderAmount :: KnownNat n => Amount n -> String
 renderAmount d
     | fromIntegral (floor d :: Int) == d
     = thousands @0 (coerce d)
 renderAmount d = thousands d
+
+normalizeAmount :: KnownNat n => CUInt -> Amount n -> Amount n
+normalizeAmount = (read .) . showAmount

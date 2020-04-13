@@ -12,7 +12,6 @@ module ThinkOrSwim.Convert (convertTransactions) where
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
-import           Data.Coerce
 import           Data.Ledger as Ledger
 import qualified Data.Map as M
 import           Data.Maybe (isNothing)
@@ -48,7 +47,7 @@ convertTransaction m (sd, getOrder m -> o) = do
         _payee         = o^.orderDescription
         _xactMetadata  =
             M.empty & at "Type"   ?~ T.pack (show (o^.orderType))
-                    & at "Symbol" ?~ underlying
+                    & at "Symbol" .~ case underlying of "" -> Nothing; s -> Just s
         _provenance    = o
     _postings <-
         Prelude.concat <$> mapM
@@ -71,12 +70,7 @@ convertPostings actId t =
         Just _  -> gainsKeeper t lot
         Nothing -> pure []
   where
-    posts cs = -- trace ("Rounding for "
-               --        ++ show (t^.transactionOrderId)
-               --        ++ " @ "  ++ T.unpack (thousands 2 (Right (t^.netAmount)))
-               --        ++ " = "  ++ T.unpack (thousands 2 (Right roundingError))
-               --        ++ " <= " ++ show (Prelude.map (thousands 2 . Right . net) cs)
-               --        ++ " == " ++ T.unpack (thousands 2 (Right (sum (Prelude.map net cs))))) $
+    posts cs =
         [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
         | t^.fees_.regFee /= 0 ]
           ++
@@ -88,9 +82,9 @@ convertPostings actId t =
           ++
         (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
             if | gain < 0  ->
-                 [ post CapitalLossShort False (DollarAmount (coerce gain)) ]
+                 [ post CapitalLossShort False (DollarAmount gain) ]
                | gain > 0  ->
-                 [ post CapitalGainShort False (DollarAmount (coerce gain)) ]
+                 [ post CapitalGainShort False (DollarAmount gain) ]
                | otherwise ->
                  []
             ++ [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta ])
@@ -104,12 +98,9 @@ convertPostings actId t =
               Nothing -> not fromEquity ]
           ++
         [ post OpeningBalances False NoAmount
-        | isNothing (t^.item.API.amount) || fromEquity ]
-          ++
-        [ post RoundingError False (DollarAmount roundingError)
-        | roundingError /= 0 && abs roundingError < 0.05 ]
-      where
-        roundingError = rounding cs
+        | needsBalancingPost ]
+
+    needsBalancingPost = isNothing (t^.item.API.amount) || fromEquity
 
     lot = newCommodityLot
         & Ledger.instrument .~ case atype of
@@ -124,12 +115,6 @@ convertPostings actId t =
         & Ledger.symbol   .~ symbolName t
         & Ledger.price    .~ t^.item.API.price
         & Ledger.quantity .~ getXactAmount t
-
-    rounding :: [(Amount 6, CommodityLot)] -> Amount 2
-    rounding cs = coerce (sum (Prelude.map net cs)) + t^.netAmount
-
-    net :: (Amount 6, CommodityLot) -> Amount 6
-    net (g, x) = lotCost x - g
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 

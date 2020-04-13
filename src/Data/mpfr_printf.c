@@ -83,12 +83,13 @@ int stream_out_mpq(
 void rational_to_str(
   signed long num,
   unsigned long den,
+  unsigned int rnd_mode,
   size_t prec,
   char ** bufPtr)
 {
   mpq_t val;
   mpq_init(val);
   mpq_set_si(val, num, den);
-  stream_out_mpq(val, prec, -1, GMP_RNDN, bufPtr);
+  stream_out_mpq(val, prec, -1, rnd_mode, bufPtr);
   mpq_clear(val);
 }

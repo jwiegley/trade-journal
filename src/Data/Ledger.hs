@@ -76,7 +76,7 @@ makeClassy ''CommodityLot
 
 lotPrice :: CommodityLot -> Maybe (Amount 6)
 lotPrice l = do
-    guard $ l^.instrument `notElem` [ Option, FutureOption ]
+    guard $ l^.instrument == Stock
     p <- l^.price
     pure $ if l^.quantity < 0 then (-p) else p
 

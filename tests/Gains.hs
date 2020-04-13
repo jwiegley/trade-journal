@@ -8,15 +8,15 @@
 module Gains where
 
 import Control.Lens
-import Control.Monad
+-- import Control.Monad
 import Data.Amount
-import Data.Ledger
+-- import Data.Ledger
 -- import Data.Maybe (isJust)
-import Data.Ratio
-import Data.Time
-import Hedgehog
-import Hedgehog.Gen as Gen
-import Hedgehog.Range as Range
+-- import Data.Ratio
+-- import Data.Time
+-- import Hedgehog
+-- import Hedgehog.Gen as Gen
+-- import Hedgehog.Range as Range
 import Test.Tasty
 import Test.Tasty.HUnit
 -- import Test.Tasty.Hedgehog
@@ -27,7 +27,7 @@ testApplyLots = testGroup "Gains"
     [ testCase "12@@300 `applyLots` -10@@500" $
       (12@@300) `applyLot` ((-10)@@500)
           @?= LotApplied
-                (((-10.0) * ((500 / 10) - (300 / 12)))^.from (rounded @6 @6))
+                (((-10.0) * ((500 / 10) - (300 / 12)))^.from (rounded @2 @2))
                 (Just ((-10)@@(10 * (300/12))))
                 (Just (2@@(2 * (300/12))))
                 Nothing
@@ -35,7 +35,7 @@ testApplyLots = testGroup "Gains"
     , testCase "10@@500 `applyLot` -12@@300" $
       (10@@500) `applyLot` ((-12)@@300)
           @?= LotApplied
-                (((-10.0) * ((300 / 12) - (500 / 10)))^.from (rounded @6 @6))
+                (((-10.0) * ((300 / 12) - (500 / 10)))^.from (rounded @2 @2))
                 (Just ((-10)@@(10 * (500/10))))
                 Nothing
                 (Just ((-2)@@(2 * (300/12))))
@@ -43,7 +43,7 @@ testApplyLots = testGroup "Gains"
     , testCase "12@@500 `applyLot` -10@@300" $
       (12@@500) `applyLot` ((-10)@@300)
           @?= LotApplied
-                (((-10.0) * ((300 / 10) - (500 / 12)))^.from (rounded @6 @6))
+                (((-10.0) * ((300 / 10) - (500 / 12)))^.from (rounded @2 @2))
                 (Just ((-10)@@(10 * (500/12))))
                 (Just (2@@(2 * (500/12))))
                 Nothing
@@ -51,7 +51,7 @@ testApplyLots = testGroup "Gains"
     , testCase "10@@300 `applyLot` -12@@500" $
       (10@@300) `applyLot` ((-12)@@500)
           @?= LotApplied
-                (-116.67)
+                (-116.666667)
                 (Just ((-10)@@(10 * (300/10))))
                 Nothing
                 (Just ((-2)@@83.33333333333333))
@@ -59,7 +59,7 @@ testApplyLots = testGroup "Gains"
     , testCase "-10@@300 `applyLot` 12@@500" $
       ((-10)@@300) `applyLot` (12@@500)
           @?= LotApplied
-                116.67
+                116.666667
                 (Just (10@@(10 * (300/10))))
                 Nothing
                 (Just (2@@(2 * (500/12))))
@@ -67,7 +67,7 @@ testApplyLots = testGroup "Gains"
     , testCase "-10@@500 `applyLot` 12@@300" $
       ((-10)@@500) `applyLot` (12@@300)
           @?= LotApplied
-                ((10.0 * ((300 / 12) - (500 / 10)))^.from (rounded @6 @6))
+                ((10.0 * ((300 / 12) - (500 / 10)))^.from (rounded @2 @2))
                 (Just (10@@(10 * (500/10))))
                 Nothing
                 (Just (2@@(2 * (300/12))))
@@ -98,9 +98,41 @@ testApplyLots = testGroup "Gains"
           [ 700.0 @@ 12053.72
           , 300.0 @@ 5165.97
           ]
-          @?= ( [ ((-0.55), (-11) @@ 189.41559999999998) ]
+          @?= ( [ ((-0.5544), (-11) @@ 189.41559999999998) ]
               , [ 689.0 @@ 11864.304399999999
                 , 300.0 @@ 5165.97 ] )
+
+    , testCase "handleFees opening position" $
+      handleFees 0.81 [(0.0, 100 @@ 1000.00)]
+          @?= [(0.0, 100 @@ 1000.81)]
+
+    , testCase "handleFees closing single position" $
+      handleFees 0.81 [(199.19, (-100) @@ 1000.81)]
+          @?= [(200.00, (-100) @@ 1000.81)]
+
+    , testCase "handleFees closing multiple positions 1" $
+      handleFees 0.81 [ ((-100.00), (-100) @@ 1000.81)
+                      , ((-100.00), (-100) @@ 1000.81)
+                      ]
+          @?= [ ((-100.00) + 0.40 + 0.01, (-100) @@ 1000.81)
+              , ((-100.00) + 0.40, (-100) @@ 1000.81)
+              ]
+
+    , testCase "handleFees closing multiple positions 2" $
+      handleFees 0.83 [ ((-100.00), (-10.00) @@ 19740.50)
+                      , ((-100.00), (-10.00) @@ 19707.90)
+                      ]
+          @?= [ ((-100.00) + 0.41 + 0.01, (-10.00) @@ 19740.50)
+              , ((-100.00) + 0.41, (-10.00) @@ 19707.90)
+              ]
+
+    , testCase "handleFees closing multiple positions 3" $
+      handleFees 0.47 [ ((-34.87), (-689.00) @@ 11864.3044)
+                      , ((-15.09), (-300.00) @@ 5165.97)
+                      ]
+          @?= [ ((-34.54), (-689.00) @@ 11864.3044)
+              , ((-14.95), (-300.00) @@ 5165.97)
+              ]
 
     -- , testProperty "applyLot" $ property $ do
     --       x <- forAll genCommodityLot
