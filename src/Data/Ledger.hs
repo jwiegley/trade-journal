@@ -42,9 +42,10 @@ data RefType
 
 makePrisms ''RefType
 
-data Ref = Ref
+data Ref t = Ref
     { _refType :: RefType
     , _refId   :: Int64
+    , _refOrig :: t
     }
     deriving (Eq, Ord, Show)
 
@@ -61,29 +62,29 @@ data Instrument
 
 makePrisms ''Instrument
 
-data CommodityLot = CommodityLot
+data CommodityLot t = CommodityLot
     { _instrument   :: Instrument
     , _quantity     :: Amount 4
     , _symbol       :: Text
     , _cost         :: Maybe (Amount 4)
     , _purchaseDate :: Maybe UTCTime
-    , _refs         :: [Ref]
+    , _refs         :: [Ref t]
     , _price        :: Maybe (Amount 4)
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''CommodityLot
 
-lotPrice :: CommodityLot -> Maybe (Amount 4)
+lotPrice :: CommodityLot t -> Maybe (Amount 4)
 lotPrice l = do
     guard $ l^.instrument == Stock
     p <- l^.price
     pure $ if l^.quantity < 0 then (-p) else p
 
-lotCost :: CommodityLot -> Amount 4
+lotCost :: CommodityLot t -> Amount 4
 lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
-newCommodityLot :: CommodityLot
+newCommodityLot :: CommodityLot t
 newCommodityLot = CommodityLot
     { _instrument   = Stock
     , _quantity     = 0.0
@@ -94,14 +95,14 @@ newCommodityLot = CommodityLot
     , _price        = Nothing
     }
 
-showCommodityLot :: CommodityLot -> String
+showCommodityLot :: CommodityLot t -> String
 showCommodityLot CommodityLot {..} =
     show _quantity ++ " @@ " ++ show _cost
 
-data PostingAmount
+data PostingAmount t
     = NoAmount
     | DollarAmount (Amount 2)
-    | CommodityAmount CommodityLot
+    | CommodityAmount (CommodityLot t)
     deriving (Eq, Ord, Show)
 
 makePrisms ''Amount
@@ -128,25 +129,25 @@ data Account
 
 makePrisms ''Account
 
-data Posting = Posting
+data Posting t = Posting
     { _account      :: Account
     , _isVirtual    :: Bool
     , _isBalancing  :: Bool
-    , _amount       :: PostingAmount
+    , _amount       :: PostingAmount t
     , _postMetadata :: Map Text Text
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''Posting
 
-data Transaction p = Transaction
+data Transaction o t = Transaction
     { _actualDate    :: UTCTime
     , _effectiveDate :: Maybe UTCTime
     , _code          :: Text
     , _payee         :: Text
-    , _postings      :: [Posting]
+    , _postings      :: [Posting t]
     , _xactMetadata  :: Map Text Text
-    , _provenance    :: p
+    , _provenance    :: o
     }
     deriving (Eq, Ord, Show)
 
@@ -154,10 +155,10 @@ makeClassy ''Transaction
 
 -- | Check the transaction to ensure that it fully balances. The result is an
 --   error string, if an error is detected.
-checkTransaction :: Transaction p -> Maybe String
+checkTransaction :: Transaction o t -> Maybe String
 checkTransaction _ = Nothing
 
-renderRefs :: [Ref] -> Text
+renderRefs :: [Ref t] -> Text
 renderRefs = T.intercalate "," . map go
   where
     go r = (case r^.refType of
@@ -165,7 +166,7 @@ renderRefs = T.intercalate "," . map go
                 RollingOrder roll -> "ROLL[$" <> T.pack (show roll) <> "]:"
                 OpeningOrder      -> "") <> T.pack (show (r^.refId))
 
-renderPostingAmount :: PostingAmount -> [Text]
+renderPostingAmount :: PostingAmount t -> [Text]
 -- jww (2020-03-29): Need to add commas, properly truncate, etc.
 renderPostingAmount NoAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
@@ -199,7 +200,7 @@ renderAccount = \case
     RoundingError        -> "Expenses:TD:Rounding"
     OpeningBalances      -> "Equity:TD:Opening Balances"
 
-renderPosting :: Posting -> [Text]
+renderPosting :: Posting t -> [Text]
 renderPosting Posting {..} =
     [ T.pack $ printf "    %-32s%16s%s"
         (if _isVirtual then "(" <> act <> ")" else act)
@@ -216,7 +217,7 @@ renderMetadata = Prelude.map go . M.assocs
   where
     go (k, v) = "    ; " <> k <> ": " <> v
 
-renderTransaction :: Transaction p -> [Text]
+renderTransaction :: Transaction o t -> [Text]
 renderTransaction xact =
     case checkTransaction xact of
         Just err -> error $ "Invalid transaction: " ++ err

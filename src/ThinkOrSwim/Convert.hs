@@ -27,9 +27,9 @@ import           ThinkOrSwim.Types
 -- import           Debug.Trace
 
 convertTransactions
-    :: OpenTransactions
+    :: OpenTransactions API.Transaction
     -> TransactionHistory
-    -> [Ledger.Transaction API.Order]
+    -> [Ledger.Transaction API.Order API.Transaction]
 convertTransactions m hist = (`evalState` m) $
     Prelude.mapM (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
 
@@ -40,7 +40,8 @@ getOrder m (Right oid) = m^?!ix oid
 convertTransaction
     :: OrdersMap
     -> (UTCTime, Either API.Transaction API.OrderId)
-    -> State OpenTransactions (Ledger.Transaction API.Order)
+    -> State (OpenTransactions API.Transaction)
+            (Ledger.Transaction API.Order API.Transaction)
 convertTransaction m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
@@ -63,7 +64,8 @@ convertTransaction m (sd, getOrder m -> o) = do
            else error $ "Transaction deals with various symbols: " ++ show xs
 
 convertPostings :: Text -> API.Transaction
-                -> State OpenTransactions [Ledger.Posting]
+                -> State (OpenTransactions API.Transaction)
+                        [Ledger.Posting API.Transaction]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings actId t =
