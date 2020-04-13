@@ -16,6 +16,7 @@ import           Control.Lens
 import           Control.Monad
 import           Data.Amount
 import           Data.Char (isAlpha)
+import           Data.Coerce
 import           Data.Int
 import           Data.Map (Map)
 import qualified Data.Map as M
@@ -174,7 +175,9 @@ renderPostingAmount (CommodityAmount CommodityLot {..}) =
     [ T.pack (renderAmount _quantity)
     , T.pack $ printf "%s%s%s%s%s"
           (if T.all isAlpha _symbol then _symbol else "\"" <> _symbol <> "\"")
-          (maybe "" (T.pack . printf " {{$%s}}" . thousands . abs) _cost)
+          -- (maybe "" (T.pack . printf " {{$%s}}" . thousands . abs) _cost)
+          (maybe "" (T.pack . printf " {$%s}" . thousands . abs)
+                    (fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)))
           (maybe "" (T.pack . printf " [%s]" . iso8601) _purchaseDate)
           (case _refs of [] -> ""; xs -> (T.pack . printf " (%s)" . renderRefs) xs)
           (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
