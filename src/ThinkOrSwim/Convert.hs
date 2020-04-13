@@ -85,9 +85,9 @@ convertPostings actId t =
           ++
         (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
             if | gain < 0  ->
-                 [ post CapitalLossShort False (DollarAmount gain) ]
-               | gain > 0  ->
                  [ post CapitalGainShort False (DollarAmount gain) ]
+               | gain > 0  ->
+                 [ post CapitalLossShort False (DollarAmount gain) ]
                | otherwise ->
                  []
             ++ [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta ])
@@ -101,9 +101,7 @@ convertPostings actId t =
               Nothing -> not fromEquity ]
           ++
         [ post OpeningBalances False NoAmount
-        | needsBalancingPost ]
-
-    needsBalancingPost = isNothing (t^.item.API.amount) || fromEquity
+        | isNothing (t^.item.API.amount) || fromEquity ]
 
     lot = newCommodityLot
         & Ledger.instrument .~ case atype of
