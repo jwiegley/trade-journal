@@ -15,12 +15,13 @@ import Control.Lens
 import Control.Monad.State
 import Data.Amount
 import Data.Coerce
-import Data.Foldable (foldl')
+import Data.Foldable (foldlM)
 import Data.Ledger as Ledger
 import Data.Maybe (isJust, maybeToList)
 import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
+-- import ThinkOrSwim.Wash
 
 -- import Data.Text (unpack)
 -- import Debug.Trace
@@ -66,15 +67,17 @@ gainsKeeper t cl = do
 calculatePL :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
             -> State (GainsKeeperState API.Transaction) CalculatedPL
 calculatePL l ls = do
-    let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
+    (x, xs, ys) <- foldlM fifo (Just l, [], []) ls
+    -- -- jww (2020-04-14): Calculate how gain is affected by the wash sale rule.
+    -- washSale <- washSaleRule y'
     pure $ CalculatedPL (reverse xs) (reverse ys) x
   where
-    fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
-    fifo (Just z, res, keep) x =
-        ( _left
-        , maybe res ((:res) . (LotAndPL _gain)) _used
-        , maybe keep (:keep) _kept
-        )
+    fifo (Nothing, res, keep) x = pure (Nothing, res, x:keep)
+    fifo (Just z, res, keep) x = do
+        pure ( _left
+             , maybe res ((:res) . (LotAndPL _gain)) _used
+             , maybe keep (:keep) _kept
+             )
       where
         LotApplied {..} = x `applyLot` z
 
@@ -86,7 +89,6 @@ calculatePL l ls = do
 -- similarly for 'y'.
 applyLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
          -> LotApplied API.Transaction
-
 applyLot x y
     |   x^.quantity < 0 && y^.quantity < 0
       || (  x^.quantity > 0 && y^.quantity > 0
