@@ -15,7 +15,7 @@ import Control.Lens
 import Control.Monad.State
 import Data.Amount
 import Data.Coerce
-import Data.Foldable (foldlM)
+import Data.Foldable (foldl')
 import Data.Ledger as Ledger
 import Data.Maybe (isJust, maybeToList)
 import Prelude hiding (Float, Double)
@@ -50,7 +50,7 @@ gainsKeeper t cl = do
     pl <- calculatePL l ls
 
     let res  = handleFees fees' (pl^.losses ++ maybeToList (LotAndPL 0 <$> pl^.leftover))
-        next = case pl^.history ++ [res^?!_last.lot | isJust (pl^.leftover)] of
+        next = case pl^.history ++ [ res^?!_last.lot | isJust (pl^.leftover) ] of
                    [] -> Nothing
                    xs -> Just $ hist & openTransactions .~ xs
 
@@ -67,17 +67,17 @@ gainsKeeper t cl = do
 calculatePL :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
             -> State (GainsKeeperState API.Transaction) CalculatedPL
 calculatePL l ls = do
-    (x, xs, ys) <- foldlM fifo (Just l, [], []) ls
-    -- -- jww (2020-04-14): Calculate how gain is affected by the wash sale rule.
+    let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
+    -- jww (2020-04-14): Calculate how gain is affected by the wash sale rule.
     -- washSale <- washSaleRule y'
     pure $ CalculatedPL (reverse xs) (reverse ys) x
   where
-    fifo (Nothing, res, keep) x = pure (Nothing, res, x:keep)
-    fifo (Just z, res, keep) x = do
-        pure ( _left
-             , maybe res ((:res) . (LotAndPL _gain)) _used
-             , maybe keep (:keep) _kept
-             )
+    fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
+    fifo (Just z, res, keep) x =
+        ( _left
+        , maybe res ((:res) . LotAndPL _gain) _used
+        , maybe keep (:keep) _kept
+        )
       where
         LotApplied {..} = x `applyLot` z
 
@@ -123,7 +123,8 @@ applyLot x y' =
     sign l | l^.quantity < 0 = negate
            | otherwise = id
 
-    y | isTransactionSubType OptionExpiration y' = y' & quantity %~ negate
+    y | isTransactionSubType OptionExpiration y' =
+        y' & quantity %~ negate
       | otherwise = y'
 
     xcst = lotCost x
