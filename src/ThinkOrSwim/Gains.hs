@@ -88,7 +88,7 @@ gainsKeeper t lot = do
 -- across all of them. Yet if the fee is odd, we must carry the remaining
 -- penny, since otherwise .03 divided by 2 (for example) will round to two
 -- instances of .01. See tests for examples.
-handleFees :: forall t. Amount 2 -> [(Amount 2, CommodityLot t)]
+handleFees :: Amount 2 -> [(Amount 2, CommodityLot t)]
            -> [(Amount 2, CommodityLot t)]
 handleFees _ [] = []
 handleFees fee [(0.0, x)]

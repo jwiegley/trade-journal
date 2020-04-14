@@ -20,6 +20,7 @@ import Data.Amount
 import Test.Tasty
 import Test.Tasty.HUnit
 -- import Test.Tasty.Hedgehog
+import ThinkOrSwim.API.TransactionHistory.GetTransactions
 import ThinkOrSwim.Gains
 
 testApplyLots :: TestTree
@@ -80,17 +81,17 @@ testApplyLots = testGroup "Gains"
           ]
           @?= ( [ ((-81.82), (-100) @@ 17350.00)
                 , ((-3.51), (-300) @@ 52291.95000000001) ]
-              , [100 @@ 17430.65] )
+              , [100 @@ 17430.65]
+              , Nothing )
 
     , testCase "calculateGains 400" $
       calculateGains
           (400 @@ 69722.60)
           [ 100 @@ 17350.00
           ]
-          @?= ( [ (0.0, 400 @@ 69722.60) ]
-              , [ 100 @@ 17350.00
-                , 400 @@ 69722.60
-                ] )
+          @?= ( []
+              , [ 100 @@ 17350.00 ]
+              , Just (400 @@ 69722.60) )
 
     , testCase "calculateGains SNAP" $
       calculateGains
@@ -100,36 +101,42 @@ testApplyLots = testGroup "Gains"
           ]
           @?= ( [ ((-0.5544), (-11) @@ 189.41559999999998) ]
               , [ 689.0 @@ 11864.304399999999
-                , 300.0 @@ 5165.97 ] )
+                , 300.0 @@ 5165.97 ]
+              , Nothing )
 
     , testCase "handleFees opening position" $
-      handleFees 0.81 [(0.0, 100 @@ 1000.00)]
-          @?= [(0.81, 100 @@ 1000.00)]
+      handleFees @Transaction
+          0.81 [(0.0, 100 @@ 1000.00)]
+          @?= [(0.0, 100 @@ 1000.81)]
 
     , testCase "handleFees closing single position" $
-      handleFees 0.81 [(199.19, (-100) @@ 1000.81)]
+      handleFees @Transaction
+          0.81 [(199.19, (-100) @@ 1000.81)]
           @?= [(200.00, (-100) @@ 1000.81)]
 
     , testCase "handleFees closing multiple positions 1" $
-      handleFees 0.81 [ ((-100.00), (-100) @@ 1000.81)
-                      , ((-100.00), (-100) @@ 1000.81)
-                      ]
+      handleFees @Transaction
+          0.81 [ ((-100.00), (-100) @@ 1000.81)
+               , ((-100.00), (-100) @@ 1000.81)
+               ]
           @?= [ ((-100.00) + 0.40 + 0.01, (-100) @@ 1000.81)
               , ((-100.00) + 0.40, (-100) @@ 1000.81)
               ]
 
     , testCase "handleFees closing multiple positions 2" $
-      handleFees 0.83 [ ((-100.00), (-10.00) @@ 19740.50)
-                      , ((-100.00), (-10.00) @@ 19707.90)
-                      ]
+      handleFees @Transaction
+          0.83 [ ((-100.00), (-10.00) @@ 19740.50)
+               , ((-100.00), (-10.00) @@ 19707.90)
+               ]
           @?= [ ((-100.00) + 0.41 + 0.01, (-10.00) @@ 19740.50)
               , ((-100.00) + 0.41, (-10.00) @@ 19707.90)
               ]
 
     , testCase "handleFees closing multiple positions 3" $
-      handleFees 0.47 [ ((-34.87), (-689.00) @@ 11864.3044)
-                      , ((-15.09), (-300.00) @@ 5165.97)
-                      ]
+      handleFees @Transaction
+          0.47 [ ((-34.87), (-689.00) @@ 11864.3044)
+               , ((-15.09), (-300.00) @@ 5165.97)
+               ]
           @?= [ ((-34.54), (-689.00) @@ 11864.3044)
               , ((-14.95), (-300.00) @@ 5165.97)
               ]
