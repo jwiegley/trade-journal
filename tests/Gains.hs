@@ -8,7 +8,7 @@
 module Gains where
 
 import Control.Lens
--- import Control.Monad
+import Control.Monad.State
 import Data.Amount
 import Data.Ledger
 -- import Data.Maybe (isJust)
@@ -75,38 +75,38 @@ testApplyLots = testGroup "Gains"
                 (Just (2@@(2 * (300/12))))
 
     , testCase "calculateGains -400" $
-      calculatePL
-          ((-400) @@ 69727.28) -- {174.3182}
-          [ 100 @@ 17350.00    -- {173.50}
-          , 400 @@ 69722.60    -- {174.3065}
-          ]
-          @?= CalculatedPL
-                [ LotAndPL (-81.82) ((-100) @@ 17350.00)
-                , LotAndPL (-3.51) ((-300) @@ 52291.95000000001) ]
-                [100 @@ 17430.65]
-                Nothing
+      let res = flip evalState newGainsKeeperState $ calculatePL
+              ((-400) @@ 69727.28) -- {174.3182}
+              [ 100 @@ 17350.00    -- {173.50}
+              , 400 @@ 69722.60    -- {174.3065}
+              ]
+      in res @?= CalculatedPL
+                   [ LotAndPL (-81.82) ((-100) @@ 17350.00)
+                   , LotAndPL (-3.51) ((-300) @@ 52291.95000000001) ]
+                   [100 @@ 17430.65]
+                   Nothing
 
     , testCase "calculatePL 400" $
-      calculatePL
-          (400 @@ 69722.60)
-          [ 100 @@ 17350.00
-          ]
-          @?= CalculatedPL
-                []
-                [ 100 @@ 17350.00 ]
-                (Just (400 @@ 69722.60))
+      let res = flip evalState newGainsKeeperState $ calculatePL
+              (400 @@ 69722.60)
+              [ 100 @@ 17350.00
+              ]
+      in res @?= CalculatedPL
+                   []
+                   [ 100 @@ 17350.00 ]
+                   (Just (400 @@ 69722.60))
 
     , testCase "calculatePL SNAP" $
-      calculatePL
-          ((-11.0) @@ 189.97)
-          [ 700.0 @@ 12053.72
-          , 300.0 @@ 5165.97
-          ]
-          @?= CalculatedPL
-                [ LotAndPL (-0.5544) ((-11) @@ 189.41559999999998) ]
-                [ 689.0 @@ 11864.304399999999
-                , 300.0 @@ 5165.97 ]
-                Nothing
+      let res = flip evalState newGainsKeeperState $ calculatePL
+              ((-11.0) @@ 189.97)
+              [ 700.0 @@ 12053.72
+              , 300.0 @@ 5165.97
+              ]
+      in res @?= CalculatedPL
+                   [ LotAndPL (-0.5544) ((-11) @@ 189.41559999999998) ]
+                   [ 689.0 @@ 11864.304399999999
+                   , 300.0 @@ 5165.97 ]
+                   Nothing
 
     , testCase "handleFees opening position" $
       handleFees @API.Transaction

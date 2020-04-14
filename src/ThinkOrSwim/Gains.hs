@@ -22,9 +22,9 @@ import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
-import Data.Text (unpack)
-import Debug.Trace
-import Text.PrettyPrint
+-- import Data.Text (unpack)
+-- import Debug.Trace
+-- import Text.PrettyPrint
 
 -- The function seeks to replicate the logic used by GainsKeeper to determine
 -- what impact a given transaction, based on existing positions, should have
@@ -45,12 +45,16 @@ gainsKeeper t cl = do
     -- much of that previous positions as quantities dictate.
     let ls   = hist^.openTransactions
         l    = reflectEvent (coerce cst)
-        pl   = calculatePL l ls
-        res  = handleFees fees' (pl^.losses ++ maybeToList (LotAndPL 0 <$> pl^.leftover))
+
+    pl <- calculatePL l ls
+
+    let res  = handleFees fees' (pl^.losses ++ maybeToList (LotAndPL 0 <$> pl^.leftover))
         next = case pl^.history ++ [res^?!_last.lot | isJust (pl^.leftover)] of
                    [] -> Nothing
                    xs -> Just $ hist & openTransactions .~ xs
-    traceM $ render $ renderHistoryBeforeAndAfter (unpack sym) l hist res next
+
+    -- traceM $ render $ renderHistoryBeforeAndAfter (unpack sym) l hist res next
+
     at sym .= next
     pure res
   where
@@ -60,10 +64,10 @@ gainsKeeper t cl = do
         & refs         .~ [Ref OpeningOrder (t^.xactId) t]
 
 calculatePL :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
-            -> CalculatedPL
-calculatePL l ls =
+            -> State (GainsKeeperState API.Transaction) CalculatedPL
+calculatePL l ls = do
     let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
-    in CalculatedPL (reverse xs) (reverse ys) x
+    pure $ CalculatedPL (reverse xs) (reverse ys) x
   where
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z, res, keep) x =
@@ -82,11 +86,19 @@ calculatePL l ls =
 -- similarly for 'y'.
 applyLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
          -> LotApplied API.Transaction
+
 applyLot x y
     |   x^.quantity < 0 && y^.quantity < 0
       || (  x^.quantity > 0 && y^.quantity > 0
          && not (isTransactionSubType OptionExpiration y)) =
     LotApplied 0.0 Nothing (Just x) (Just y)
+
+applyLot x y
+    | Just x' <- x^?refs._head.refOrig.item.positionEffect._Just,
+      Just y' <- y^?refs._head.refOrig.item.positionEffect._Just,
+      x' == y' =
+    error $ show x ++ " has same position effect as " ++ show y
+
 applyLot x y' =
     -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
     -- trace ("x^.quantity = " ++ show (x^.quantity)) $
