@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -113,8 +114,8 @@ subject to the wash-sale rules.
 
 module ThinkOrSwim.Wash where
 
--- import Control.Lens
--- import Control.Monad.State
+import Control.Lens
+import Control.Monad.State
 import Data.Amount
 -- import Data.Coerce
 -- import Data.Foldable (foldl')
@@ -124,22 +125,28 @@ import Data.Time
 -- import GHC.TypeLits
 import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
--- import ThinkOrSwim.Types
+import ThinkOrSwim.Types
 
 -- import Data.List (intercalate)
 -- import Data.Text (unpack)
 -- import Debug.Trace
 
--- Given a history of closing transactions that incurred losses (and the
+data WashSale = WashSale
+    { gainOrLoss  :: Maybe (Amount 2)
+    , eventDate   :: UTCTime
+    , openingXact :: CommodityLot API.Transaction
+    , closingXact :: Maybe (CommodityLot API.Transaction)
+    }
+    deriving (Eq, Ord, Show)
+
+-- Given a history of opening and closing transactions (and the
 -- opening transaction for each), and a new opening transaction, determine:
+
 --
 -- - The washed losses, and the parts of the incoming transaciton they apply
 --   to. Any remainder is returned with a wash loss of 0.0.
 -- - The revised history, with the washed transactions removed.
 washSaleRule
-    :: [(Amount 2, UTCTime, CommodityLot API.Transaction)]
-    -> CommodityLot API.Transaction
-    -> ( [(Amount 2, CommodityLot API.Transaction)]
-      , [(Amount 2, UTCTime, CommodityLot API.Transaction)]
-      )
-washSaleRule hist lot = ([(0.0, lot)], hist)
+    :: CommodityLot API.Transaction
+    -> State (GainsKeeperState API.Transaction) (Maybe WashSale)
+washSaleRule _l = pure Nothing

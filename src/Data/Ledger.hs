@@ -96,6 +96,9 @@ newCommodityLot = CommodityLot
     , _price        = Nothing
     }
 
+(@@) :: Amount 4 -> Amount 4 -> CommodityLot t
+q @@ c = newCommodityLot & quantity .~ q & cost ?~ c
+
 showCommodityLot :: CommodityLot t -> String
 showCommodityLot CommodityLot {..} =
     show _quantity ++ " @@ " ++ show _cost

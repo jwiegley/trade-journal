@@ -10,7 +10,7 @@ module Gains where
 import Control.Lens
 -- import Control.Monad
 import Data.Amount
--- import Data.Ledger
+import Data.Ledger
 -- import Data.Maybe (isJust)
 -- import Data.Ratio
 -- import Data.Time
@@ -20,8 +20,9 @@ import Data.Amount
 import Test.Tasty
 import Test.Tasty.HUnit
 -- import Test.Tasty.Hedgehog
-import ThinkOrSwim.API.TransactionHistory.GetTransactions
+import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Gains
+import ThinkOrSwim.Types
 
 testApplyLots :: TestTree
 testApplyLots = testGroup "Gains"
@@ -80,8 +81,8 @@ testApplyLots = testGroup "Gains"
           , 400 @@ 69722.60    -- {174.3065}
           ]
           @?= CalculatedPL
-                [ ((-81.82), (-100) @@ 17350.00)
-                , ((-3.51), (-300) @@ 52291.95000000001) ]
+                [ LotAndPL (-81.82) ((-100) @@ 17350.00)
+                , LotAndPL (-3.51) ((-300) @@ 52291.95000000001) ]
                 [100 @@ 17430.65]
                 Nothing
 
@@ -102,46 +103,46 @@ testApplyLots = testGroup "Gains"
           , 300.0 @@ 5165.97
           ]
           @?= CalculatedPL
-                [ ((-0.5544), (-11) @@ 189.41559999999998) ]
+                [ LotAndPL (-0.5544) ((-11) @@ 189.41559999999998) ]
                 [ 689.0 @@ 11864.304399999999
                 , 300.0 @@ 5165.97 ]
                 Nothing
 
     , testCase "handleFees opening position" $
-      handleFees @Transaction
-          0.81 [(0.0, 100 @@ 1000.00)]
-          @?= [(0.0, 100 @@ 1000.81)]
+      handleFees @API.Transaction
+          0.81 [ LotAndPL 0.0 (100 @@ 1000.00) ]
+          @?= [ LotAndPL 0.0 (100 @@ 1000.81) ]
 
     , testCase "handleFees closing single position" $
-      handleFees @Transaction
-          0.81 [(199.19, (-100) @@ 1000.81)]
-          @?= [(200.00, (-100) @@ 1000.81)]
+      handleFees @API.Transaction
+          0.81 [ LotAndPL 199.19 ((-100) @@ 1000.81) ]
+          @?= [ LotAndPL 200.00 ((-100) @@ 1000.81) ]
 
     , testCase "handleFees closing multiple positions 1" $
-      handleFees @Transaction
-          0.81 [ ((-100.00), (-100) @@ 1000.81)
-               , ((-100.00), (-100) @@ 1000.81)
+      handleFees @API.Transaction
+          0.81 [ LotAndPL (-100.00) ((-100) @@ 1000.81)
+               , LotAndPL (-100.00) ((-100) @@ 1000.81)
                ]
-          @?= [ ((-100.00) + 0.40 + 0.01, (-100) @@ 1000.81)
-              , ((-100.00) + 0.40, (-100) @@ 1000.81)
+          @?= [ LotAndPL (-100.00 + 0.40 + 0.01) ((-100) @@ 1000.81)
+              , LotAndPL (-100.00 + 0.40) ((-100) @@ 1000.81)
               ]
 
     , testCase "handleFees closing multiple positions 2" $
-      handleFees @Transaction
-          0.83 [ ((-100.00), (-10.00) @@ 19740.50)
-               , ((-100.00), (-10.00) @@ 19707.90)
+      handleFees @API.Transaction
+          0.83 [ LotAndPL (-100.00) ((-10.00) @@ 19740.50)
+               , LotAndPL (-100.00) ((-10.00) @@ 19707.90)
                ]
-          @?= [ ((-100.00) + 0.41 + 0.01, (-10.00) @@ 19740.50)
-              , ((-100.00) + 0.41, (-10.00) @@ 19707.90)
+          @?= [ LotAndPL (-100.00 + 0.41 + 0.01) ((-10.00) @@ 19740.50)
+              , LotAndPL (-100.00 + 0.41) ((-10.00) @@ 19707.90)
               ]
 
     , testCase "handleFees closing multiple positions 3" $
-      handleFees @Transaction
-          0.47 [ ((-34.87), (-689.00) @@ 11864.3044)
-               , ((-15.09), (-300.00) @@ 5165.97)
+      handleFees @API.Transaction
+          0.47 [ LotAndPL (-34.87) ((-689.00) @@ 11864.3044)
+               , LotAndPL (-15.09) ((-300.00) @@ 5165.97)
                ]
-          @?= [ ((-34.54), (-689.00) @@ 11864.3044)
-              , ((-14.95), (-300.00) @@ 5165.97)
+          @?= [ LotAndPL (-34.54) ((-689.00) @@ 11864.3044)
+              , LotAndPL (-14.95) ((-300.00) @@ 5165.97)
               ]
 
     -- , testProperty "applyLot" $ property $ do

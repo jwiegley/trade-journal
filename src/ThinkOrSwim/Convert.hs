@@ -24,13 +24,11 @@ import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Types
 
--- import           Debug.Trace
-
 convertTransactions
-    :: OpenTransactions API.Transaction
+    :: GainsKeeperState API.Transaction
     -> TransactionHistory
     -> [Ledger.Transaction API.Order API.Transaction]
-convertTransactions m hist = (`evalState` m) $
+convertTransactions st hist = (`evalState` st) $
     Prelude.mapM (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
 
 getOrder :: OrdersMap -> Either API.Transaction API.OrderId -> API.Order
@@ -40,7 +38,7 @@ getOrder m (Right oid) = m^?!ix oid
 convertTransaction
     :: OrdersMap
     -> (UTCTime, Either API.Transaction API.OrderId)
-    -> State (OpenTransactions API.Transaction)
+    -> State (GainsKeeperState API.Transaction)
             (Ledger.Transaction API.Order API.Transaction)
 convertTransaction m (sd, getOrder m -> o) = do
     let _actualDate    = sd
@@ -63,14 +61,27 @@ convertTransaction m (sd, getOrder m -> o) = do
            then Prelude.head xs
            else error $ "Transaction deals with various symbols: " ++ show xs
 
-convertPostings :: Text -> API.Transaction
-                -> State (OpenTransactions API.Transaction)
-                        [Ledger.Posting API.Transaction]
+convertPostings
+    :: Text -> API.Transaction
+    -> State (GainsKeeperState API.Transaction) [Ledger.Posting API.Transaction]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings actId t =
     posts <$> case t^.item.API.amount of
-        Just _  -> gainsKeeper t lot
+        Just _  ->
+            gainsKeeper t $ newCommodityLot
+                & Ledger.instrument .~ case atype of
+                    Just Equity               -> Ledger.Stock
+                    Just MutualFund           -> Ledger.Stock
+                    Just (OptionAsset _)      -> Ledger.Option
+                    Just (FixedIncomeAsset _) -> Ledger.Bond
+                    Just (CashEquivalentAsset
+                          CashMoneyMarket)    -> Ledger.MoneyMarket
+                    Nothing                   -> error "Unexpected"
+
+                & Ledger.symbol   .~ symbolName t
+                & Ledger.price    .~ coerce (t^.item.API.price)
+                & Ledger.quantity .~ coerce (getXactAmount t)
         Nothing -> pure []
   where
     posts cs =
@@ -83,14 +94,15 @@ convertPostings actId t =
         [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
         | t^.fees_.commission /= 0 ]
           ++
-        (flip Prelude.concatMap cs $ \(loss, cmdtyLot) ->
-            if | loss < 0  ->
-                 [ post CapitalGainShort False (DollarAmount loss) ]
-               | loss > 0  ->
-                 [ post CapitalLossShort False (DollarAmount loss) ]
+        (flip Prelude.concatMap cs $ \pl ->
+            if | pl^.loss < 0  ->
+                 [ post CapitalGainShort False (DollarAmount (pl^.loss)) ]
+               | pl^.loss > 0  ->
+                 [ post CapitalLossShort False (DollarAmount (pl^.loss)) ]
                | otherwise ->
                  []
-            ++ [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta ])
+            ++ [ post act False (CommodityAmount (pl^.lot))
+                     & postMetadata .~ meta ])
           ++
         [ case t^.item.API.price of
               Just _                     -> cashPost
@@ -102,20 +114,6 @@ convertPostings actId t =
           ++
         [ post OpeningBalances False NoAmount
         | isNothing (t^.item.API.amount) || fromEquity ]
-
-    lot = newCommodityLot
-        & Ledger.instrument .~ case atype of
-            Just Equity               -> Ledger.Stock
-            Just MutualFund           -> Ledger.Stock
-            Just (OptionAsset _)      -> Ledger.Option
-            Just (FixedIncomeAsset _) -> Ledger.Bond
-            Just (CashEquivalentAsset
-                  CashMoneyMarket)    -> Ledger.MoneyMarket
-            Nothing                   -> error "Unexpected"
-
-        & Ledger.symbol   .~ symbolName t
-        & Ledger.price    .~ coerce (t^.item.API.price)
-        & Ledger.quantity .~ coerce (getXactAmount t)
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 

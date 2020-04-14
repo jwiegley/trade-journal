@@ -35,6 +35,7 @@ library:
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
     - ThinkOrSwim.Gains
+    - ThinkOrSwim.Types
 
 tests:
   thinkorswim-tests:
