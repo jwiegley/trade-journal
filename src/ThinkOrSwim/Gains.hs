@@ -22,9 +22,9 @@ import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
-import Data.List (intercalate)
 import Data.Text (unpack)
 import Debug.Trace
+import Text.PrettyPrint
 
 -- The function seeks to replicate the logic used by GainsKeeper to determine
 -- what impact a given transaction, based on existing positions, should have
@@ -37,34 +37,24 @@ gainsKeeper t cl = do
         cst   = abs (t^.item.API.cost)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
 
-    hist <- use (at sym.non newEventHistory)
-    let ls = hist^.openTransactions
+    hist <- use (at sym.non (newEventHistory []))
 
     -- If there are no existing lots, then this is either a purchase or a
     -- short sale. If there are existing lots for this symbol, then if the
     -- current would add to or deduct from those positions, then it closes as
     -- much of that previous positions as quantities dictate.
-    let CalculatedPL res keep new = calculatePL (lot' (coerce cst)) ls
-        res' = handleFees fees' (res ++ maybeToList (LotAndPL 0 <$> new))
-        next = case keep ++ if isJust new
-                           then [res'^?!_last.lot]
-                           else [] of
+    let ls   = hist^.openTransactions
+        l    = reflectEvent (coerce cst)
+        pl   = calculatePL l ls
+        res  = handleFees fees' (pl^.losses ++ maybeToList (LotAndPL 0 <$> pl^.leftover))
+        next = case pl^.history ++ [res^?!_last.lot | isJust (pl^.leftover)] of
                    [] -> Nothing
-                   xs -> Just xs
-        mhist' = fmap (\n -> hist & openTransactions .~ n) next
-    at sym .= mhist'
-    traceM (unpack sym ++ ": "
-            ++ showCommodityLot (lot' (coerce cst))
-            ++ "\n  --> ["
-            ++ intercalate "," (map showCommodityLot ls)
-            ++ "]"
-            ++ "\n  <-- " ++ show res'
-            ++ "\n  ==> ["
-            ++ intercalate "," (maybe [""] (map showCommodityLot) next)
-            ++ "]")
-    pure res'
+                   xs -> Just $ hist & openTransactions .~ xs
+    traceM $ render $ renderHistoryBeforeAndAfter (unpack sym) l hist res next
+    at sym .= next
+    pure res
   where
-    lot' cst = cl
+    reflectEvent cst = cl
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
         & purchaseDate ?~ t^.xactDate
         & refs         .~ [Ref OpeningOrder (t^.xactId) t]
@@ -159,21 +149,21 @@ applyLot x y' =
           | otherwise = Nothing
 
 -- Handling fees is a touch tricky, since if we end up closing multiple
--- positions via a single sale or purchase, the fees must be applied across
--- all of them. Yet if the fee is oddly divided, we must carry the remaining
--- penny, since otherwise .03 divided by 2 (for example) will round to two
--- instances of .01. See tests for examples.
+-- positions via a single sale or purchase, the fees are applied across all of
+-- them. Yet if the fee is oddly divided, we must carry the remaining penny,
+-- since otherwise .03 divided by 2 (for example) will round to two instances
+-- of .01. See tests for examples.
 handleFees :: Amount 2 -> [LotAndPL t] -> [LotAndPL t]
-handleFees _ [] = []
-handleFees fee [LotAndPL 0.0 x]
-    | x^.quantity < 0 = [LotAndPL 0.0 $ x & Ledger.cost.mapped -~ coerce fee]
-    | otherwise       = [LotAndPL 0.0 $ x & Ledger.cost.mapped +~ coerce fee]
+
+-- If there is only a single transaction to apply the fee to, we add (or
+-- subtract) it directly to (from) the basis cost, rather than dividing it
+-- into the P/L of multiple transactions.
+handleFees fee [LotAndPL 0.0 x] =
+    [LotAndPL 0.0 $ x & Ledger.cost.mapped +~
+         coerce (if x^.quantity < 0 then (-fee) else fee)]
+
 handleFees fee lots = go True lots
   where
-    shares   = sum (map (^.lot.quantity) lots)
-    perShare = coerce fee / shares
-
-    go :: Bool -> [LotAndPL t] -> [LotAndPL t]
     go _ [] = []
     go b ((LotAndPL g x):xs) =
         LotAndPL
@@ -183,5 +173,8 @@ handleFees fee lots = go True lots
       where
         diff = fee - sum (map (sumOfParts . view lot) lots)
 
-    sumOfParts :: CommodityLot t -> Amount 2
-    sumOfParts l = normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
+        sumOfParts l =
+            normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
+          where
+            perShare = coerce fee / shares
+            shares   = sum (map (^.lot.quantity) lots)

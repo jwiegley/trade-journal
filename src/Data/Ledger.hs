@@ -101,7 +101,10 @@ q @@ c = newCommodityLot & quantity .~ q & cost ?~ c
 
 showCommodityLot :: CommodityLot t -> String
 showCommodityLot CommodityLot {..} =
-    show _quantity ++ " @@ " ++ show _cost
+    show _quantity
+        ++ case _cost of
+               Nothing -> ""
+               Just xs -> " @@ " ++ show xs
 
 data PostingAmount t
     = NoAmount

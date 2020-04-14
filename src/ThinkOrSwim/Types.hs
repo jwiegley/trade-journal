@@ -14,13 +14,16 @@ module ThinkOrSwim.Types where
 
 import           Control.Lens
 import           Data.Amount
+import           Data.Foldable (foldl')
 import           Data.Ledger as Ledger
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Text (Text)
 import           Data.Time
-import           Prelude hiding (Float, Double)
-import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           Prelude hiding (Float, Double, (<>))
+import           Text.PrettyPrint
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions
+                     as API hiding ((<+>))
 
 data LotApplied t = LotApplied
     { _gain :: Amount 2
@@ -41,7 +44,7 @@ data LotAndPL t = LotAndPL
 makeClassy ''LotAndPL
 
 instance Show (LotAndPL t) where
-    show x = showCommodityLot (x^.lot) ++ " P/L "  ++ show (- x^.loss)
+    show x = showCommodityLot (x^.lot) ++ " $ "  ++ show (- x^.loss)
 
 data CalculatedPL = CalculatedPL
     { _losses   :: [LotAndPL API.Transaction]
@@ -77,11 +80,38 @@ data EventHistory t = EventHistory
 
 makeClassy ''EventHistory
 
-newEventHistory :: EventHistory t
-newEventHistory = EventHistory
-    { _openTransactions = []
+renderList :: (a -> Doc) -> [a] -> Doc
+renderList _ [] = brackets empty
+renderList f ts =
+    fst (foldl' go (empty, True) ts) <> space <> rbrack
+  where
+    go (_, True) x    = (lbrack <> space <> f x, False)
+    go (acc, False) x = (acc $$ comma <> space <> f x, False)
+
+renderEventHistory :: EventHistory t -> Doc
+renderEventHistory (EventHistory ot _) =
+    renderList (text . showCommodityLot) ot
+
+newEventHistory :: [CommodityLot t] -> EventHistory t
+newEventHistory ot = EventHistory
+    { _openTransactions = ot
     , _positionEvents   = []
     }
+
+renderHistoryBeforeAndAfter
+    :: String
+    -> CommodityLot t
+    -> EventHistory t
+    -> [LotAndPL t]
+    -> Maybe (EventHistory t)
+    -> Doc
+renderHistoryBeforeAndAfter sym l hist res next =
+    text sym <> text ": " <> text (showCommodityLot l)
+        $$ text " --> " <> renderEventHistory hist
+        $$ text " <-- " <> renderList (text . show) res
+        $$ text " ==> " <> next'
+  where
+    next' = maybe (brackets empty) renderEventHistory next
 
 type GainsKeeperState t = Map Text (EventHistory t)
 
