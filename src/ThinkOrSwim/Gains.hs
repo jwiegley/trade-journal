@@ -20,9 +20,9 @@ import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
--- import Data.List (intercalate)
--- import Data.Text (unpack)
--- import Debug.Trace
+import Data.List (intercalate)
+import Data.Text (unpack)
+import Debug.Trace
 
 nog :: (Functor f, KnownNat n) => f a -> f (Amount n, a)
 nog = fmap (0,)
@@ -38,45 +38,35 @@ gainsKeeper t lot = do
         cst   = abs (t^.item.API.cost)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
 
-    use (at sym) >>= \case
-        -- If there are no existing lots, then this is either a purchase or a
-        -- short sale.
-        Nothing -> do
-            let l = lot' (coerce cst)
-                ls = if l^.quantity /= 0 then [l] else []
-                keep = handleFees fees' (nog ls)
-            -- traceM (unpack sym ++ ": ==> ["
-            --         ++ intercalate "," (map (showCommodityLot . snd) keep)
-            --         ++ "]")
-            at sym .= case keep of [] -> Nothing; xs -> Just (map snd xs)
-            pure keep
+    ls <- maybe [] id <$> use (at sym)
 
-        -- If there are existing lots for this symbol, then if the current
-        -- would add to or deduct from those positions, then it closes as much
-        -- of that previous positions as quantities dictate.
-        Just ls -> do
-            let (res, keep, new) = calculateGains (lot' (coerce cst)) ls
-                res' = handleFees fees' (res ++ maybeToList (nog new))
-                next = case keep ++ if isJust new
-                                   then [snd (last res')]
-                                   else [] of
-                           [] -> Nothing
-                           xs -> Just xs
-                -- show' = map (\(x, y) -> "("  ++ show x
-                --                     ++ ", " ++ showCommodityLot y ++ ")")
-            -- traceM (unpack sym ++ ": "
-            --         ++ showCommodityLot (lot' (coerce cst))
-            --         ++ "\n  --> ["
-            --         ++ intercalate "," (map showCommodityLot ls)
-            --         ++ "]"
-            --         ++ "\n  <-- ["
-            --         ++ intercalate ", " (show' res')
-            --         ++ "]"
-            --         ++ "\n  ==> ["
-            --         ++ intercalate "," (maybe [""] (map showCommodityLot) next)
-            --         ++ "]")
-            at sym .= next
-            pure res'
+    -- If there are no existing lots, then this is either a purchase or a
+    -- short sale. If there are existing lots for this symbol, then if the
+    -- current would add to or deduct from those positions, then it closes as
+    -- much of that previous positions as quantities dictate.
+    let CalculatedPL res keep new
+            = calculatePL (lot' (coerce cst)) ls
+        res' = handleFees fees' (res ++ maybeToList (nog new))
+        next = case keep ++ if isJust new
+                           then [snd (last res')]
+                           else [] of
+                   [] -> Nothing
+                   xs -> Just xs
+        show' = map (\(x, y) -> "("  ++ show x
+                            ++ ", " ++ showCommodityLot y ++ ")")
+    traceM (unpack sym ++ ": "
+            ++ showCommodityLot (lot' (coerce cst))
+            ++ "\n  --> ["
+            ++ intercalate "," (map showCommodityLot ls)
+            ++ "]"
+            ++ "\n  <-- ["
+            ++ intercalate ", " (show' res')
+            ++ "]"
+            ++ "\n  ==> ["
+            ++ intercalate "," (maybe [""] (map showCommodityLot) next)
+            ++ "]")
+    at sym .= next
+    pure res'
   where
     lot' cst = lot
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
@@ -203,13 +193,18 @@ applyLot x y' =
                     & Ledger.cost ?~ (yq - n) * abs yps
          | otherwise = Nothing
 
-calculateGains
-    :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
-    -> ([(Amount 2, CommodityLot API.Transaction)],
-       [CommodityLot API.Transaction], Maybe (CommodityLot API.Transaction))
-calculateGains l ls =
+data CalculatedPL = CalculatedPL
+    { losses   :: [(Amount 2, CommodityLot API.Transaction)]
+    , history  :: [CommodityLot API.Transaction]
+    , leftover :: Maybe (CommodityLot API.Transaction)
+    }
+    deriving (Eq, Ord, Show)
+
+calculatePL :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
+            -> CalculatedPL
+calculatePL l ls =
     let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
-    in (reverse xs, reverse ys, x)
+    in CalculatedPL (reverse xs) (reverse ys) x
   where
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z, res, keep) x =

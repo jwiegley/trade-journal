@@ -74,35 +74,38 @@ testApplyLots = testGroup "Gains"
                 (Just (2@@(2 * (300/12))))
 
     , testCase "calculateGains -400" $
-      calculateGains
+      calculatePL
           ((-400) @@ 69727.28) -- {174.3182}
           [ 100 @@ 17350.00    -- {173.50}
           , 400 @@ 69722.60    -- {174.3065}
           ]
-          @?= ( [ ((-81.82), (-100) @@ 17350.00)
+          @?= CalculatedPL
+                [ ((-81.82), (-100) @@ 17350.00)
                 , ((-3.51), (-300) @@ 52291.95000000001) ]
-              , [100 @@ 17430.65]
-              , Nothing )
+                [100 @@ 17430.65]
+                Nothing
 
-    , testCase "calculateGains 400" $
-      calculateGains
+    , testCase "calculatePL 400" $
+      calculatePL
           (400 @@ 69722.60)
           [ 100 @@ 17350.00
           ]
-          @?= ( []
-              , [ 100 @@ 17350.00 ]
-              , Just (400 @@ 69722.60) )
+          @?= CalculatedPL
+                []
+                [ 100 @@ 17350.00 ]
+                (Just (400 @@ 69722.60))
 
-    , testCase "calculateGains SNAP" $
-      calculateGains
+    , testCase "calculatePL SNAP" $
+      calculatePL
           ((-11.0) @@ 189.97)
           [ 700.0 @@ 12053.72
           , 300.0 @@ 5165.97
           ]
-          @?= ( [ ((-0.5544), (-11) @@ 189.41559999999998) ]
-              , [ 689.0 @@ 11864.304399999999
+          @?= CalculatedPL
+                [ ((-0.5544), (-11) @@ 189.41559999999998) ]
+                [ 689.0 @@ 11864.304399999999
                 , 300.0 @@ 5165.97 ]
-              , Nothing )
+                Nothing
 
     , testCase "handleFees opening position" $
       handleFees @Transaction

@@ -83,11 +83,11 @@ convertPostings actId t =
         [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
         | t^.fees_.commission /= 0 ]
           ++
-        (flip Prelude.concatMap cs $ \(gain, cmdtyLot) ->
-            if | gain < 0  ->
-                 [ post CapitalGainShort False (DollarAmount gain) ]
-               | gain > 0  ->
-                 [ post CapitalLossShort False (DollarAmount gain) ]
+        (flip Prelude.concatMap cs $ \(loss, cmdtyLot) ->
+            if | loss < 0  ->
+                 [ post CapitalGainShort False (DollarAmount loss) ]
+               | loss > 0  ->
+                 [ post CapitalLossShort False (DollarAmount loss) ]
                | otherwise ->
                  []
             ++ [ post act False (CommodityAmount cmdtyLot) & postMetadata .~ meta ])
