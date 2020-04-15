@@ -105,10 +105,104 @@ Summary:
     such stock or securities.
 
 
-NOTE: The IRS has ruled (Rev. Rul. 2008-5) that when an individual sells a
-security at a loss and then repurchases that security in their (or their
-spouses’) IRA within 30 days before or after the sale, that loss will be
-subject to the wash-sale rules.
+IRS Publication 550, page 59 states:
+
+You cannot deduct losses from sales or trades of stock or securities in a wash
+sale unless the loss was incurred in the ordinary course of your business as a
+dealer in stock or securities. A wash sale occurs when you sell or trade stock
+or securities at a loss and within 30 days before or after the sale you:
+
+  - Buy substantially identical stock or securities,
+  - Acquire substantially identical stock or securities in a fully taxable
+    trade,
+  - Acquire a contract or option to buy substantially identical stock or
+    securities, or
+  - Acquire substantially identical stock for your individual retirement
+    account (IRA) or Roth IRA.
+
+If you sell stock and your spouse or a corporation you control buys
+substantially identical stock, you also have a wash sale.
+
+If your loss was disallowed because of the wash sale rules, add the disallowed
+loss to the cost of the new stock or securities (except in (4) above). The
+result is your basis in the new stock or securities. This adjustment postpones
+the loss deduction until the disposition of the new stock or securities. Your
+holding period for the new stock or securities includes the holding period of
+the stock or securities sold.
+
+
+https://www.tradelogsoftware.com/resources/wash-sales/#wash-sale-short-sales
+
+Which Trades Can Trigger a Wash Sale?
+
+The following tables show the many possible trade combinations that can
+trigger a wash sale and that are fully supported by the code below:
+
+Buy Stock then Sell at a Loss
+
+  Within 30 days you:       Wash Sale:
+  ------------------------- ----------
+  Buy Stock on Same Ticker  ✔
+  Sell Stock on Same Ticker
+  Buy Call for Same Ticker  ✔
+  Sell Call for Same Ticker
+  Buy Put for Same Ticker
+  Sell Put for Same Ticker
+
+Buy Call Option, Sell or Close at a Loss
+
+  Within 30 days you:       Wash Sale:
+  ------------------------- ----------
+  Buy Stock on Same Ticker  ✔
+  Sell Stock on Same Ticker
+  Buy Call for Same Ticker  ✔
+  Sell Call for Same Ticker
+  Buy Put for Same Ticker
+  Sell Put for Same Ticker
+
+Buy Put Option, Sell or Close at a Loss
+
+  Within 30 days you:       Wash Sale:
+  ------------------------- ----------
+  Buy Stock on Same Ticker  ✔
+  Sell Stock on Same Ticker
+  Buy Call for Same Ticker  ✔
+  Sell Call for Same Ticker
+  Buy Put for Same Ticker   ✔
+  Sell Put for Same Ticker
+
+Sell Stock Short then Buy to Cover at a Loss
+
+  Within 30 days you:       Wash Sale:
+  ------------------------- ----------
+  Buy Stock on Same Ticker  ✔
+  Sell Stock on Same Ticker ✔
+  Buy Call for Same Ticker  ✔
+  Sell Call for Same Ticker ✔
+  Buy Put for Same Ticker   ✔
+  Sell Put for Same Ticker  ✔
+
+Sell Call (Writer) then Close at a Loss
+
+  Within 30 days you:       Wash Sale:
+  ------------------------- ----------
+  Buy Stock on Same Ticker  ✔
+  Sell Stock on Same Ticker ✔
+  Buy Call for Same Ticker  ✔
+  Sell Call for Same Ticker ✔
+  Buy Put for Same Ticker   ✔
+  Sell Put for Same Ticker  ✔
+
+Sell Put (Writer) then Close at a Loss
+
+  Within 30 days you:       Wash Sale:
+  ------------------------- ----------
+  Buy Stock on Same Ticker  ✔
+  Sell Stock on Same Ticker ✔
+  Buy Call for Same Ticker  ✔
+  Sell Call for Same Ticker ✔
+  Buy Put for Same Ticker   ✔
+  Sell Put for Same Ticker  ✔
 
 -}
 
@@ -117,36 +211,55 @@ module ThinkOrSwim.Wash where
 import Control.Lens
 import Control.Monad.State
 import Data.Amount
--- import Data.Coerce
--- import Data.Foldable (foldl')
 import Data.Ledger as Ledger
--- import Data.Maybe (isJust, maybeToList)
 import Data.Time
--- import GHC.TypeLits
 import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
--- import Data.List (intercalate)
--- import Data.Text (unpack)
 -- import Debug.Trace
 
-data WashSale = WashSale
-    { gainOrLoss  :: Maybe (Amount 2)
-    , eventDate   :: UTCTime
-    , openingXact :: CommodityLot API.Transaction
-    , closingXact :: Maybe (CommodityLot API.Transaction)
-    }
-    deriving (Eq, Ord, Show)
+-- A losing closing transaction. If it closes within 31 days of open (30 + day
+-- of sale), we record it as subject to the wash sale rule should a future
+-- opening of the same position occur within the next 30 days. There's no need
+-- to record profitable closing transactions.
+recordLoss :: UTCTime
+           -> LotAndPL API.Transaction
+           -> State (GainsKeeperState API.Transaction) ()
+recordLoss w (LotAndPL pl l)
+    | pl <= 0 = pure ()
+    -- | Just d <- l^.purchaseDate, w `diffUTCTime` d > 31 * 86400 = pure ()
+    | otherwise =
+      at (l^.Ledger.symbol).non (newEventHistory []).positionEvents
+          <>= [TransactionEvent (Just pl) w l]
 
--- Given a history of opening and closing transactions (and the
--- opening transaction for each), and a new opening transaction, determine:
-
---
--- - The washed losses, and the parts of the incoming transaciton they apply
---   to. Any remainder is returned with a wash loss of 0.0.
--- - The revised history, with the washed transactions removed.
+-- Given a history of opening and closing transactions (and the opening
+-- transaction for each of those), and a new opening transaction, determine
+-- the washed losses, and the parts of the incoming transaction they apply to.
+-- Any remainder is returned with a wash loss of 0.0. - The revised history,
+-- with the washed transactions removed.
 washSaleRule
     :: CommodityLot API.Transaction
-    -> State (GainsKeeperState API.Transaction) (Maybe WashSale)
-washSaleRule _l = pure Nothing
+    -> State (GainsKeeperState API.Transaction) [CommodityLot API.Transaction]
+washSaleRule l
+    | Just d <- l^.purchaseDate =
+      -- We're opening a transaction to which the wash sale rule may apply.
+      -- Check whether an applicable losing transaction was made within the
+      -- last 30 days, and if so, adjust the cost basis and remove the losing
+      -- historical transaction since wash sales are only applied once.
+      findApplicableClose l >>= \case
+          Nothing -> do
+              at (l^.Ledger.symbol).non (newEventHistory []).positionEvents
+                  <>= [TransactionEvent Nothing d l]
+              pure [l]
+          Just _cl ->
+              -- jww (2020-04-14): Transfer the loss on applicable share into
+              -- the cost basis, possible splitting this opening transaction
+              -- into multiple based on the number of losing shares. Then
+              -- remove those shares from the historical record so they aren't
+              -- applied again.
+              pure [l]
+    | otherwise = pure [l]
+  where
+    findApplicableClose _ = pure Nothing
+

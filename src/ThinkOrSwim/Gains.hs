@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module ThinkOrSwim.Gains where
 
@@ -17,11 +18,10 @@ import Data.Amount
 import Data.Coerce
 import Data.Foldable (foldl')
 import Data.Ledger as Ledger
-import Data.Maybe (isJust, maybeToList)
 import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
--- import ThinkOrSwim.Wash
+import ThinkOrSwim.Wash
 
 -- import Data.Text (unpack)
 -- import Debug.Trace
@@ -34,9 +34,7 @@ gainsKeeper
     :: API.Transaction -> CommodityLot API.Transaction
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
 gainsKeeper t cl = do
-    let sym   = cl^.Ledger.symbol
-        cst   = abs (t^.item.API.cost)
-        fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
+    let sym = cl^.Ledger.symbol
 
     hist <- use (at sym.non (newEventHistory []))
 
@@ -44,22 +42,31 @@ gainsKeeper t cl = do
     -- short sale. If there are existing lots for this symbol, then if the
     -- current would add to or deduct from those positions, then it closes as
     -- much of that previous positions as quantities dictate.
-    let ls   = hist^.openTransactions
-        l    = reflectEvent (coerce cst)
+    let ls  = hist^.openTransactions
+        cst = abs (t^.item.API.cost)
+        l   = setEvent (coerce cst)
 
     pl <- calculatePL l ls
 
-    let res  = handleFees fees' (pl^.losses ++ maybeToList (LotAndPL 0 <$> pl^.leftover))
-        next = case pl^.history ++ [ res^?!_last.lot | isJust (pl^.leftover) ] of
-                   [] -> Nothing
-                   xs -> Just $ hist & openTransactions .~ xs
+    let pls   = pl^..losses.traverse.to (False,)
+             ++ pl^..opening.traverse.to (LotAndPL 0).to (True,)
+        fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
+        res   = handleFees fees' pls
+        res'  = res^..traverse._2
+        ts    = pl^.history ++ res^..traverse.filtered fst._2.lot
 
-    -- traceM $ render $ renderHistoryBeforeAndAfter (unpack sym) l hist res next
+    at sym .= case ts of
+        [] -> Nothing
+        _  -> Just $ hist & openTransactions .~ ts
 
-    at sym .= next
-    pure res
+    -- traceM
+    --     . render
+    --     . renderHistoryBeforeAndAfter (unpack sym) l hist res'
+    --     =<< use (at sym)
+
+    pure res'
   where
-    reflectEvent cst = cl
+    setEvent cst = cl
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
         & purchaseDate ?~ t^.xactDate
         & refs         .~ [Ref OpeningOrder (t^.xactId) t]
@@ -67,10 +74,11 @@ gainsKeeper t cl = do
 calculatePL :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
             -> State (GainsKeeperState API.Transaction) CalculatedPL
 calculatePL l ls = do
-    let (x, xs, ys) = foldl' fifo (Just l, [], []) ls
-    -- jww (2020-04-14): Calculate how gain is affected by the wash sale rule.
-    -- washSale <- washSaleRule y'
-    pure $ CalculatedPL (reverse xs) (reverse ys) x
+    let (z, reverse -> xs, reverse -> ys) = foldl' fifo (Just l, [], []) ls
+    forM_ xs $ \x@(LotAndPL pl _) ->
+        when (pl > 0) $ recordLoss undefined x
+    zs <- sequenceA $ washSaleRule <$> z
+    pure $ CalculatedPL xs ys (justList zs)
   where
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z, res, keep) x =
@@ -80,6 +88,10 @@ calculatePL l ls = do
         )
       where
         LotApplied {..} = x `applyLot` z
+
+    justList :: Maybe [a] -> [a]
+    justList Nothing   = []
+    justList (Just xs) = xs
 
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
 -- a share sell; a buy for the reverse. If both have the same sign, nothing is
@@ -168,28 +180,28 @@ applyLot x y' =
 -- them. Yet if the fee is oddly divided, we must carry the remaining penny,
 -- since otherwise .03 divided by 2 (for example) will round to two instances
 -- of .01. See tests for examples.
-handleFees :: Amount 2 -> [LotAndPL t] -> [LotAndPL t]
+handleFees :: forall t a. Amount 2 -> [(a, LotAndPL t)] -> [(a, LotAndPL t)]
 
 -- If there is only a single transaction to apply the fee to, we add (or
 -- subtract) it directly to (from) the basis cost, rather than dividing it
 -- into the P/L of multiple transactions.
-handleFees fee [LotAndPL 0.0 x] =
-    [LotAndPL 0.0 $ x & Ledger.cost.mapped +~
-         coerce (if x^.quantity < 0 then (-fee) else fee)]
+handleFees fee [(w, LotAndPL 0.0 x)] =
+    [(w, LotAndPL 0.0 $ x & Ledger.cost.mapped +~
+             coerce (if x^.quantity < 0 then (-fee) else fee))]
 
 handleFees fee lots = go True lots
   where
     go _ [] = []
-    go b ((LotAndPL g x):xs) =
-        LotAndPL
-          (normalizeAmount mpfr_RNDNA g +
-           normalizeAmount mpfr_RNDZ (sumOfParts x + if b then diff else 0))
-          x : go False xs
+    go b ((w, LotAndPL g x):xs) = (w, LotAndPL (g' + sum') x) : go False xs
       where
-        diff = fee - sum (map (sumOfParts . view lot) lots)
+        g'   = normalizeAmount mpfr_RNDNA g
+        sum' = normalizeAmount mpfr_RNDZ
+                   (sumOfParts x + if b then diff else 0)
+
+        diff = fee - sum (map (sumOfParts . view lot . snd) lots)
 
         sumOfParts l =
             normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
           where
             perShare = coerce fee / shares
-            shares   = sum (map (^.lot.quantity) lots)
+            shares   = sum (map (^._2.lot.quantity) lots)

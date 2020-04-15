@@ -47,19 +47,18 @@ instance Show (LotAndPL t) where
     show x = showCommodityLot (x^.lot) ++ " $ "  ++ show (- x^.loss)
 
 data CalculatedPL = CalculatedPL
-    { _losses   :: [LotAndPL API.Transaction]
-    , _history  :: [CommodityLot API.Transaction]
-    , _leftover :: Maybe (CommodityLot API.Transaction)
+    { _losses  :: [LotAndPL API.Transaction]
+    , _history :: [CommodityLot API.Transaction]
+    , _opening :: [CommodityLot API.Transaction]
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''CalculatedPL
 
 data TransactionEvent t = TransactionEvent
-    { _gainOrLoss  :: Maybe (Amount 2)
-    , _eventDate   :: UTCTime
-    , _openingXact :: CommodityLot t
-    , _closingXact :: Maybe (CommodityLot t)
+    { _gainOrLoss :: Maybe (Amount 2)
+    , _eventDate  :: UTCTime
+    , _eventXact  :: CommodityLot t
     }
     deriving (Eq, Ord, Show)
 
