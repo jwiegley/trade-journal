@@ -75,7 +75,7 @@ testApplyLots = testGroup "Gains"
                 (Just (2@@(2 * (300/12))))
 
     , testCase "calculateGains -400" $
-      let res = flip evalState newGainsKeeperState $ calculatePL
+      let res = calculatePL
               ((-400) @@ 69727.28) -- {174.3182}
               [ 100 @@ 17350.00    -- {173.50}
               , 400 @@ 69722.60    -- {174.3065}
@@ -87,7 +87,7 @@ testApplyLots = testGroup "Gains"
                    []
 
     , testCase "calculatePL 400" $
-      let res = flip evalState newGainsKeeperState $ calculatePL
+      let res = calculatePL
               (400 @@ 69722.60)
               [ 100 @@ 17350.00
               ]
@@ -97,7 +97,7 @@ testApplyLots = testGroup "Gains"
                    [ 400 @@ 69722.60 ]
 
     , testCase "calculatePL SNAP" $
-      let res = flip evalState newGainsKeeperState $ calculatePL
+      let res = calculatePL
               ((-11.0) @@ 189.97)
               [ 700.0 @@ 12053.72
               , 300.0 @@ 5165.97

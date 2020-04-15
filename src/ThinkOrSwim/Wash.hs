@@ -27,7 +27,7 @@ Summary:
 
     Example 2: Buy 100 shares, buy 50, sell 100: the 50 shares in the second
     purchase have their cost basis adjusted to include the loss from the sale
-    of 50 out of the original 100.
+    of the original 100.
 
     If this situation holds, the loss incurred by X'' shares from B is added
     to the cost basis of the X'' shares of "STCK equivalent" repurchased. This
@@ -140,73 +140,44 @@ https://www.tradelogsoftware.com/resources/wash-sales/#wash-sale-short-sales
 Which Trades Can Trigger a Wash Sale?
 
 The following tables show the many possible trade combinations that can
-trigger a wash sale and that are fully supported by the code below:
+trigger a wash sale and that are fully supported by the code below.
 
 Buy Stock then Sell at a Loss
-
-  Within 30 days you:       Wash Sale:
-  ------------------------- ----------
-  Buy Stock on Same Ticker  ✔
-  Sell Stock on Same Ticker
-  Buy Call for Same Ticker  ✔
-  Sell Call for Same Ticker
-  Buy Put for Same Ticker
-  Sell Put for Same Ticker
+- Buy Stock on Same Ticker
+- Buy Call for Same Ticker
 
 Buy Call Option, Sell or Close at a Loss
-
-  Within 30 days you:       Wash Sale:
-  ------------------------- ----------
-  Buy Stock on Same Ticker  ✔
-  Sell Stock on Same Ticker
-  Buy Call for Same Ticker  ✔
-  Sell Call for Same Ticker
-  Buy Put for Same Ticker
-  Sell Put for Same Ticker
+- Buy Stock on Same Ticker
+- Buy Call for Same Ticker
 
 Buy Put Option, Sell or Close at a Loss
-
-  Within 30 days you:       Wash Sale:
-  ------------------------- ----------
-  Buy Stock on Same Ticker  ✔
-  Sell Stock on Same Ticker
-  Buy Call for Same Ticker  ✔
-  Sell Call for Same Ticker
-  Buy Put for Same Ticker   ✔
-  Sell Put for Same Ticker
+- Buy Stock on Same Ticker
+- Buy Call for Same Ticker
+- Buy Put for Same Ticker
 
 Sell Stock Short then Buy to Cover at a Loss
-
-  Within 30 days you:       Wash Sale:
-  ------------------------- ----------
-  Buy Stock on Same Ticker  ✔
-  Sell Stock on Same Ticker ✔
-  Buy Call for Same Ticker  ✔
-  Sell Call for Same Ticker ✔
-  Buy Put for Same Ticker   ✔
-  Sell Put for Same Ticker  ✔
+- Buy Stock on Same Ticker
+- Sell Stock on Same Ticker
+- Buy Call for Same Ticker
+- Sell Call for Same Ticker
+- Buy Put for Same Ticker
+- Sell Put for Same Ticker
 
 Sell Call (Writer) then Close at a Loss
-
-  Within 30 days you:       Wash Sale:
-  ------------------------- ----------
-  Buy Stock on Same Ticker  ✔
-  Sell Stock on Same Ticker ✔
-  Buy Call for Same Ticker  ✔
-  Sell Call for Same Ticker ✔
-  Buy Put for Same Ticker   ✔
-  Sell Put for Same Ticker  ✔
+- Buy Stock on Same Ticker
+- Sell Stock on Same Ticker
+- Buy Call for Same Ticker
+- Sell Call for Same Ticker
+- Buy Put for Same Ticker
+- Sell Put for Same Ticker
 
 Sell Put (Writer) then Close at a Loss
-
-  Within 30 days you:       Wash Sale:
-  ------------------------- ----------
-  Buy Stock on Same Ticker  ✔
-  Sell Stock on Same Ticker ✔
-  Buy Call for Same Ticker  ✔
-  Sell Call for Same Ticker ✔
-  Buy Put for Same Ticker   ✔
-  Sell Put for Same Ticker  ✔
+- Buy Stock on Same Ticker
+- Sell Stock on Same Ticker
+- Buy Call for Same Ticker
+- Sell Call for Same Ticker
+- Buy Put for Same Ticker
+- Sell Put for Same Ticker
 
 -}
 
@@ -221,33 +192,24 @@ import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
--- A losing closing transaction. If it closes within 31 days of open (30 + day
--- of sale), we record it as subject to the wash sale rule should a future
--- opening of the same position occur within the next 30 days. There's no need
--- to record profitable closing transactions.
+-- Given a history of closing and opening transactions (where the opening
+-- transactions are identified as having a loss of 0.0), determine the washed
+-- losses that should apply to either these are some pending set of opening
+-- transactions in the GainsKeeperState, and the parts of those transactions
+-- they apply to, possibly splitting up lots to record the tally. The state
+-- and/or input value is then modified to reflect these adjustments.
+washSaleRule
+    :: [LotAndPL API.Transaction]
+    -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
+washSaleRule ls
 {-
-recordLoss :: UTCTime
-           -> LotAndPL API.Transaction
-           -> State (GainsKeeperState API.Transaction) ()
-recordLoss w (LotAndPL pl l)
     -- If called for a profitable close, ignore.
     | pl <= 0 = pure ()
     -- | Just d <- l^.purchaseDate, w `diffUTCTime` d > 31 * 86400 = pure ()
     | otherwise =
       at (l^.Ledger.symbol).non (newEventHistory []).positionEvents
           <>= [TransactionEvent (Just pl) w l]
--}
 
--- Given a history of opening and closing transactions (and the opening
--- transaction for each of those), and a new opening transaction, determine
--- the washed losses, and the parts of the incoming transaction they apply to.
--- Any remainder is returned with a wash loss of 0.0. - The revised history,
--- with the washed transactions removed.
-washSaleRule
-    :: [LotAndPL API.Transaction]
-    -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-washSaleRule ls
-{-
     | Just d <- l^.purchaseDate = pure []
       -- We're opening a transaction to which the wash sale rule may apply.
       -- Check whether an applicable losing transaction was made within the
