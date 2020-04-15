@@ -19,7 +19,7 @@ import Data.Coerce
 import Data.Foldable (foldl')
 import Data.Ledger as Ledger
 import Data.Maybe (maybeToList)
-import Data.Text (Text, unpack)
+import Data.Text (unpack)
 import Prelude hiding (Float, Double)
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -33,8 +33,6 @@ gainsKeeper
     :: API.Transaction -> CommodityLot API.Transaction
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
 gainsKeeper t cl = do
-    let sym = cl^.Ledger.symbol
-
     hist <- use (at sym.non (newEventHistory []))
 
     -- If there are no existing lots, then this is either a purchase or a
@@ -50,39 +48,39 @@ gainsKeeper t cl = do
     let pls   = pl^..losses.traverse.to (False,)
              ++ pl^..opening.traverse.to (LotAndPL 0).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-        res   = handleFees fees' pls
-        res'  = res^..traverse._2
-        ts    = pl^.history ++ res^..traverse.filtered fst._2.lot
+        wfees = handleFees fees' pls
+        res   = wfees^..traverse._2
+        ts    = pl^.history ++ wfees^..traverse.filtered fst._2.lot
         hist' = hist & openTransactions .~ ts
 
     at sym ?= hist'
-    traceCurrentState sym l hist res'
 
-    res'' <- washSaleRule res'
-    traceCurrentState sym l hist' res''
-
-    pure res''
+    traceCurrentState l hist hist' =<< washSaleRule res
   where
+    sym = cl^.Ledger.symbol
+
     setEvent cst = cl
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
         & purchaseDate ?~ t^.xactDate
         & refs         .~ [Ref OpeningOrder (t^.xactId) t]
 
     traceCurrentState
-        :: Text
-        -> CommodityLot API.Transaction
+        :: CommodityLot API.Transaction
+        -> EventHistory API.Transaction
         -> EventHistory API.Transaction
         -> [LotAndPL API.Transaction]
-        -> State (GainsKeeperState API.Transaction) ()
-    traceCurrentState sym l hist res =  do
+        -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
+    traceCurrentState l hist next res =  do
         traceM
             . render
             . renderHistoryBeforeAndAfter
-                  (unpack sym ++ "/wash")
+                  (unpack sym)
                   l
                   hist
+                  next
                   res
-            =<< use (at sym)
+            =<< use (at sym.non (newEventHistory []))
+        return res
 
 calculatePL :: CommodityLot API.Transaction
             -> [CommodityLot API.Transaction]

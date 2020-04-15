@@ -105,13 +105,15 @@ renderHistoryBeforeAndAfter
     :: String
     -> CommodityLot t
     -> EventHistory t
+    -> EventHistory t
     -> [LotAndPL t]
-    -> Maybe (EventHistory t)
+    -> EventHistory t
     -> Doc
-renderHistoryBeforeAndAfter sym l hist res next =
+renderHistoryBeforeAndAfter sym l hist next res final =
     text sym <> text ": " <> text (showCommodityLot l)
-        $$ text " --> " <> renderEventHistory hist
-        $$ text " ==> " <> maybe (brackets empty) renderEventHistory next
+        $$ text " ++> " <> renderEventHistory hist
+        $$ text " --> " <> renderEventHistory next
+        $$ text " ==> " <> renderEventHistory final
         $$ text " <-- " <> renderList (text . show) res
 
 type GainsKeeperState t = Map Text (EventHistory t)
