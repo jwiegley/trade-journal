@@ -212,16 +212,14 @@ Sell Put (Writer) then Close at a Loss
 
 module ThinkOrSwim.Wash where
 
-import Control.Lens
+-- import Control.Lens
 import Control.Monad.State
 -- import Data.Amount
-import Data.Ledger as Ledger
+-- import Data.Ledger as Ledger
 -- import Data.Time
 import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
-
--- import Debug.Trace
 
 -- A losing closing transaction. If it closes within 31 days of open (30 + day
 -- of sale), we record it as subject to the wash sale rule should a future
@@ -247,9 +245,8 @@ recordLoss w (LotAndPL pl l)
 -- with the washed transactions removed.
 washSaleRule
     :: [LotAndPL API.Transaction]
-    -> Maybe (CommodityLot API.Transaction)
-    -> State (GainsKeeperState API.Transaction) [CommodityLot API.Transaction]
-washSaleRule _ls ml
+    -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
+washSaleRule ls
 {-
     | Just d <- l^.purchaseDate = pure []
       -- We're opening a transaction to which the wash sale rule may apply.
@@ -269,7 +266,7 @@ washSaleRule _ls ml
               -- applied again.
               pure [l]
 -}
-    | otherwise = pure $ ml^..traverse
+    | otherwise = pure ls
   where
     _findApplicableClose _ = pure Nothing
 

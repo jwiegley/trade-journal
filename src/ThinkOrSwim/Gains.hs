@@ -18,14 +18,13 @@ import Data.Amount
 import Data.Coerce
 import Data.Foldable (foldl')
 import Data.Ledger as Ledger
+import Data.Maybe (maybeToList)
+import Data.Text (Text, unpack)
 import Prelude hiding (Float, Double)
+import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 import ThinkOrSwim.Wash
-
--- import Data.Text (unpack)
--- import Debug.Trace
--- import Text.PrettyPrint
 
 -- The function seeks to replicate the logic used by GainsKeeper to determine
 -- what impact a given transaction, based on existing positions, should have
@@ -54,31 +53,48 @@ gainsKeeper t cl = do
         res   = handleFees fees' pls
         res'  = res^..traverse._2
         ts    = pl^.history ++ res^..traverse.filtered fst._2.lot
+        hist' = hist & openTransactions .~ ts
 
-    at sym .= case ts of
-        [] -> Nothing
-        _  -> Just $ hist & openTransactions .~ ts
+    at sym ?= hist'
+    traceCurrentState sym l hist res'
 
-    -- traceM
-    --     . render
-    --     . renderHistoryBeforeAndAfter (unpack sym) l hist res'
-    --     =<< use (at sym)
+    res'' <- washSaleRule res'
+    traceCurrentState sym l hist' res''
 
-    pure res'
+    pure res''
   where
     setEvent cst = cl
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
         & purchaseDate ?~ t^.xactDate
         & refs         .~ [Ref OpeningOrder (t^.xactId) t]
 
-calculatePL :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
+    traceCurrentState
+        :: Text
+        -> CommodityLot API.Transaction
+        -> EventHistory API.Transaction
+        -> [LotAndPL API.Transaction]
+        -> State (GainsKeeperState API.Transaction) ()
+    traceCurrentState sym l hist res =  do
+        traceM
+            . render
+            . renderHistoryBeforeAndAfter
+                  (unpack sym ++ "/wash")
+                  l
+                  hist
+                  res
+            =<< use (at sym)
+
+calculatePL :: CommodityLot API.Transaction
+            -> [CommodityLot API.Transaction]
             -> State (GainsKeeperState API.Transaction) CalculatedPL
-calculatePL l ls = do
-    let (z, reverse -> xs, reverse -> ys) = foldl' fifo (Just l, [], []) ls
-    CalculatedPL xs ys <$> washSaleRule xs z
+calculatePL curr open = do
+    let ( maybeToList -> _opening,
+          reverse     -> _losses,
+          reverse     -> _history ) = foldl' fifo (Just curr, [], []) open
+    pure CalculatedPL {..}
   where
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
-    fifo (Just z, res, keep) x =
+    fifo (Just z, res, keep)  x =
         ( _left
         , maybe res ((:res) . LotAndPL _gain) _used
         , maybe keep (:keep) _kept

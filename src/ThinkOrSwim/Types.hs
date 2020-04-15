@@ -25,6 +25,10 @@ import           Text.PrettyPrint
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
                      as API hiding ((<+>))
 
+-- import Debug.Trace
+traceM :: Applicative f => String -> f ()
+traceM _ = pure ()
+
 data LotApplied t = LotApplied
     { _gain :: Amount 2
     , _used :: Maybe (CommodityLot t) -- the portion subtracted out
@@ -107,10 +111,8 @@ renderHistoryBeforeAndAfter
 renderHistoryBeforeAndAfter sym l hist res next =
     text sym <> text ": " <> text (showCommodityLot l)
         $$ text " --> " <> renderEventHistory hist
+        $$ text " ==> " <> maybe (brackets empty) renderEventHistory next
         $$ text " <-- " <> renderList (text . show) res
-        $$ text " ==> " <> next'
-  where
-    next' = maybe (brackets empty) renderEventHistory next
 
 type GainsKeeperState t = Map Text (EventHistory t)
 
