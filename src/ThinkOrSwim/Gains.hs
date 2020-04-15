@@ -75,10 +75,7 @@ calculatePL :: CommodityLot API.Transaction -> [CommodityLot API.Transaction]
             -> State (GainsKeeperState API.Transaction) CalculatedPL
 calculatePL l ls = do
     let (z, reverse -> xs, reverse -> ys) = foldl' fifo (Just l, [], []) ls
-    forM_ xs $ \x@(LotAndPL pl _) ->
-        when (pl > 0) $ recordLoss undefined x
-    zs <- sequenceA $ washSaleRule <$> z
-    pure $ CalculatedPL xs ys (justList zs)
+    CalculatedPL xs ys <$> washSaleRule xs z
   where
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z, res, keep) x =
@@ -88,10 +85,6 @@ calculatePL l ls = do
         )
       where
         LotApplied {..} = x `applyLot` z
-
-    justList :: Maybe [a] -> [a]
-    justList Nothing   = []
-    justList (Just xs) = xs
 
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
 -- a share sell; a buy for the reverse. If both have the same sign, nothing is

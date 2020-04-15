@@ -17,13 +17,17 @@ Summary:
            v
     B. Sell <=A shares of STCK at a loss
            |
-           |  up to 30 days
+           |  up to 30 days, at anytime within these 61 days
            v
     C. Buy <=B shares of "STCK equivalent"
 
-    Example: Buy 100 shares, sell 50, buy 100: first 50 shares of those 100
+    Example 1: Buy 100 shares, sell 50, buy 100: first 50 shares of those 100
     repurchased have their cost basis adjusted to include the loss from the
     sale of 50.
+
+    Example 2: Buy 100 shares, buy 50, sell 100: the 50 shares in the second
+    purchase have their cost basis adjusted to include the loss from the sale
+    of 50 out of the original 100.
 
     If this situation holds, the loss incurred by X'' shares from B is added
     to the cost basis of the X'' shares of "STCK equivalent" repurchased. This
@@ -210,9 +214,9 @@ module ThinkOrSwim.Wash where
 
 import Control.Lens
 import Control.Monad.State
-import Data.Amount
+-- import Data.Amount
 import Data.Ledger as Ledger
-import Data.Time
+-- import Data.Time
 import Prelude hiding (Float, Double)
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
@@ -223,15 +227,18 @@ import ThinkOrSwim.Types
 -- of sale), we record it as subject to the wash sale rule should a future
 -- opening of the same position occur within the next 30 days. There's no need
 -- to record profitable closing transactions.
+{-
 recordLoss :: UTCTime
            -> LotAndPL API.Transaction
            -> State (GainsKeeperState API.Transaction) ()
 recordLoss w (LotAndPL pl l)
+    -- If called for a profitable close, ignore.
     | pl <= 0 = pure ()
     -- | Just d <- l^.purchaseDate, w `diffUTCTime` d > 31 * 86400 = pure ()
     | otherwise =
       at (l^.Ledger.symbol).non (newEventHistory []).positionEvents
           <>= [TransactionEvent (Just pl) w l]
+-}
 
 -- Given a history of opening and closing transactions (and the opening
 -- transaction for each of those), and a new opening transaction, determine
@@ -239,10 +246,12 @@ recordLoss w (LotAndPL pl l)
 -- Any remainder is returned with a wash loss of 0.0. - The revised history,
 -- with the washed transactions removed.
 washSaleRule
-    :: CommodityLot API.Transaction
+    :: [LotAndPL API.Transaction]
+    -> Maybe (CommodityLot API.Transaction)
     -> State (GainsKeeperState API.Transaction) [CommodityLot API.Transaction]
-washSaleRule l
-    | Just d <- l^.purchaseDate =
+washSaleRule _ls ml
+{-
+    | Just d <- l^.purchaseDate = pure []
       -- We're opening a transaction to which the wash sale rule may apply.
       -- Check whether an applicable losing transaction was made within the
       -- last 30 days, and if so, adjust the cost basis and remove the losing
@@ -259,7 +268,8 @@ washSaleRule l
               -- remove those shares from the historical record so they aren't
               -- applied again.
               pure [l]
-    | otherwise = pure [l]
+-}
+    | otherwise = pure $ ml^..traverse
   where
-    findApplicableClose _ = pure Nothing
+    _findApplicableClose _ = pure Nothing
 
