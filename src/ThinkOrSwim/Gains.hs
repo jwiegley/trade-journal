@@ -39,13 +39,11 @@ gainsKeeper t cl = do
     -- short sale. If there are existing lots for this symbol, then if the
     -- current would add to or deduct from those positions, then it closes as
     -- much of that previous positions as quantities dictate.
-    let ls  = hist^.openTransactions
-        cst = abs (t^.item.API.cost)
-        l   = setEvent (coerce cst)
-
-    pl <- calculatePL l ls
-
-    let pls   = pl^..losses.traverse.to (False,)
+    let ls    = hist^.openTransactions
+        cst   = abs (t^.item.API.cost)
+        l     = setEvent (coerce cst)
+        pl    = calculatePL l ls
+        pls   = pl^..losses.traverse.to (False,)
              ++ pl^..opening.traverse.to (LotAndPL 0).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
         wfees = handleFees fees' pls
@@ -84,13 +82,13 @@ gainsKeeper t cl = do
 
 calculatePL :: CommodityLot API.Transaction
             -> [CommodityLot API.Transaction]
-            -> State (GainsKeeperState API.Transaction) CalculatedPL
-calculatePL curr open = do
-    let ( maybeToList -> _opening,
-          reverse     -> _losses,
-          reverse     -> _history ) = foldl' fifo (Just curr, [], []) open
-    pure CalculatedPL {..}
+            -> CalculatedPL
+calculatePL curr open = CalculatedPL {..}
   where
+    ( maybeToList -> _opening,
+      reverse     -> _losses,
+      reverse     -> _history ) = foldl' fifo (Just curr, [], []) open
+
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z, res, keep)  x =
         ( _left
