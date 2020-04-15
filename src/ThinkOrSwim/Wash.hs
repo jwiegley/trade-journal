@@ -198,6 +198,36 @@ import ThinkOrSwim.Types
 -- transactions in the GainsKeeperState, and the parts of those transactions
 -- they apply to, possibly splitting up lots to record the tally. The state
 -- and/or input value is then modified to reflect these adjustments.
+--
+-- Possible outcomes of calling this function:
+--
+-- 1. There are no wash sales, opening transactions are recorded to check for
+--    future losses against them.
+--
+-- 2. Input contains opening transactions to which wash sales apply. Each is
+--    split into N shares, and matched with shares of past applicable losses.
+--    These past shares are removed from the history, and the cost basis
+--    adjusted transactions plus any others are returned.
+--
+-- 3. Input contains closing transactions with losses, for which the wash sale
+--    rule applies. These are added to the history of such losses and returned
+--    in the output.
+--
+-- 4. A combination of 2 and 3, in which case 3 is added to the history, and
+--    then the algorithm applies similarly to 2, except that the shares from 3
+--    are also returned after having their losses adjusted.
+--
+-- Said another way, the inputs are as follows:
+--
+--   State: OPEN, RECENT  (open positions, and xacts within last 61 days)
+--   Input: XACTS=CL+OP   (closing and opening xacts being processed)
+--
+-- - OPEN is ignored by this function.
+-- - RECENT may be added to, changed or subtracted from. Transactions may
+--   be split into multiple to account for transferred losses.
+-- - CL may be split and/or changed to reduce losses.
+-- - CL with losses (or their fractioned parts) may be added to RECENT.
+-- - Transactions in OP may be split and/or changed to increase cost basis.
 washSaleRule
     :: [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
