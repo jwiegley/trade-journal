@@ -21,7 +21,7 @@ import           Data.Int
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, maybeToList)
-import           Data.Text (Text)
+import           Data.Text (Text, unpack)
 import qualified Data.Text as T
 import           Data.Time
 import           Prelude hiding (Float, Double)
@@ -75,6 +75,35 @@ data CommodityLot t = CommodityLot
     deriving (Eq, Ord, Show)
 
 makeClassy ''CommodityLot
+
+instance Semigroup (CommodityLot t) where
+    x <> y = CommodityLot
+        { _instrument   =
+          if x^.instrument == y^.instrument
+          then y^.instrument
+          else error $ "Instrument mismatch: "
+                   ++ show (x^.instrument) ++ " != "
+                   ++ show (y^.instrument)
+        , _quantity     = q
+        , _symbol       =
+          if x^.symbol == y^.symbol
+          then y^.symbol
+          else error $ "Symbol mismatch: "
+                   ++ unpack (x^.symbol) ++ " != "
+                   ++ unpack (y^.symbol)
+        , _cost         = c
+        , _purchaseDate = y^.purchaseDate <|> x^.purchaseDate
+        , _refs         = x^.refs ++ y^.refs
+        , _price        = (/ q) <$> c
+        }
+      where
+        q = x^.quantity + y^.quantity
+        c = liftA2 (+) (sign x <$> x^.cost)
+                       (sign y <$> y^.cost)
+
+instance Monoid (CommodityLot t) where
+    mempty  = newCommodityLot
+    mappend = (<>)
 
 lotPrice :: CommodityLot t -> Maybe (Amount 4)
 lotPrice l = do
