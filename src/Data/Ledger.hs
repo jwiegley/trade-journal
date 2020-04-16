@@ -85,6 +85,63 @@ lotPrice l = do
 lotCost :: CommodityLot t -> Amount 4
 lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
+data LotSplit t
+    = Some
+        { _used      :: CommodityLot t
+        , _remaining :: CommodityLot t
+        }
+    | All (CommodityLot t)
+    | None
+    deriving (Eq, Ord, Show)
+
+_SplitLeft :: Traversal' (LotSplit t) (CommodityLot t)
+_SplitLeft f (Some u r) = Some <$> f u <*> pure r
+_SplitLeft f (All u)    = All <$> f u
+_SplitLeft _ None       = pure None
+
+_SplitRight :: Traversal' (LotSplit t) (CommodityLot t)
+_SplitRight f (Some u r) = Some u <$> f r
+_SplitRight _ (All u)    = pure $ All u
+_SplitRight _ None       = pure None
+
+showLotSplit :: LotSplit t -> String
+showLotSplit None       = "None"
+showLotSplit (All l)    = "All (" ++ showCommodityLot l ++ ")"
+showLotSplit (Some l r) =
+    "Some (" ++ showCommodityLot l ++ ") (" ++ showCommodityLot r ++ ")"
+
+alignLots :: CommodityLot t -> CommodityLot t -> (LotSplit t, LotSplit t)
+alignLots x y
+    | xq == 0 && yq == 0 = ( None,  None  )
+    | xq == 0           = ( None,  All y )
+    | yq == 0           = ( All x, None  )
+    | abs xq == abs yq  = ( All x, All y )
+    | abs xq <  abs yq  =
+        ( All x
+        , Some (y & quantity .~ sign y xq
+                  & cost     ?~ abs xq * yps)
+               (y & quantity .~ sign y diff
+                  & cost     ?~ diff * yps)
+        )
+    | otherwise =
+        ( Some (x & quantity .~ sign x yq
+                  & cost     ?~ abs yq * xps)
+               (x & quantity .~ sign x diff
+                  & cost     ?~ diff * xps)
+        , All y
+        )
+  where
+    xq    = x^.quantity
+    yq    = y^.quantity
+    xcst  = lotCost x
+    ycst  = lotCost y
+    xps   = xcst / abs xq
+    yps   = ycst / abs yq
+    diff  = abs (abs xq - abs yq)
+
+sign :: Num a => CommodityLot t -> a -> a
+sign l = (if l^.quantity < 0 then negate else id) . abs
+
 newCommodityLot :: CommodityLot t
 newCommodityLot = CommodityLot
     { _instrument   = Stock

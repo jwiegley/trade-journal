@@ -116,67 +116,26 @@ applyLot x y
       x' == y' =
     error $ show x ++ " has same position effect as " ++ show y
 
-applyLot x y' =
-    -- trace ("x^.symbol   = " ++ show (x^.Ledger.symbol)) $
-    -- trace ("x^.quantity = " ++ show (x^.quantity)) $
-    -- trace ("x^.refs     = " ++ show (x^.refs)) $
-    -- trace ("y^.quantity = " ++ show (y^.quantity)) $
-    -- trace ("y^.refs     = " ++ show (y^.refs)) $
-    -- trace ("xcst        = " ++ show xcst) $
-    -- trace ("ycst        = " ++ show ycst) $
-    -- trace ("xc          = " ++ show xc) $
-    -- trace ("yc          = " ++ show yc) $
-    -- trace ("xps         = " ++ show xps) $
-    -- trace ("yps         = " ++ show yps) $
-    -- trace ("xq          = " ++ show xq) $
-    -- trace ("yq          = " ++ show yq) $
-    -- trace ("n           = " ++ show n) $
-    -- trace ("n * yps     = " ++ show (n * yps)) $
-    -- trace ("gain        = " ++ show gain) $
-    LotApplied {..}
+applyLot x y' = LotApplied {..}
   where
-    sign l | l^.quantity < 0 = negate
-           | otherwise = id
-
     y | isTransactionSubType OptionExpiration y' =
         y' & quantity %~ negate
       | otherwise = y'
 
-    xcst = lotCost x
-    ycst = lotCost y
-    xc   = sign x xcst
-    yc   = sign y ycst
-    xps  = xcst / x^.quantity
-    yps  = ycst / y^.quantity
-    xq   = abs (x^.quantity)
-    yq   = abs (y^.quantity)
-    n    = min xq yq
-    xn   = sign x n
-    yn   = sign y n
+    (l, r) = x `alignLots` y
 
     _gain :: Amount 2
     _gain | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
-          | otherwise =
-            coerce (normalizeAmount mpfr_RNDN (coerce go :: Amount 3))
-      where
-        go | xq < yq   = n * yps + xc
-           | xq > yq   = yc + n * xps
-           | otherwise = yc + xc
+          | Just open <- l^?_SplitLeft.Ledger.cost._Just,
+            Just clos <- r^?_SplitLeft.Ledger.cost._Just =
+            coerce (normalizeAmount mpfr_RNDN
+                        (coerce (sign x open + sign y clos) :: Amount 3))
+          | otherwise = 0
 
-    _used = Just $
-        x & quantity     .~ (- xn)
-          & Ledger.cost  ?~ n * abs xps
-          & Ledger.price .~ y^.Ledger.price
-
-    _kept | n < xq =
-            Just $ x & quantity    -~ xn
-                     & Ledger.cost ?~ (xq - n) * abs xps
-          | otherwise = Nothing
-
-    _left | n < yq =
-            Just $ y & quantity    -~ yn
-                     & Ledger.cost ?~ (yq - n) * abs yps
-          | otherwise = Nothing
+    _used = l^?_SplitLeft & _Just.quantity %~ negate
+                          & _Just.Ledger.price .~ y^.Ledger.price
+    _kept = l^?_SplitRight
+    _left = r^?_SplitRight
 
 -- Handling fees is a touch tricky, since if we end up closing multiple
 -- positions via a single sale or purchase, the fees are applied across all of
@@ -198,9 +157,7 @@ handleFees fee lots = go True lots
     go b ((w, LotAndPL g x):xs) = (w, LotAndPL (g' + sum') x) : go False xs
       where
         g'   = normalizeAmount mpfr_RNDNA g
-        sum' = normalizeAmount mpfr_RNDZ
-                   (sumOfParts x + if b then diff else 0)
-
+        sum' = normalizeAmount mpfr_RNDZ (sumOfParts x + if b then diff else 0)
         diff = fee - sum (map (sumOfParts . view lot . snd) lots)
 
         sumOfParts l =
