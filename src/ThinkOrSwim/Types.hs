@@ -129,3 +129,15 @@ isTransactionSubType :: TransactionSubType -> CommodityLot API.Transaction -> Bo
 isTransactionSubType subty y = case y^.refs of
     [r] | r^.refOrig.transactionInfo_.transactionSubType == subty -> True
     _ -> False
+
+-- Return True if 'x' is an open and 'y' is a close.
+pairedCommodityLots :: CommodityLot API.Transaction
+                    -> CommodityLot API.Transaction
+                    -> Bool
+pairedCommodityLots x y
+    = x^.quantity < 0 && y^.quantity > 0
+    || (  x^.quantity > 0
+       && (  y^.quantity < 0
+          || isTransactionSubType OptionExpiration y
+         )
+      )

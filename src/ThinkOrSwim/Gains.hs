@@ -19,7 +19,7 @@ import Data.Coerce
 import Data.Foldable (foldl')
 import Data.Ledger as Ledger
 import Data.Maybe (maybeToList)
-import Data.Text (unpack)
+import Data.Text (Text, unpack)
 import Prelude hiding (Float, Double)
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -51,7 +51,7 @@ gainsKeeper t cl = do
 
     openTransactions.at sym ?= hist'
 
-    traceCurrentState l hist hist' =<< washSaleRule res
+    traceCurrentState sym l hist hist' =<< washSaleRule res
   where
     sym = cl^.Ledger.symbol
 
@@ -60,23 +60,19 @@ gainsKeeper t cl = do
         & purchaseDate ?~ t^.xactDate
         & refs         .~ [Ref OpeningOrder (t^.xactId) t]
 
-    traceCurrentState
-        :: CommodityLot API.Transaction
-        -> [CommodityLot API.Transaction]
-        -> [CommodityLot API.Transaction]
-        -> [LotAndPL API.Transaction]
-        -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-    traceCurrentState l hist next res =  do
-        traceM
-            . render
-            . renderHistoryBeforeAndAfter
-                  (unpack sym)
-                  l
-                  hist
-                  next
-                  res
-            =<< use (openTransactions.at sym.non [])
-        return res
+traceCurrentState
+    :: Text
+    -> CommodityLot API.Transaction
+    -> [CommodityLot API.Transaction]
+    -> [CommodityLot API.Transaction]
+    -> [LotAndPL API.Transaction]
+    -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
+traceCurrentState sym l hist next res = do
+    hist' <- use (openTransactions.at sym.non [])
+    traceM $ render
+           $ renderHistoryBeforeAndAfter
+                 (unpack sym) l hist next res hist'
+    return res
 
 calculatePL :: CommodityLot API.Transaction
             -> [CommodityLot API.Transaction]
@@ -104,10 +100,7 @@ calculatePL curr open = CalculatedPL {..}
 -- similarly for 'y'.
 applyLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
          -> LotApplied API.Transaction
-applyLot x y
-    |   x^.quantity < 0 && y^.quantity < 0
-      || (  x^.quantity > 0 && y^.quantity > 0
-         && not (isTransactionSubType OptionExpiration y)) =
+applyLot x y | not (pairedCommodityLots x y) =
     LotApplied 0.0 Nothing (Just x) (Just y)
 
 applyLot x y

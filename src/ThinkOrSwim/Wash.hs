@@ -183,9 +183,10 @@ Sell Put (Writer) then Close at a Loss
 
 module ThinkOrSwim.Wash where
 
--- import Control.Lens
+import Control.Lens
 import           Control.Monad.State
 -- import Data.Amount
+import           Data.Coerce
 import           Data.Ledger as Ledger
 import           Data.List.NonEmpty (NonEmpty(..))
 -- import qualified Data.List.NonEmpty as NE
@@ -278,13 +279,21 @@ bookLosses _ _ = undefined
 -- includes any part of the loss that wasn't transferred, the part of the
 -- opening transaction that received the loss, and the part of the opening
 -- transaction that did not.
-transferLoss :: LotAndPL t
-             -> CommodityLot t
-             -> ( Maybe (LotAndPL t)
-               , Maybe (CommodityLot t)
-               , Maybe (CommodityLot t)
-               )
-transferLoss _ _ = undefined
+transferLoss :: LotAndPL API.Transaction -> CommodityLot API.Transaction
+             -> (LotAndPL API.Transaction, LotSplit API.Transaction)
+transferLoss x y
+    | Just part <- l^?_SplitLeft,
+      Just _lot <- l^?_SplitRight,
+      pairedCommodityLots (x^.lot) y =
+          let amt   = part^.quantity * per
+              _loss = coerce (_lot^.quantity * per) in
+          ( LotAndPL {..}
+          , r & _SplitLeft.Ledger.cost._Just +~ amt
+          )
+    | otherwise = (x, None)
+  where
+    (l, r) = (x^.lot) `alignLots` y
+    per = coerce (x^.loss) / x^.lot.quantity
 
 fullTransfer :: ( Maybe (LotAndPL t)
                , Maybe (CommodityLot t)
