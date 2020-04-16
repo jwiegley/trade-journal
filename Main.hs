@@ -91,9 +91,8 @@ main = do
             downloadTransactions (T.pack (Main.account opts)) (T.pack key)
                 =<< createManager
 
-    let addLots xs =
-            EventHistory (xs ++ Prelude.map (& quantity %~ negate) xs) []
-        priceData = M.empty
+    let addLots xs = xs ++ Prelude.map (& quantity %~ negate) xs
+        priceData = flip GainsKeeperState M.empty $ M.empty
             & at "ZM"   ?~ addLots
                 [ lt Stock (-140) "ZM"  99.7792 "2019-06-24"
                 , lt Stock (- 10) "ZM"  89.785  "2019-06-24"

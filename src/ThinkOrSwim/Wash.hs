@@ -184,13 +184,15 @@ Sell Put (Writer) then Close at a Loss
 module ThinkOrSwim.Wash where
 
 -- import Control.Lens
-import Control.Monad.State
+import           Control.Monad.State
 -- import Data.Amount
--- import Data.Ledger as Ledger
+import           Data.Ledger as Ledger
+import           Data.List.NonEmpty (NonEmpty(..))
+-- import qualified Data.List.NonEmpty as NE
 -- import Data.Time
-import Prelude hiding (Float, Double)
-import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import ThinkOrSwim.Types
+import           Prelude hiding (Float, Double)
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           ThinkOrSwim.Types
 
 -- Given a history of closing and opening transactions (where the opening
 -- transactions are identified as having a loss of 0.0), determine the washed
@@ -262,3 +264,31 @@ washSaleRule ls
   where
     _findApplicableClose _ = pure Nothing
 
+-- Walk through the history of transaction events, determining whether to
+-- transfer losses to the given lot, whether to book it in the history, and if
+-- the transactions being transferred from must be change. The result is at
+-- least the opening transaction unmodified, or at most all the parts of the
+-- opening transaction with losses transferred or no losses applied.
+bookLosses :: [TransactionEvent t]
+           -> CommodityLot t
+           -> NonEmpty (CommodityLot t)
+bookLosses _ _ = undefined
+
+-- Transfer loss from a losing close to an opening transaction. The result
+-- includes any part of the loss that wasn't transferred, the part of the
+-- opening transaction that received the loss, and the part of the opening
+-- transaction that did not.
+transferLoss :: LotAndPL t
+             -> CommodityLot t
+             -> ( Maybe (LotAndPL t)
+               , Maybe (CommodityLot t)
+               , Maybe (CommodityLot t)
+               )
+transferLoss _ _ = undefined
+
+fullTransfer :: ( Maybe (LotAndPL t)
+               , Maybe (CommodityLot t)
+               , Maybe (CommodityLot t)
+               ) -> Bool
+fullTransfer (Nothing, Just _, Nothing) = True
+fullTransfer _ = False

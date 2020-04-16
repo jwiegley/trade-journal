@@ -12,12 +12,14 @@
 
 module ThinkOrSwim.Types where
 
+import           Control.Applicative ((<|>))
 import           Control.Lens
 import           Data.Amount
 import           Data.Foldable (foldl')
 import           Data.Ledger as Ledger
 import           Data.Map (Map)
 import qualified Data.Map as M
+import           Data.Maybe (fromMaybe)
 import           Data.Text (Text)
 import           Data.Time
 import           Prelude hiding (Float, Double, (<>))
@@ -75,13 +77,16 @@ isDateOrdered (x:y:xs)
     | x^.eventDate <= y^.eventDate = isDateOrdered (y:xs)
     | otherwise = False
 
-data EventHistory t = EventHistory
-    { _openTransactions :: [CommodityLot t]
-    , _positionEvents   :: [TransactionEvent t]
-    }
-    deriving (Eq, Ord, Show)
+lotDate :: CommodityLot API.Transaction -> Maybe UTCTime
+lotDate l = l^.purchaseDate <|> l^?refs._head.refOrig.xactDate
 
-makeClassy ''EventHistory
+eventFromPL :: LotAndPL API.Transaction -> TransactionEvent API.Transaction
+eventFromPL LotAndPL {..} = TransactionEvent
+    { _gainOrLoss = if _loss /= 0 then Just _loss else Nothing
+    , _eventDate  =
+      fromMaybe (error $ "Missing date: " ++ show _lot) (lotDate _lot)
+    , _eventXact  = _lot
+    }
 
 renderList :: (a -> Doc) -> [a] -> Doc
 renderList _ [] = brackets empty
@@ -91,35 +96,34 @@ renderList f ts =
     go (_, True) x    = (lbrack <> space <> f x, False)
     go (acc, False) x = (acc $$ comma <> space <> f x, False)
 
-renderEventHistory :: EventHistory t -> Doc
-renderEventHistory (EventHistory ot _) =
-    renderList (text . showCommodityLot) ot
-
-newEventHistory :: [CommodityLot t] -> EventHistory t
-newEventHistory ot = EventHistory
-    { _openTransactions = ot
-    , _positionEvents   = []
-    }
-
 renderHistoryBeforeAndAfter
     :: String
     -> CommodityLot t
-    -> EventHistory t
-    -> EventHistory t
+    -> [CommodityLot t]
+    -> [CommodityLot t]
     -> [LotAndPL t]
-    -> EventHistory t
+    -> [CommodityLot t]
     -> Doc
 renderHistoryBeforeAndAfter sym l hist next res final =
     text sym <> text ": " <> text (showCommodityLot l)
-        $$ text " ++> " <> renderEventHistory hist
-        $$ text " --> " <> renderEventHistory next
-        $$ text " ==> " <> renderEventHistory final
+        $$ text " ++> " <> renderList (text . showCommodityLot) hist
+        $$ text " --> " <> renderList (text . showCommodityLot) next
+        $$ text " ==> " <> renderList (text . showCommodityLot) final
         $$ text " <-- " <> renderList (text . show) res
 
-type GainsKeeperState t = Map Text (EventHistory t)
+data GainsKeeperState t = GainsKeeperState
+    { _openTransactions :: Map Text [CommodityLot t]
+    , _positionEvents   :: Map Text [TransactionEvent t]
+    }
+    deriving (Eq, Ord, Show)
+
+makeClassy ''GainsKeeperState
 
 newGainsKeeperState :: GainsKeeperState t
-newGainsKeeperState = M.empty
+newGainsKeeperState = GainsKeeperState
+    { _openTransactions = M.empty
+    , _positionEvents   = M.empty
+    }
 
 isTransactionSubType :: TransactionSubType -> CommodityLot API.Transaction -> Bool
 isTransactionSubType subty y = case y^.refs of

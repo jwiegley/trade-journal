@@ -33,25 +33,23 @@ gainsKeeper
     :: API.Transaction -> CommodityLot API.Transaction
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
 gainsKeeper t cl = do
-    hist <- use (at sym.non (newEventHistory []))
+    hist <- use (openTransactions.at sym.non [])
 
     -- If there are no existing lots, then this is either a purchase or a
     -- short sale. If there are existing lots for this symbol, then if the
     -- current would add to or deduct from those positions, then it closes as
     -- much of that previous positions as quantities dictate.
-    let ls    = hist^.openTransactions
-        cst   = abs (t^.item.API.cost)
+    let cst   = abs (t^.item.API.cost)
         l     = setEvent (coerce cst)
-        pl    = calculatePL l ls
+        pl    = calculatePL l hist
         pls   = pl^..losses.traverse.to (False,)
              ++ pl^..opening.traverse.to (LotAndPL 0).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
         wfees = handleFees fees' pls
         res   = wfees^..traverse._2
-        ts    = pl^.history ++ wfees^..traverse.filtered fst._2.lot
-        hist' = hist & openTransactions .~ ts
+        hist' = pl^.history ++ wfees^..traverse.filtered fst._2.lot
 
-    at sym ?= hist'
+    openTransactions.at sym ?= hist'
 
     traceCurrentState l hist hist' =<< washSaleRule res
   where
@@ -64,8 +62,8 @@ gainsKeeper t cl = do
 
     traceCurrentState
         :: CommodityLot API.Transaction
-        -> EventHistory API.Transaction
-        -> EventHistory API.Transaction
+        -> [CommodityLot API.Transaction]
+        -> [CommodityLot API.Transaction]
         -> [LotAndPL API.Transaction]
         -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
     traceCurrentState l hist next res =  do
@@ -77,7 +75,7 @@ gainsKeeper t cl = do
                   hist
                   next
                   res
-            =<< use (at sym.non (newEventHistory []))
+            =<< use (openTransactions.at sym.non [])
         return res
 
 calculatePL :: CommodityLot API.Transaction
