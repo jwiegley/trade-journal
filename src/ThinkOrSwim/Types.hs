@@ -40,17 +40,6 @@ data LotApplied t = LotApplied
 
 makeClassy ''LotApplied
 
-data LotAndPL t = LotAndPL
-    { _loss :: Amount 2           -- positive is loss, else gain
-    , _lot  :: CommodityLot t
-    }
-    deriving (Eq, Ord)
-
-makeClassy ''LotAndPL
-
-instance Show (LotAndPL t) where
-    show x = showCommodityLot (x^.lot) ++ " $ "  ++ show (- x^.loss)
-
 data CalculatedPL = CalculatedPL
     { _losses  :: [LotAndPL API.Transaction]
     , _history :: [CommodityLot API.Transaction]

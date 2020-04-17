@@ -192,6 +192,41 @@ showCommodityLot CommodityLot {..} =
                Nothing -> ""
                Just xs -> " @@ " ++ show xs
 
+data LotAndPL t = LotAndPL
+    { _loss :: Amount 2           -- positive is loss, else gain
+    , _lot  :: CommodityLot t
+    }
+    deriving (Eq, Ord)
+
+makeClassy ''LotAndPL
+
+instance Show (LotAndPL t) where
+    show x = showCommodityLot (x^.lot) ++ " $ "  ++ show (- x^.loss)
+
+-- Transfer loss from a losing close to an opening transaction. The result
+-- includes any part of the loss that wasn't transferred, the part of the
+-- opening transaction that received the loss, and the part of the opening
+-- transaction that did not.
+transferLoss :: LotAndPL t
+             -> CommodityLot t
+             -> (Maybe (LotAndPL t), LotSplit t)
+transferLoss x y
+    | Just part <- l^?_SplitUsed =
+          let amt   = part^.quantity * per in
+          ( do _lot <- l^?_SplitKept
+               let _loss = coerce (_lot^.quantity * per)
+               pure $ LotAndPL {..}
+          , r & _SplitUsed.cost._Just +~ amt
+          )
+    | otherwise = (Just x, None y)
+  where
+    (l, r) = (x^.lot) `alignLots` y
+    per = coerce (x^.loss) / x^.lot.quantity
+
+isFullTransfer :: (Maybe (LotAndPL t), LotSplit t) -> Bool
+isFullTransfer (Nothing, All _) = True
+isFullTransfer _ = False
+
 data PostingAmount t
     = NoAmount
     | DollarAmount (Amount 2)

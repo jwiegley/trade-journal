@@ -188,7 +188,7 @@ import           Control.Monad.State
 -- import Data.Amount
 import           Data.Coerce
 import           Data.Ledger as Ledger
-import           Data.List.NonEmpty (NonEmpty(..))
+-- import           Data.List.NonEmpty (NonEmpty(..))
 -- import qualified Data.List.NonEmpty as NE
 -- import Data.Time
 import           Prelude hiding (Float, Double)
@@ -234,8 +234,16 @@ import           ThinkOrSwim.Types
 washSaleRule
     :: [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-washSaleRule ls
-    | otherwise = pure ls
+washSaleRule ls = do
+    -- Walk through the history of transaction events, determining whether to
+    -- transfer losses to the given lot, whether to book it in the history,
+    -- and if the transactions being transferred from must be change. The
+    -- result is at least the opening transaction unmodified, or at most all
+    -- the parts of the opening transaction with losses transferred or no
+    -- losses applied.
+    -- when (pairedCommodityLots (x^.lot) y) $
+    --     transferLoss x y
+    pure ls
   where
     _findApplicableClose _ = pure Nothing
 
@@ -265,43 +273,3 @@ washSaleRule ls
               -- applied again.
               pure [l]
 -}
-
--- Walk through the history of transaction events, determining whether to
--- transfer losses to the given lot, whether to book it in the history, and if
--- the transactions being transferred from must be change. The result is at
--- least the opening transaction unmodified, or at most all the parts of the
--- opening transaction with losses transferred or no losses applied.
-bookLosses :: [TransactionEvent t]
-           -> CommodityLot t
-           -> NonEmpty (CommodityLot t)
-bookLosses _ _ = undefined
-
--- Transfer loss from a losing close to an opening transaction. The result
--- includes any part of the loss that wasn't transferred, the part of the
--- opening transaction that received the loss, and the part of the opening
--- transaction that did not.
-transferLoss :: LotAndPL API.Transaction
-             -> CommodityLot API.Transaction
-             -> ( Maybe (LotAndPL API.Transaction)
-               , LotSplit API.Transaction
-               )
-transferLoss x y
-    | Just part <- l^?_SplitUsed,
-      pairedCommodityLots (x^.lot) y =
-          let amt   = part^.quantity * per in
-          ( do _lot <- l^?_SplitKept
-               let _loss = coerce (_lot^.quantity * per)
-               pure $ LotAndPL {..}
-          , r & _SplitUsed.Ledger.cost._Just +~ amt
-          )
-    | otherwise = (Just x, None y)
-  where
-    (l, r) = (x^.lot) `alignLots` y
-    per = coerce (x^.loss) / x^.lot.quantity
-
-isFullTransfer :: ( Maybe (LotAndPL t)
-                 , Maybe (CommodityLot t)
-                 , Maybe (CommodityLot t)
-                 ) -> Bool
-isFullTransfer (Nothing, Just _, Nothing) = True
-isFullTransfer _ = False
