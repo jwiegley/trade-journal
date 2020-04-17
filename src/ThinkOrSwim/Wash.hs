@@ -191,7 +191,7 @@ import           Control.Monad.State
 import           Data.Ledger as Ledger
 -- import           Data.List.NonEmpty (NonEmpty(..))
 -- import qualified Data.List.NonEmpty as NE
-import           Data.Maybe (maybeToList)
+import           Data.Maybe (isNothing, maybeToList)
 import           Data.Text (Text)
 -- import Data.Time
 import           Data.Zipper
@@ -239,44 +239,64 @@ washSaleRule
     :: Text
     -> [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-washSaleRule underlying ls = fmap concat $ forM ls $ \pl ->
-    if -- If called for a close that is not a loss, ignore.
-       | pl^.loss < 0 ->
-         pure [pl]
+washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
+    fmap concat $ forM ls $ \pl ->
+        if -- If called for a close that is not a loss, ignore.
+           | pl^.loss < 0 -> pure [pl]
 
-       -- If closing at a loss, and the corresponding open was <= 30 days ago,
-       -- check if a purchase of the same or equivalent security happened
-       -- within the last 30 days. If so, transfer the loss to that opening
-       -- and record any remaining loss; otherwise record the whole loss so it
-       -- may be applied to future openings within 30 days from the loss.
-       | pl^.loss > 0 -> do
-         _events <- use (positionEvents.at underlying.non [])
-         pure [pl]
+           -- If closing at a loss, and the corresponding open was <= 30 days
+           -- ago, check if a purchase of the same or equivalent security
+           -- happened within the last 30 days. If so, transfer the loss to
+           -- that opening and record any remaining loss; otherwise record the
+           -- whole loss so it may be applied to future openings within 30
+           -- days from the loss.
+           | pl^.loss > 0 -> do
+             events <- get
+             let (pls, events') = mapAccumLs' washLoss (Left [pl]) events
+             put events'
+             pure $ reverse $ either id id pls
 
-       -- We're opening a transaction to which the wash sale rule may apply.
-       -- Check whether an applicable losing transaction was made within the
-       -- last 30 days, and if so, adjust the cost basis and remove the losing
-       -- historical transaction since wash sales are only applied once.
-       | otherwise -> zoom (positionEvents.at underlying.non []) $ do
-         events <- get
-         let (pls, events') = mapAccumLs' washClose (Left [pl]) events
-         put events'
-         pure $ reverse $ either id id pls
+           -- We're opening a transaction to which the wash sale rule may
+           -- apply. Check whether an applicable losing transaction was made
+           -- within the last 30 days, and if so, adjust the cost basis and
+           -- remove the losing historical transaction since wash sales are
+           -- only applied once.
+           | otherwise -> do
+             events <- get
+             let (pls, events') = mapAccumLs' washOpen (Left [pl]) events
+             put events'
+             pure $ reverse $ either id id pls
   where
-    ev `shouldWash` l = do
-        guard $ (ev^.eventLot) `pairedCommodityLots` l
-        gorl <- ev^.gainOrLoss
-        guard $ gorl > 0
-        distance <- l `daysApart` (ev^.eventDate)
+    ev `shouldWash` pl = do
+        guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.lot)
+        if | pl^.loss < 0 -> mzero
+           | pl^.loss > 0 -> guard $ isNothing (ev^.gainOrLoss)
+           | otherwise -> do
+                 gorl <- ev^.gainOrLoss
+                 guard $ gorl > 0
+        distance <- (pl^.lot) `daysApart` (ev^.eventDate)
         guard $ distance <= 30
         pure $ eventToPL ev
 
-    washClose (Left [pl]) ev
-       | Just evl <- ev `shouldWash` (pl^.lot) =
-         let (left, spl) = evl `transferLoss` (pl^.lot)
-         in ( Right $ LotAndPL 0 <$> keepAll spl
-            , eventFromPL (Just (ev^.eventDate)) <$> maybeToList left
+    washLoss (Left [pl]) ev
+       | Just evl <- ev `shouldWash` pl =
+         let (_sev, _spl) = (evl^.lot) `alignLots` (pl^.lot)
+         in ( Right [pl]
+            , eventFromPL (Just (ev^.eventDate))
+                  <$> (maybeToList (undefined {- sev^?_SplitKept -}) ++
+                       maybeToList (undefined {- spl^?_SplitUsed -}))
             )
        | otherwise = (Left [pl], [ev])
+    washLoss xs ev = (xs, [ev])
 
-    washClose xs ev = (xs, [ev])
+    washOpen (Left [pl]) ev
+       | Just evl <- ev `shouldWash` pl =
+         let (left, spl) = evl `transferLoss` (pl^.lot)
+         in ( Right $ LotAndPL 0 <$> keepAll spl
+            , (eventFromPL (Just (ev^.eventDate))
+                   <$> maybeToList left) ++
+              (eventFromPL Nothing . LotAndPL 0
+                   <$> maybeToList (spl^?_SplitKept))
+            )
+       | otherwise = (Left [pl], [ev])
+    washOpen xs ev = (xs, [ev])
