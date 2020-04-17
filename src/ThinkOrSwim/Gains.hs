@@ -60,7 +60,7 @@ gainsKeeper t cl = do
     setEvent cst = cl
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
         & purchaseDate ?~ t^.xactDate
-        & refs         .~ [Ref OpeningOrder (t^.xactId) t]
+        & refs         .~ [Ref OpeningOrder (t^.xactId) (Just t)]
 
 traceCurrentState
     :: Text
@@ -111,8 +111,8 @@ closeLot x y | not (pairedCommodityLots x y) =
     LotApplied 0.0 (None x) (None y)
 
 closeLot x y
-    | Just x' <- x^?refs._head.refOrig.item.positionEffect._Just,
-      Just y' <- y^?refs._head.refOrig.item.positionEffect._Just,
+    | Just x' <- x^?refs._head.refOrig._Just.item.positionEffect._Just,
+      Just y' <- y^?refs._head.refOrig._Just.item.positionEffect._Just,
       x' == y' =
     error $ show x ++ " has same position effect as " ++ show y
 

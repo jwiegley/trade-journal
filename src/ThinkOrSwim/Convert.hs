@@ -32,7 +32,7 @@ convertTransactions st hist = (`evalState` st) $
     Prelude.mapM (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
 
 getOrder :: OrdersMap -> Either API.Transaction API.OrderId -> API.Order
-getOrder _ (Left t) = orderFromTransaction t
+getOrder _ (Left t)    = orderFromTransaction t
 getOrder m (Right oid) = m^?!ix oid
 
 convertTransaction
@@ -82,6 +82,7 @@ convertPostings actId t =
                 & Ledger.symbol   .~ symbolName t
                 & Ledger.price    .~ coerce (t^.item.API.price)
                 & Ledger.quantity .~ coerce (getXactAmount t)
+                & Ledger.refs     .~ [Ref OpeningOrder (t^.xactId) (Just t)]
         Nothing -> pure []
   where
     posts cs =

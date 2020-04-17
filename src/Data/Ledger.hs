@@ -47,6 +47,7 @@ data RefType
       --   NOTE: GainsKeeper does not do this, and records one as an immediate
       --   loss/gain
     | OpeningOrder
+    | ExistingEquity
     deriving (Eq, Ord, Show)
 
 makePrisms ''RefType
@@ -54,7 +55,7 @@ makePrisms ''RefType
 data Ref t = Ref
     { _refType :: RefType
     , _refId   :: Int64
-    , _refOrig :: t
+    , _refOrig :: Maybe t
     }
     deriving (Eq, Ord, Show)
 
@@ -263,8 +264,8 @@ alignLotAndPL :: CommodityLot t -> LotAndPL t
               -> (LotSplit (CommodityLot t), LotSplit (LotAndPL t))
 alignLotAndPL x y =
     (l, (LotAndPL (y^.plKind) 0 <$> r)
-            & _SplitUsed.plLoss .~ coerce (per * r^?!_SplitUsed.quantity)
-            & _SplitKept.plLoss .~ coerce (per * r^?!_SplitKept.quantity))
+            & _SplitUsed.plLoss .~ coerce (per * abs (r^?!_SplitUsed.quantity))
+            & _SplitKept.plLoss .~ coerce (per * abs (r^?!_SplitKept.quantity)))
   where
     (l, r) = x `alignLots` (y^.plLot)
 
@@ -346,10 +347,13 @@ checkTransaction _ = Nothing
 renderRefs :: [Ref t] -> Text
 renderRefs = T.intercalate "," . map go
   where
-    go r = (case r^.refType of
-                WashSaleRule wash -> "WASH[$" <> T.pack (show wash) <> "]:"
-                RollingOrder roll -> "ROLL[$" <> T.pack (show roll) <> "]:"
-                OpeningOrder      -> "") <> T.pack (show (r^.refId))
+    go r = case r^.refType of
+        WashSaleRule wash ->
+            "W$" <> T.pack (show wash) <> "|" <> T.pack (show (r^.refId))
+        RollingOrder roll ->
+            "R$" <> T.pack (show roll) <> "|" <> T.pack (show (r^.refId))
+        OpeningOrder      -> "" <> T.pack (show (r^.refId))
+        ExistingEquity    -> "Equity"
 
 renderPostingAmount :: PostingAmount t -> [Text]
 -- jww (2020-03-29): Need to add commas, properly truncate, etc.

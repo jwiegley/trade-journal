@@ -87,7 +87,7 @@ isDateOrdered (x:y:xs)
     | otherwise = False
 
 lotDate :: CommodityLot API.Transaction -> Maybe UTCTime
-lotDate l = l^.purchaseDate <|> l^?refs._head.refOrig.xactDate
+lotDate l = l^.purchaseDate <|> l^?refs._head.refOrig._Just.xactDate
 
 daysApart :: CommodityLot API.Transaction -> UTCTime -> Maybe Pico
 daysApart x yd = do
@@ -143,7 +143,8 @@ newGainsKeeperState = GainsKeeperState
 
 isTransactionSubType :: TransactionSubType -> CommodityLot API.Transaction -> Bool
 isTransactionSubType subty y = case y^.refs of
-    [r] | r^.refOrig.transactionInfo_.transactionSubType == subty -> True
+    [r] | Just subty' <- r^?refOrig._Just.transactionInfo_.transactionSubType,
+          subty' == subty -> True
     _ -> False
 
 -- Return True if 'x' is an open and 'y' is a close.
@@ -151,9 +152,9 @@ pairedCommodityLots :: CommodityLot API.Transaction
                     -> CommodityLot API.Transaction
                     -> Bool
 pairedCommodityLots x y
-    | Just x' <- x^?refs._head.refOrig.API.instrument_._Just.assetType,
-      Just y' <- y^?refs._head.refOrig.API.instrument_._Just.assetType,
-      x' /= y' = False
+    | Just x' <- x^?refs._head.refOrig._Just.API.instrument_._Just.assetType,
+      Just y' <- y^?refs._head.refOrig._Just.API.instrument_._Just.assetType,
+      x' /= y' = Trace.trace (show x' ++ " /= " ++ show y') False
 
 pairedCommodityLots x y
     = (x^.quantity < 0 && y^.quantity > 0)

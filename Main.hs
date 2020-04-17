@@ -118,7 +118,7 @@ main = do
         , Ledger._cost   = Just (abs (q * p))
         , _purchaseDate  =
           Just (parseTimeOrError False defaultTimeLocale "%Y-%m-%d" d)
-        , _refs          = []
+        , _refs          = [Ref ExistingEquity 0 Nothing]
         , Ledger._price  = Just p
         }
 

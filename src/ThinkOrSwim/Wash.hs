@@ -282,6 +282,8 @@ washSaleRule underlying ls =
         justify (x:xs) = Just x:justify xs
 
     ev `shouldWash` pl = do
+        guard $ ev^.eventLot.Ledger.instrument == Stock
+        guard $ pl^.plLot.Ledger.instrument == Stock
         guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.plLot)
         if | pl^.plLoss < 0 -> mzero
            | pl^.plLoss > 0 -> guard $ isNothing (ev^.gainOrLoss)
@@ -332,12 +334,12 @@ transferWashLoss x y
       ( l^?_SplitKept
       , (LotAndPL BreakEven 0 <$> r)
            & _SplitUsed.plKind .~ WashLoss
-           & _SplitUsed.plLoss .~ part^.plLoss
+           & _SplitUsed.plLoss .~ - (part^.plLoss)
            & _SplitUsed.plLot.Ledger.cost._Just +~ coerce (part^.plLoss)
            & _SplitUsed.plLot.refs <>~
                [Ref (WashSaleRule (coerce (part^.plLoss)))
-                    (y^?!refs._head.refId)
-                    (y^?!refs._head.refOrig)]
+                    (x^?!plLot.refs._head.refId)
+                    (x^?!plLot.refs._head.refOrig)]
       )
     | otherwise = (Just x, None (LotAndPL BreakEven 0 y))
   where
