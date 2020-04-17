@@ -51,9 +51,11 @@ gainsKeeper t cl = do
 
     openTransactions.at sym ?= hist'
 
-    traceCurrentState sym l hist hist' =<< washSaleRule res
+    traceCurrentState sym l hist hist' =<< washSaleRule underlying res
   where
     sym = cl^.Ledger.symbol
+
+    underlying = t^.baseSymbol
 
     setEvent cst = cl
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)

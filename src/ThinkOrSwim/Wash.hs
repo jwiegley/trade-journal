@@ -186,10 +186,11 @@ module ThinkOrSwim.Wash where
 import Control.Lens
 import           Control.Monad.State
 -- import Data.Amount
-import           Data.Coerce
+-- import           Data.Coerce
 import           Data.Ledger as Ledger
 -- import           Data.List.NonEmpty (NonEmpty(..))
 -- import qualified Data.List.NonEmpty as NE
+import Data.Text (Text)
 -- import Data.Time
 import           Prelude hiding (Float, Double)
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -232,30 +233,33 @@ import           ThinkOrSwim.Types
 -- - CL with losses (or their fractioned parts) may be added to RECENT.
 -- - Transactions in OP may be split and/or changed to increase cost basis.
 washSaleRule
-    :: [LotAndPL API.Transaction]
+    :: Text
+    -> [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-washSaleRule ls = do
-    -- Walk through the history of transaction events, determining whether to
-    -- transfer losses to the given lot, whether to book it in the history,
-    -- and if the transactions being transferred from must be change. The
-    -- result is at least the opening transaction unmodified, or at most all
-    -- the parts of the opening transaction with losses transferred or no
-    -- losses applied.
-    -- when (pairedCommodityLots (x^.lot) y) $
-    --     transferLoss x y
-    pure ls
-  where
-    _findApplicableClose _ = pure Nothing
+washSaleRule underlying ls = forM ls $ \pl ->
+    if -- If called for a close that is not a loss, ignore.
+       | pl^.loss < 0 ->
+         pure pl
+
+       -- If closing at a loss, and the corresponding open was <= 30 days ago,
+       -- check if a purchase of the same or equivalent security happened
+       -- within the last 30 days. If so, transfer the loss to that opening
+       -- and record any remaining loss; otherwise record the whole loss so it
+       -- may be applied to future openings within 30 days from the loss.
+       | pl^.loss > 0 -> do
+         _events <- use (positionEvents.at underlying.non [])
+         pure pl
+
+       -- If opening, check whether an applicable loss occurred within the
+       -- last thirty days.
+       | otherwise -> do
+         _events <- use (positionEvents.at underlying.non [])
+         pure pl
+         -- when (pairedCommodityLots (x^.lot) y) $
+         --     transferLoss x y
 
 {-
-    -- If called for a profitable close, ignore.
-    | pl <= 0 = pure ()
     -- | Just d <- l^.purchaseDate, w `diffUTCTime` d > 31 * 86400 = pure ()
-    | otherwise =
-      at (l^.Ledger.symbol).non (newEventHistory []).positionEvents
-          <>= [TransactionEvent (Just pl) w l]
-
-    | Just d <- l^.purchaseDate = pure []
       -- We're opening a transaction to which the wash sale rule may apply.
       -- Check whether an applicable losing transaction was made within the
       -- last 30 days, and if so, adjust the cost basis and remove the losing

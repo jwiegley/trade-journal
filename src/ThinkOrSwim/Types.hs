@@ -15,6 +15,7 @@ module ThinkOrSwim.Types where
 import           Control.Applicative ((<|>))
 import           Control.Lens
 import           Data.Amount
+import           Data.Fixed (Pico)
 import           Data.Foldable (foldl')
 import           Data.Ledger as Ledger
 import           Data.Map (Map)
@@ -67,6 +68,13 @@ isDateOrdered (x:y:xs)
 
 lotDate :: CommodityLot API.Transaction -> Maybe UTCTime
 lotDate l = l^.purchaseDate <|> l^?refs._head.refOrig.xactDate
+
+daysApart :: CommodityLot API.Transaction -> CommodityLot API.Transaction
+          -> Maybe Pico
+daysApart x y = do
+    xd <- lotDate x
+    yd <- lotDate y
+    pure $ nominalDiffTimeToSeconds (xd `diffUTCTime` yd) / 86400
 
 eventFromPL :: LotAndPL API.Transaction -> TransactionEvent API.Transaction
 eventFromPL LotAndPL {..} = TransactionEvent
