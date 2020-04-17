@@ -94,57 +94,57 @@ instance Semigroup (CommodityLot t) where
         , _cost         = c
         , _purchaseDate = y^.purchaseDate <|> x^.purchaseDate
         , _refs         = x^.refs ++ y^.refs
-        , _price        = (/ q) <$> c
+        , _price        = do
+          lp <- lotPrice x
+          rp <- lotPrice y
+          pure $ (lp * x^.quantity) + (rp * x^.quantity) / 2
         }
       where
         q = x^.quantity + y^.quantity
         c = liftA2 (+) (sign x <$> x^.cost)
                        (sign y <$> y^.cost)
 
-instance Monoid (CommodityLot t) where
-    mempty  = newCommodityLot
-    mappend = (<>)
-
 lotPrice :: CommodityLot t -> Maybe (Amount 4)
-lotPrice l = do
-    guard $ l^.instrument == Stock
-    p <- l^.price
-    pure $ if l^.quantity < 0 then (-p) else p
+lotPrice l = case l^.instrument of
+    Stock  -> sign l <$> l^.price
+        <|> (/ l^.quantity) <$> l^.cost
+    Option -> Nothing            -- jww (2020-04-16): NYI
+    _      -> Nothing            -- jww (2020-04-16): NYI
 
 lotCost :: CommodityLot t -> Amount 4
 lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
 data LotSplit t
     = Some
-        { _used      :: CommodityLot t
-        , _remaining :: CommodityLot t
+        { _used :: CommodityLot t
+        , _kept :: CommodityLot t
         }
     | All (CommodityLot t)
-    | None
+    | None (CommodityLot t)
     deriving (Eq, Ord, Show)
 
-_SplitLeft :: Traversal' (LotSplit t) (CommodityLot t)
-_SplitLeft f (Some u r) = Some <$> f u <*> pure r
-_SplitLeft f (All u)    = All <$> f u
-_SplitLeft _ None       = pure None
+_SplitUsed :: Traversal' (LotSplit t) (CommodityLot t)
+_SplitUsed f (Some u k) = Some <$> f u <*> pure k
+_SplitUsed f (All u)    = All <$> f u
+_SplitUsed _ (None k)   = pure $ None k
 
-_SplitRight :: Traversal' (LotSplit t) (CommodityLot t)
-_SplitRight f (Some u r) = Some u <$> f r
-_SplitRight _ (All u)    = pure $ All u
-_SplitRight _ None       = pure None
+_SplitKept :: Traversal' (LotSplit t) (CommodityLot t)
+_SplitKept f (Some u k) = Some u <$> f k
+_SplitKept _ (All u)    = pure $ All u
+_SplitKept f (None k)   = None <$> f k
 
 showLotSplit :: LotSplit t -> String
-showLotSplit None       = "None"
-showLotSplit (All l)    = "All (" ++ showCommodityLot l ++ ")"
-showLotSplit (Some l r) =
-    "Some (" ++ showCommodityLot l ++ ") (" ++ showCommodityLot r ++ ")"
+showLotSplit (None k)   = "None (" ++ showCommodityLot k ++ ")"
+showLotSplit (All u)    = "All (" ++ showCommodityLot u ++ ")"
+showLotSplit (Some u k) =
+    "Some (" ++ showCommodityLot u ++ ") (" ++ showCommodityLot k ++ ")"
 
 alignLots :: CommodityLot t -> CommodityLot t -> (LotSplit t, LotSplit t)
 alignLots x y
-    | xq == 0 && yq == 0 = ( None,  None  )
-    | xq == 0           = ( None,  All y )
-    | yq == 0           = ( All x, None  )
-    | abs xq == abs yq  = ( All x, All y )
+    | xq == 0 && yq == 0 = ( None x, None y )
+    | xq == 0           = ( None x, All  y )
+    | yq == 0           = ( All  x, None y )
+    | abs xq == abs yq  = ( All  x, All  y )
     | abs xq <  abs yq  =
         ( All x
         , Some (y & quantity .~ sign y xq

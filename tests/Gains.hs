@@ -8,7 +8,6 @@
 module Gains where
 
 import Control.Lens
-import Control.Monad.State
 import Data.Amount
 import Data.Ledger
 -- import Data.Maybe (isJust)
@@ -27,52 +26,52 @@ import ThinkOrSwim.Types
 testApplyLots :: TestTree
 testApplyLots = testGroup "Gains"
     [ testCase "12@@300 `applyLots` -10@@500" $
-      (12@@300) `applyLot` ((-10)@@500)
+      (12@@300) `closeLot` ((-10)@@500)
           @?= LotApplied
                 (((-10.0) * ((500 / 10) - (300 / 12)))^.from (rounded @2 @2))
-                (Just ((-10)@@(10 * (300/12))))
-                (Just (2@@(2 * (300/12))))
-                Nothing
+                (Some ((-10)@@(10 * (300/12)))
+                      (2@@(2 * (300/12))))
+                (All ((-10)@@500))
 
-    , testCase "10@@500 `applyLot` -12@@300" $
-      (10@@500) `applyLot` ((-12)@@300)
+    , testCase "10@@500 `closeLot` -12@@300" $
+      (10@@500) `closeLot` ((-12)@@300)
           @?= LotApplied
                 (((-10.0) * ((300 / 12) - (500 / 10)))^.from (rounded @2 @2))
-                (Just ((-10)@@(10 * (500/10))))
-                Nothing
-                (Just ((-2)@@(2 * (300/12))))
+                (All ((-10)@@(10 * (500/10))))
+                (Some ((-10)@@(10 * (300/12)))
+                      ((-2)@@(2 * (300/12))))
 
-    , testCase "12@@500 `applyLot` -10@@300" $
-      (12@@500) `applyLot` ((-10)@@300)
+    , testCase "12@@500 `closeLot` -10@@300" $
+      (12@@500) `closeLot` ((-10)@@300)
           @?= LotApplied
                 (((-10.0) * ((300 / 10) - (500 / 12)))^.from (rounded @2 @2))
-                (Just ((-10)@@(10 * (500/12))))
-                (Just (2@@(2 * (500/12))))
-                Nothing
+                (Some ((-10)@@(10 * (500/12)))
+                      (2@@(2 * (500/12))))
+                (All ((-10)@@300))
 
-    , testCase "10@@300 `applyLot` -12@@500" $
-      (10@@300) `applyLot` ((-12)@@500)
+    , testCase "10@@300 `closeLot` -12@@500" $
+      (10@@300) `closeLot` ((-12)@@500)
           @?= LotApplied
                 (-116.666667)
-                (Just ((-10)@@(10 * (300/10))))
-                Nothing
-                (Just ((-2)@@83.33333333333333))
+                (All ((-10)@@(10 * (300/10))))
+                (Some ((-10)@@(10 * (500/12)))
+                      ((-2)@@83.33333333333333))
 
-    , testCase "-10@@300 `applyLot` 12@@500" $
-      ((-10)@@300) `applyLot` (12@@500)
+    , testCase "-10@@300 `closeLot` 12@@500" $
+      ((-10)@@300) `closeLot` (12@@500)
           @?= LotApplied
                 116.666667
-                (Just (10@@(10 * (300/10))))
-                Nothing
-                (Just (2@@(2 * (500/12))))
+                (All (10@@(10 * (300/10))))
+                (Some (10@@(10 * (500/12)))
+                      (2@@(2 * (500/12))))
 
-    , testCase "-10@@500 `applyLot` 12@@300" $
-      ((-10)@@500) `applyLot` (12@@300)
+    , testCase "-10@@500 `closeLot` 12@@300" $
+      ((-10)@@500) `closeLot` (12@@300)
           @?= LotApplied
                 ((10.0 * ((300 / 12) - (500 / 10)))^.from (rounded @2 @2))
-                (Just (10@@(10 * (500/10))))
-                Nothing
-                (Just (2@@(2 * (300/12))))
+                (All (10@@(10 * (500/10))))
+                (Some (10@@(10 * (300/12)))
+                      (2@@(2 * (300/12))))
 
     , testCase "calculateGains -400" $
       let res = calculatePL
@@ -145,10 +144,10 @@ testApplyLots = testGroup "Gains"
               , (False, LotAndPL (-14.95) ((-300.00) @@ 5165.97))
               ]
 
-    -- , testProperty "applyLot" $ property $ do
+    -- , testProperty "closeLot" $ property $ do
     --       x <- forAll genCommodityLot
     --       y <- forAll genCommodityLot
-    --       let (_gain, (used, kept), _left) = x `applyLot` y
+    --       let (_gain, (used, kept), _left) = x `closeLot` y
     --       Hedgehog.assert $ isJust used || isJust kept
     --       Prelude.maybe 0 lotCost used + Prelude.maybe 0 lotCost kept
     --           === lotCost x

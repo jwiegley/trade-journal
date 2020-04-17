@@ -32,10 +32,9 @@ traceM :: Applicative f => String -> f ()
 traceM _ = pure ()
 
 data LotApplied t = LotApplied
-    { _gain :: Amount 2
-    , _used :: Maybe (CommodityLot t) -- the portion subtracted out
-    , _kept :: Maybe (CommodityLot t) -- what remains
-    , _left :: Maybe (CommodityLot t) -- the portion unsubtracted
+    { _gain    :: Amount 2
+    , _wasOpen :: LotSplit t
+    , _close   :: LotSplit t
     }
     deriving (Eq, Ord, Show)
 

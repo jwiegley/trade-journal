@@ -235,6 +235,10 @@ washSaleRule
     :: [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
 washSaleRule ls
+    | otherwise = pure ls
+  where
+    _findApplicableClose _ = pure Nothing
+
 {-
     -- If called for a profitable close, ignore.
     | pl <= 0 = pure ()
@@ -261,9 +265,6 @@ washSaleRule ls
               -- applied again.
               pure [l]
 -}
-    | otherwise = pure ls
-  where
-    _findApplicableClose _ = pure Nothing
 
 -- Walk through the history of transaction events, determining whether to
 -- transfer losses to the given lot, whether to book it in the history, and if
@@ -279,25 +280,28 @@ bookLosses _ _ = undefined
 -- includes any part of the loss that wasn't transferred, the part of the
 -- opening transaction that received the loss, and the part of the opening
 -- transaction that did not.
-transferLoss :: LotAndPL API.Transaction -> CommodityLot API.Transaction
-             -> (LotAndPL API.Transaction, LotSplit API.Transaction)
+transferLoss :: LotAndPL API.Transaction
+             -> CommodityLot API.Transaction
+             -> ( Maybe (LotAndPL API.Transaction)
+               , LotSplit API.Transaction
+               )
 transferLoss x y
-    | Just part <- l^?_SplitLeft,
-      Just _lot <- l^?_SplitRight,
+    | Just part <- l^?_SplitUsed,
       pairedCommodityLots (x^.lot) y =
-          let amt   = part^.quantity * per
-              _loss = coerce (_lot^.quantity * per) in
-          ( LotAndPL {..}
-          , r & _SplitLeft.Ledger.cost._Just +~ amt
+          let amt   = part^.quantity * per in
+          ( do _lot <- l^?_SplitKept
+               let _loss = coerce (_lot^.quantity * per)
+               pure $ LotAndPL {..}
+          , r & _SplitUsed.Ledger.cost._Just +~ amt
           )
-    | otherwise = (x, None)
+    | otherwise = (Just x, None y)
   where
     (l, r) = (x^.lot) `alignLots` y
     per = coerce (x^.loss) / x^.lot.quantity
 
-fullTransfer :: ( Maybe (LotAndPL t)
-               , Maybe (CommodityLot t)
-               , Maybe (CommodityLot t)
-               ) -> Bool
-fullTransfer (Nothing, Just _, Nothing) = True
-fullTransfer _ = False
+isFullTransfer :: ( Maybe (LotAndPL t)
+                 , Maybe (CommodityLot t)
+                 , Maybe (CommodityLot t)
+                 ) -> Bool
+isFullTransfer (Nothing, Just _, Nothing) = True
+isFullTransfer _ = False

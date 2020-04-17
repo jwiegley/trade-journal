@@ -99,6 +99,12 @@ haskellPackages.developPackage rec {
       compatibleCoqVersions = v: builtins.elem v [ "8.11" ];
       inherit haskellPackages;
     };
+
+    shellHook = ''
+      CABAL_REPL="cabal repl --extra-lib-dirs=${pkgs.mpfr.out}/lib \
+                             --extra-lib-dirs=${pkgs.gmp.out}/lib"
+      export CABAL_REPL
+    '';
   });
 
   inherit returnShellEnv;

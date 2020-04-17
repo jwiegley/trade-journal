@@ -77,20 +77,20 @@ traceCurrentState sym l hist next res = do
 calculatePL :: CommodityLot API.Transaction
             -> [CommodityLot API.Transaction]
             -> CalculatedPL
-calculatePL curr open = CalculatedPL {..}
+calculatePL curr opens = CalculatedPL {..}
   where
     ( maybeToList -> _opening,
       reverse     -> _losses,
-      reverse     -> _history ) = foldl' fifo (Just curr, [], []) open
+      reverse     -> _history ) = foldl' fifo (Just curr, [], []) opens
 
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z, res, keep)  x =
-        ( _left
-        , maybe res ((:res) . LotAndPL _gain) _used
-        , maybe keep (:keep) _kept
+        ( _close^?_SplitKept
+        , maybe res ((:res) . LotAndPL _gain) (_wasOpen^?_SplitUsed)
+        , maybe keep (:keep) (_wasOpen^?_SplitKept)
         )
       where
-        LotApplied {..} = x `applyLot` z
+        LotApplied {..} = x `closeLot` z
 
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
 -- a share sell; a buy for the reverse. If both have the same sign, nothing is
@@ -98,37 +98,36 @@ calculatePL curr open = CalculatedPL {..}
 -- gain (or less, if negative). Also, we need to return the part of 'x' that
 -- remains to be further deducted from, and how much was consumed, and
 -- similarly for 'y'.
-applyLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
+closeLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
          -> LotApplied API.Transaction
-applyLot x y | not (pairedCommodityLots x y) =
-    LotApplied 0.0 Nothing (Just x) (Just y)
+closeLot x y | not (pairedCommodityLots x y) =
+    LotApplied 0.0 (None x) (None y)
 
-applyLot x y
+closeLot x y
     | Just x' <- x^?refs._head.refOrig.item.positionEffect._Just,
       Just y' <- y^?refs._head.refOrig.item.positionEffect._Just,
       x' == y' =
     error $ show x ++ " has same position effect as " ++ show y
 
-applyLot x y' = LotApplied {..}
+closeLot x y' = LotApplied {..}
   where
     y | isTransactionSubType OptionExpiration y' =
         y' & quantity %~ negate
       | otherwise = y'
 
-    (l, r) = x `alignLots` y
+    (open', _close) = x `alignLots` y
 
     _gain :: Amount 2
     _gain | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
-          | Just open <- l^?_SplitLeft.Ledger.cost._Just,
-            Just clos <- r^?_SplitLeft.Ledger.cost._Just =
+          | Just ocost <- _wasOpen^?_SplitUsed.Ledger.cost._Just,
+            Just ccost <- _close^?_SplitUsed.Ledger.cost._Just =
             coerce (normalizeAmount mpfr_RNDN
-                        (coerce (sign x open + sign y clos) :: Amount 3))
+                        (coerce (sign x ocost + sign y ccost) :: Amount 3))
           | otherwise = 0
 
-    _used = l^?_SplitLeft & _Just.quantity %~ negate
-                          & _Just.Ledger.price .~ y^.Ledger.price
-    _kept = l^?_SplitRight
-    _left = r^?_SplitRight
+    _wasOpen = open'
+        & _SplitUsed.quantity     %~ negate
+        & _SplitUsed.Ledger.price .~ y^.Ledger.price
 
 -- Handling fees is a touch tricky, since if we end up closing multiple
 -- positions via a single sale or purchase, the fees are applied across all of
