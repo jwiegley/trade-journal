@@ -15,7 +15,7 @@ import           Data.Amount
 import           Data.Coerce
 import           Data.Ledger as Ledger
 import qualified Data.Map as M
-import           Data.Maybe (isNothing)
+import           Data.Maybe (isNothing, fromMaybe)
 import           Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
@@ -95,14 +95,12 @@ convertPostings actId t =
         | t^.fees_.commission /= 0 ]
           ++
         (flip Prelude.concatMap cs $ \pl ->
-            if | pl^.loss < 0  ->
-                 [ post CapitalGainShort False (DollarAmount (pl^.loss)) ]
-               | pl^.loss > 0  ->
-                 [ post CapitalLossShort False (DollarAmount (pl^.loss)) ]
-               | otherwise ->
-                 []
-            ++ [ post act False (CommodityAmount (pl^.lot))
-                     & postMetadata .~ meta ])
+             [ post (fromMaybe (error $ "No account for " ++ show pl)
+                               (plAccount (pl^.plKind)))
+                    False (DollarAmount (pl^.plLoss))
+             | pl^.plLoss /= 0 ]
+          ++ [ post act False (CommodityAmount (pl^.plLot))
+                   & postMetadata .~ meta ])
           ++
         [ case t^.item.API.price of
               Just _                     -> cashPost
@@ -126,7 +124,7 @@ convertPostings actId t =
         & at "Instrument"  .~ t^?instr._Just.assetType.to assetKind
         & at "Side"        .~ t^?option'.putCall.to show.packed
         & at "Strike"      .~ t^?option'.strikePrice._Just.to thousands.packed
-        & at "Expiration"  .~ t^?option'.expirationDate.to iso8601
+        & at "Expiration"  .~ t^?option'.expirationDate.to toIso8601
         & at "Contract"    .~ t^?option'.description
 
     fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn

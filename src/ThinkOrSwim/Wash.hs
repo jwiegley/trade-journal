@@ -187,17 +187,19 @@ module ThinkOrSwim.Wash where
 import Control.Lens
 import           Control.Monad.State
 -- import Data.Amount
--- import           Data.Coerce
+import           Data.Coerce
 import           Data.Ledger as Ledger
 -- import           Data.List.NonEmpty (NonEmpty(..))
 -- import qualified Data.List.NonEmpty as NE
-import           Data.Maybe (isNothing, maybeToList)
+import           Data.Maybe (isNothing, maybeToList, catMaybes)
 import           Data.Text (Text)
 -- import Data.Time
 import           Data.Zipper
-import           Prelude hiding (Float, Double)
+import           Prelude hiding (Float, Double, (<>))
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Types
+
+import           Text.PrettyPrint
 
 -- Given a history of closing and opening transactions (where the opening
 -- transactions are identified as having a loss of 0.0), determine the washed
@@ -239,10 +241,19 @@ washSaleRule
     :: Text
     -> [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
-    fmap concat $ forM ls $ \pl ->
+washSaleRule underlying ls = pure ls
+{-
+    zoom (positionEvents.at underlying.non []) $ do
+    events <- get
+    traceM $ render
+         $ text "Washing " <> renderList (text . show) ls
+        $$ text "against " <> renderList (text . show) events
+    fmap concat $ forM ls $ \pl -> do
+        traceM $ render $ text "Considering " <> text (show pl)
         if -- If called for a close that is not a loss, ignore.
-           | pl^.loss < 0 -> pure [pl]
+           | pl^.plLoss < 0 -> do
+             traceM $ render $ text "Non-loss close, ignoring"
+             pure [pl]
 
            -- If closing at a loss, and the corresponding open was <= 30 days
            -- ago, check if a purchase of the same or equivalent security
@@ -250,51 +261,97 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
            -- that opening and record any remaining loss; otherwise record the
            -- whole loss so it may be applied to future openings within 30
            -- days from the loss.
-           | pl^.loss > 0 -> wash pl washLoss
+           | pl^.plLoss > 0 -> do
+             traceM $ render $ text "Closing at a loss, calling washLoss"
+             wash pl washLoss
 
            -- We're opening a transaction to which the wash sale rule may
            -- apply. Check whether an applicable losing transaction was made
            -- within the last 30 days, and if so, adjust the cost basis and
            -- remove the losing historical transaction since wash sales are
            -- only applied once.
-           | otherwise -> wash pl washOpen
+           | otherwise -> do
+             traceM $ render $ text "Opening a position, calling washOpen"
+             wash pl washOpen
   where
     wash pl f = do
         events <- get
-        let (pls, events') = mapAccumLs' f (Left [pl]) events
-        put events'
+        traceM $ render $ text "wash.1: " <> renderList (text . show) events
+        let (pls, events') = mapAccumLs' f (Left [pl]) (justify events)
+        traceM $ render $ text "wash.2: " <> renderList (text . show) ls
+        traceM $ render $ text "wash.3: "
+            <> renderList (text . show) (catMaybes events')
+        put $ catMaybes events'
+        traceM $ render $ text "wash.4: "
+            <> renderList (text . show) (reverse $ either id id pls)
         pure $ reverse $ either id id pls
+      where
+        justify :: [a] -> [Maybe a]
+        justify [] = [Nothing]
+        justify (x:xs) = Just x:justify xs
 
     ev `shouldWash` pl = do
-        guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.lot)
-        if | pl^.loss < 0 -> mzero
-           | pl^.loss > 0 -> guard $ isNothing (ev^.gainOrLoss)
+        traceM $ render $ text "shouldWash.1"
+        guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.plLot)
+        traceM $ render $ text "shouldWash.2"
+        if | pl^.plLoss < 0 -> mzero
+           | pl^.plLoss > 0 -> guard $ isNothing (ev^.gainOrLoss)
            | otherwise -> do
+                 traceM $ render $ text "shouldWash.3"
                  gorl <- ev^.gainOrLoss
+                 traceM $ render $ text "shouldWash.4"
                  guard $ gorl > 0
-        distance <- (pl^.lot) `daysApart` (ev^.eventDate)
+        traceM $ render $ text "shouldWash.5"
+        distance <- (pl^.plLot) `daysApart` (ev^.eventDate)
+        traceM $ render $ text "shouldWash.6"
         guard $ distance <= 30
+        traceM $ render $ text "shouldWash.7"
         pure $ eventToPL ev
 
-    washLoss (Left [pl]) ev
+    washLoss (Left [pl]) (Just ev)
        | Just evl <- ev `shouldWash` pl =
-         let (_sev, _spl) = (evl^.lot) `alignLots` (pl^.lot)
+         let (sev, spl) = (evl^.plLot) `alignLotAndPL` pl
          in ( Right [pl]
-            , eventFromPL (Just (ev^.eventDate))
-                  <$> (maybeToList (undefined {- sev^?_SplitKept -}) ++
-                       maybeToList (undefined {- spl^?_SplitUsed -}))
+            , Just . eventFromPL (Just (ev^.eventDate))
+                  <$> ((LotAndPL BreakEven 0
+                            <$> maybeToList (sev^?_SplitKept)) ++
+                       maybeToList (spl^?_SplitUsed))
             )
-       | otherwise = (Left [pl], [ev])
+       | otherwise = (Left [pl], [Just ev])
     washLoss xs ev = (xs, [ev])
 
-    washOpen (Left [pl]) ev
+    washOpen (Left [pl]) (Just ev)
        | Just evl <- ev `shouldWash` pl =
-         let (left, spl) = evl `transferLoss` (pl^.lot)
-         in ( Right $ LotAndPL 0 <$> keepAll spl
-            , (eventFromPL (Just (ev^.eventDate))
+         let (left, spl) = evl `transferWashLoss` (pl^.plLot)
+         in ( Right $ keepAll spl
+            , (Just . eventFromPL (Just (ev^.eventDate))
                    <$> maybeToList left) ++
-              (eventFromPL Nothing . LotAndPL 0
+              (Just . eventFromPL Nothing
                    <$> maybeToList (spl^?_SplitKept))
             )
-       | otherwise = (Left [pl], [ev])
+       | otherwise = (Left [pl], [Just ev])
+    washOpen (Left [pl]) Nothing =
+        ( Right [pl]
+        , [Just (eventFromPL (lotDate (pl^.plLot)) pl)]
+        )
     washOpen xs ev = (xs, [ev])
+
+-- Transfer loss from a losing close to an opening transaction. The result
+-- includes any part of the loss that wasn't transferred, the part of the
+-- opening transaction that received the loss, and the part of the opening
+-- transaction that did not.
+transferWashLoss :: LotAndPL t
+                 -> CommodityLot t
+                 -> (Maybe (LotAndPL t), LotSplit (LotAndPL t))
+transferWashLoss x y
+    | Just part <- l^?_SplitUsed =
+      ( l^?_SplitKept
+      , (LotAndPL BreakEven 0 <$> r)
+           & _SplitUsed.plKind .~ WashLoss
+           & _SplitUsed.plLoss .~ part^.plLoss
+           & _SplitUsed.plLot.Ledger.cost._Just +~ coerce (part^.plLoss)
+      )
+    | otherwise = (Just x, None (LotAndPL BreakEven 0 y))
+  where
+    (r, l) = y `alignLotAndPL` x
+-}

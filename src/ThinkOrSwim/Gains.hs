@@ -43,11 +43,11 @@ gainsKeeper t cl = do
         l     = setEvent (coerce cst)
         pl    = calculatePL l hist
         pls   = pl^..losses.traverse.to (False,)
-             ++ pl^..opening.traverse.to (LotAndPL 0).to (True,)
+             ++ pl^..opening.traverse.to (LotAndPL BreakEven 0).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
         wfees = handleFees fees' pls
         res   = wfees^..traverse._2
-        hist' = pl^.history ++ wfees^..traverse.filtered fst._2.lot
+        hist' = pl^.history ++ wfees^..traverse.filtered fst._2.plLot
 
     openTransactions.at sym ?= hist'
 
@@ -88,10 +88,15 @@ calculatePL curr opens = CalculatedPL {..}
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z, res, keep)  x =
         ( _close^?_SplitKept
-        , maybe res ((:res) . LotAndPL _gain) (_wasOpen^?_SplitUsed)
+        , maybe res ((:res) . LotAndPL kind _loss) (_wasOpen^?_SplitUsed)
         , maybe keep (:keep) (_wasOpen^?_SplitKept)
         )
       where
+        -- jww (2020-04-17): What about LossLong and GainLong?
+        kind | _loss > 0 = LossShort
+             | _loss < 0 = GainShort
+             | otherwise = BreakEven
+
         LotApplied {..} = x `closeLot` z
 
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
@@ -119,8 +124,8 @@ closeLot x y' = LotApplied {..}
 
     (open', _close) = x `alignLots` y
 
-    _gain :: Amount 2
-    _gain | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
+    _loss :: Amount 2
+    _loss | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
           | Just ocost <- _wasOpen^?_SplitUsed.Ledger.cost._Just,
             Just ccost <- _close^?_SplitUsed.Ledger.cost._Just =
             coerce (normalizeAmount mpfr_RNDN
@@ -141,21 +146,21 @@ handleFees :: forall t a. Amount 2 -> [(a, LotAndPL t)] -> [(a, LotAndPL t)]
 -- If there is only a single transaction to apply the fee to, we add (or
 -- subtract) it directly to (from) the basis cost, rather than dividing it
 -- into the P/L of multiple transactions.
-handleFees fee [(w, LotAndPL 0.0 x)] =
-    [(w, LotAndPL 0.0 $ x & Ledger.cost.mapped +~
+handleFees fee [(w, LotAndPL k 0 x)] =
+    [(w, LotAndPL k 0 $ x & Ledger.cost.mapped +~
              coerce (if x^.quantity < 0 then (-fee) else fee))]
 
 handleFees fee lots = go True lots
   where
     go _ [] = []
-    go b ((w, LotAndPL g x):xs) = (w, LotAndPL (g' + sum') x) : go False xs
+    go b ((w, LotAndPL k g x):xs) = (w, LotAndPL k (g' + sum') x) : go False xs
       where
         g'   = normalizeAmount mpfr_RNDNA g
         sum' = normalizeAmount mpfr_RNDZ (sumOfParts x + if b then diff else 0)
-        diff = fee - sum (map (sumOfParts . view lot . snd) lots)
+        diff = fee - sum (map (sumOfParts . view plLot . snd) lots)
 
         sumOfParts l =
             normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
           where
             perShare = coerce fee / shares
-            shares   = sum (map (^._2.lot.quantity) lots)
+            shares   = sum (map (^._2.plLot.quantity) lots)

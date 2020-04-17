@@ -37,6 +37,7 @@ library:
     - ThinkOrSwim.Convert
     - ThinkOrSwim.Gains
     - ThinkOrSwim.Types
+    - ThinkOrSwim.Wash
 
 tests:
   thinkorswim-tests:

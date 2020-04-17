@@ -3,6 +3,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE MonadComprehensions #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -26,6 +27,13 @@ import qualified Data.Text as T
 import           Data.Time
 import           Prelude hiding (Float, Double)
 import           Text.Printf
+
+toIso8601 :: UTCTime -> Text
+toIso8601 = T.pack . formatTime defaultTimeLocale "%Y-%m-%d"
+
+fromIso8601 :: Text -> UTCTime
+fromIso8601 =
+    parseTimeOrError False defaultTimeLocale "%Y-%m-%d" . T.unpack
 
 data RefType
     = WashSaleRule (Amount 6)
@@ -123,6 +131,25 @@ data LotSplit a
     | None a
     deriving (Eq, Ord, Show)
 
+instance Functor LotSplit where
+    fmap f (Some u k) = Some (f u) (f k)
+    fmap f (All u)    = All (f u)
+    fmap f (None k)   = None (f k)
+
+{-
+instance Applicative LotSplit where
+    pure = None
+    f <*> Some u k = fmap ($ u) f *> fmap ($ k) f
+    f <*> All u    = fmap ($ u) f
+    f <*> None k   = fmap ($ k) f
+
+instance Monad LotSplit where
+    return = pure
+    Some u k >>= f = f u >> f k
+    All u >>= f    = f u
+    None k >>= f   = f k
+-}
+
 _SplitUsed :: Traversal' (LotSplit a) a
 _SplitUsed f (Some u k) = Some <$> f u <*> pure k
 _SplitUsed f (All u)    = All <$> f u
@@ -191,43 +218,58 @@ newCommodityLot = CommodityLot
 (@@) :: Amount 4 -> Amount 4 -> CommodityLot t
 q @@ c = newCommodityLot & quantity .~ q & cost ?~ c
 
+(##) :: CommodityLot t -> Text -> CommodityLot t
+l ## d = l & purchaseDate ?~ fromIso8601 d
+
 showCommodityLot :: CommodityLot t -> String
 showCommodityLot CommodityLot {..} =
     show _quantity
         ++ case _cost of
                Nothing -> ""
                Just xs -> " @@ " ++ show xs
+        ++ case _purchaseDate of
+               Nothing -> ""
+               Just d  -> " ## " ++ unpack (toIso8601 d)
+
+data PL
+    = BreakEven
+    | GainShort
+    | GainLong
+    | LossShort
+    | LossLong
+    | WashLoss
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+makePrisms ''PL
 
 data LotAndPL t = LotAndPL
-    { _loss :: Amount 2           -- positive is loss, else gain
-    , _lot  :: CommodityLot t
+    { _plKind :: PL
+    , _plLoss :: Amount 2           -- positive is loss, else gain or wash
+    , _plLot  :: CommodityLot t
     }
     deriving (Eq, Ord)
 
 makeClassy ''LotAndPL
 
 instance Show (LotAndPL t) where
-    show x = showCommodityLot (x^.lot) ++ " $ "  ++ show (- x^.loss)
+    show x = showCommodityLot (x^.plLot) ++ " $$$ "  ++ show (- x^.plLoss)
 
--- Transfer loss from a losing close to an opening transaction. The result
--- includes any part of the loss that wasn't transferred, the part of the
--- opening transaction that received the loss, and the part of the opening
--- transaction that did not.
-transferLoss :: LotAndPL t
-             -> CommodityLot t
-             -> (Maybe (LotAndPL t), LotSplit (CommodityLot t))
-transferLoss x y
-    | Just part <- l^?_SplitUsed =
-          let amt   = part^.quantity * per in
-          ( do _lot <- l^?_SplitKept
-               let _loss = coerce (_lot^.quantity * per)
-               pure $ LotAndPL {..}
-          , r & _SplitUsed.cost._Just +~ amt
-          )
-    | otherwise = (Just x, None y)
+($$$) :: CommodityLot t -> Amount 2 -> LotAndPL t
+l $$$ a = LotAndPL (if | a < 0 -> GainShort
+                       | a > 0 -> LossShort
+                       | otherwise -> BreakEven) a l
+
+alignLotAndPL :: CommodityLot t -> LotAndPL t
+              -> (LotSplit (CommodityLot t), LotSplit (LotAndPL t))
+alignLotAndPL x y =
+    (l, (LotAndPL (y^.plKind) 0 <$> r)
+            & _SplitUsed.plLoss .~ coerce (per * r^?!_SplitUsed.quantity)
+            & _SplitKept.plLoss .~ coerce (per * r^?!_SplitKept.quantity))
   where
-    (l, r) = (x^.lot) `alignLots` y
-    per = coerce (x^.loss) / x^.lot.quantity
+    (l, r) = x `alignLots` (y^.plLot)
+
+    q   = abs (y^.plLot.quantity)
+    per = coerce (y^.plLoss) / q
 
 isFullTransfer :: (Maybe (LotAndPL t), LotSplit t) -> Bool
 isFullTransfer (Nothing, All _) = True
@@ -257,11 +299,20 @@ data Account
     | CapitalGainLong
     | CapitalLossShort
     | CapitalLossLong
+    | CapitalWashLoss
     | RoundingError
     | OpeningBalances
     deriving (Eq, Ord, Show)
 
 makePrisms ''Account
+
+plAccount :: PL -> Maybe Account
+plAccount BreakEven = Nothing
+plAccount GainShort = Just CapitalGainShort
+plAccount GainLong  = Just CapitalGainLong
+plAccount LossShort = Just CapitalLossShort
+plAccount LossLong  = Just CapitalLossLong
+plAccount WashLoss  = Just CapitalWashLoss
 
 data Posting t = Posting
     { _account      :: Account
@@ -311,7 +362,7 @@ renderPostingAmount (CommodityAmount CommodityLot {..}) =
           -- (maybe "" (T.pack . printf " {{$%s}}" . thousands . abs) _cost)
           (maybe "" (T.pack . printf " {$%s}" . thousands . abs)
                     (fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)))
-          (maybe "" (T.pack . printf " [%s]" . iso8601) _purchaseDate)
+          (maybe "" (T.pack . printf " [%s]" . toIso8601) _purchaseDate)
           (case _refs of [] -> ""; xs -> (T.pack . printf " (%s)" . renderRefs) xs)
           (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
     ]
@@ -333,6 +384,7 @@ renderAccount = \case
     CapitalGainLong      -> "Income:Capital:Long"
     CapitalLossShort     -> "Expenses:Capital:Short"
     CapitalLossLong      -> "Expenses:Capital:Long"
+    CapitalWashLoss      -> "Expenses:Capital:Short:Wash"
     RoundingError        -> "Expenses:TD:Rounding"
     OpeningBalances      -> "Equity:TD:Opening Balances"
 
@@ -359,12 +411,9 @@ renderTransaction xact =
         Just err -> error $ "Invalid transaction: " ++ err
         Nothing
             ->  [ T.concat
-                   $  [ iso8601 (xact^.actualDate) ]
-                   ++ maybeToList (iso8601 <$> xact^.effectiveDate)
+                   $  [ toIso8601 (xact^.actualDate) ]
+                   ++ maybeToList (toIso8601 <$> xact^.effectiveDate)
                    ++ [ " * (", xact^.code, ") ", xact^.payee ]
                ]
             ++ renderMetadata (xact^.xactMetadata)
             ++ concatMap renderPosting (xact^.postings)
-
-iso8601 :: UTCTime -> Text
-iso8601 = T.pack . formatTime defaultTimeLocale "%Y-%m-%d"

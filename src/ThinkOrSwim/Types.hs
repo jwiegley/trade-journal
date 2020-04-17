@@ -21,19 +21,20 @@ import           Data.Ledger as Ledger
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
-import           Data.Text (Text)
+import           Data.Text (Text, unpack)
 import           Data.Time
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
                      as API hiding ((<+>))
 
--- import Debug.Trace
+import qualified Debug.Trace as Trace
 traceM :: Applicative f => String -> f ()
-traceM _ = pure ()
+-- traceM _ = pure ()
+traceM = Trace.traceM
 
 data LotApplied t = LotApplied
-    { _gain    :: Amount 2
+    { _loss    :: Amount 2
     , _wasOpen :: LotSplit (CommodityLot t)
     , _close   :: LotSplit (CommodityLot t)
     }
@@ -55,14 +56,27 @@ data TransactionEvent t = TransactionEvent
     , _eventDate  :: UTCTime
     , _eventLot   :: CommodityLot t
     }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord)
 
 makeClassy ''TransactionEvent
 
+instance Show (TransactionEvent t) where
+    show TransactionEvent {..} =
+        show _gainOrLoss
+            ++ " // " ++ unpack (toIso8601 _eventDate)
+            ++ " // " ++ showCommodityLot _eventLot
+
 eventToPL :: TransactionEvent t -> LotAndPL t
 eventToPL ev = LotAndPL
-    { _loss = fromMaybe 0 (ev^.gainOrLoss)
-    , _lot  = ev^.eventLot
+    { _plKind = case ev^.gainOrLoss of
+                    Nothing -> BreakEven
+                    -- jww (2020-04-17): Need to factor in time here to
+                    -- determine what the gain/loss period should be.
+                    Just x | x < 0     -> GainShort
+                           | x > 0     -> LossShort
+                           | otherwise -> BreakEven
+    , _plLoss = fromMaybe 0 (ev^.gainOrLoss)
+    , _plLot  = ev^.eventLot
     }
 
 isDateOrdered :: [TransactionEvent t] -> Bool
@@ -83,10 +97,11 @@ daysApart x yd = do
 eventFromPL :: Maybe UTCTime -> LotAndPL API.Transaction
             -> TransactionEvent API.Transaction
 eventFromPL md LotAndPL {..} = TransactionEvent
-    { _gainOrLoss = if _loss /= 0 then Just _loss else Nothing
+    { _gainOrLoss = if _plLoss /= 0 then Just _plLoss else Nothing
     , _eventDate  =
-      fromMaybe (error $ "Missing date: " ++ show _lot) (md <|> lotDate _lot)
-    , _eventLot   = _lot
+          fromMaybe (error $ "Missing date: " ++ show _plLot)
+                    (md <|> lotDate _plLot)
+    , _eventLot   = _plLot
     }
 
 renderList :: (a -> Doc) -> [a] -> Doc
