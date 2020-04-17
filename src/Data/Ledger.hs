@@ -114,32 +114,38 @@ lotPrice l = case l^.instrument of
 lotCost :: CommodityLot t -> Amount 4
 lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
-data LotSplit t
+data LotSplit a
     = Some
-        { _used :: CommodityLot t
-        , _kept :: CommodityLot t
+        { _used :: a
+        , _kept :: a
         }
-    | All (CommodityLot t)
-    | None (CommodityLot t)
+    | All a
+    | None a
     deriving (Eq, Ord, Show)
 
-_SplitUsed :: Traversal' (LotSplit t) (CommodityLot t)
+_SplitUsed :: Traversal' (LotSplit a) a
 _SplitUsed f (Some u k) = Some <$> f u <*> pure k
 _SplitUsed f (All u)    = All <$> f u
 _SplitUsed _ (None k)   = pure $ None k
 
-_SplitKept :: Traversal' (LotSplit t) (CommodityLot t)
+_SplitKept :: Traversal' (LotSplit a) a
 _SplitKept f (Some u k) = Some u <$> f k
 _SplitKept _ (All u)    = pure $ All u
 _SplitKept f (None k)   = None <$> f k
 
-showLotSplit :: LotSplit t -> String
+keepAll :: LotSplit a -> [a]
+keepAll (Some x y) = [x, y]
+keepAll (All x)    = [x]
+keepAll (None y)   = [y]
+
+showLotSplit :: LotSplit (CommodityLot t) -> String
 showLotSplit (None k)   = "None (" ++ showCommodityLot k ++ ")"
 showLotSplit (All u)    = "All (" ++ showCommodityLot u ++ ")"
 showLotSplit (Some u k) =
     "Some (" ++ showCommodityLot u ++ ") (" ++ showCommodityLot k ++ ")"
 
-alignLots :: CommodityLot t -> CommodityLot t -> (LotSplit t, LotSplit t)
+alignLots :: CommodityLot t -> CommodityLot t
+          -> (LotSplit (CommodityLot t), LotSplit (CommodityLot t))
 alignLots x y
     | xq == 0 && yq == 0 = ( None x, None y )
     | xq == 0           = ( None x, All  y )
@@ -209,7 +215,7 @@ instance Show (LotAndPL t) where
 -- transaction that did not.
 transferLoss :: LotAndPL t
              -> CommodityLot t
-             -> (Maybe (LotAndPL t), LotSplit t)
+             -> (Maybe (LotAndPL t), LotSplit (CommodityLot t))
 transferLoss x y
     | Just part <- l^?_SplitUsed =
           let amt   = part^.quantity * per in

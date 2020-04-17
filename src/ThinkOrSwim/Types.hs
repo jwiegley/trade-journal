@@ -34,8 +34,8 @@ traceM _ = pure ()
 
 data LotApplied t = LotApplied
     { _gain    :: Amount 2
-    , _wasOpen :: LotSplit t
-    , _close   :: LotSplit t
+    , _wasOpen :: LotSplit (CommodityLot t)
+    , _close   :: LotSplit (CommodityLot t)
     }
     deriving (Eq, Ord, Show)
 
@@ -53,11 +53,17 @@ makeClassy ''CalculatedPL
 data TransactionEvent t = TransactionEvent
     { _gainOrLoss :: Maybe (Amount 2)
     , _eventDate  :: UTCTime
-    , _eventXact  :: CommodityLot t
+    , _eventLot   :: CommodityLot t
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''TransactionEvent
+
+eventToPL :: TransactionEvent t -> LotAndPL t
+eventToPL ev = LotAndPL
+    { _loss = fromMaybe 0 (ev^.gainOrLoss)
+    , _lot  = ev^.eventLot
+    }
 
 isDateOrdered :: [TransactionEvent t] -> Bool
 isDateOrdered [] = True
@@ -69,19 +75,18 @@ isDateOrdered (x:y:xs)
 lotDate :: CommodityLot API.Transaction -> Maybe UTCTime
 lotDate l = l^.purchaseDate <|> l^?refs._head.refOrig.xactDate
 
-daysApart :: CommodityLot API.Transaction -> CommodityLot API.Transaction
-          -> Maybe Pico
-daysApart x y = do
+daysApart :: CommodityLot API.Transaction -> UTCTime -> Maybe Pico
+daysApart x yd = do
     xd <- lotDate x
-    yd <- lotDate y
     pure $ nominalDiffTimeToSeconds (xd `diffUTCTime` yd) / 86400
 
-eventFromPL :: LotAndPL API.Transaction -> TransactionEvent API.Transaction
-eventFromPL LotAndPL {..} = TransactionEvent
+eventFromPL :: Maybe UTCTime -> LotAndPL API.Transaction
+            -> TransactionEvent API.Transaction
+eventFromPL md LotAndPL {..} = TransactionEvent
     { _gainOrLoss = if _loss /= 0 then Just _loss else Nothing
     , _eventDate  =
-      fromMaybe (error $ "Missing date: " ++ show _lot) (lotDate _lot)
-    , _eventXact  = _lot
+      fromMaybe (error $ "Missing date: " ++ show _lot) (md <|> lotDate _lot)
+    , _eventLot   = _lot
     }
 
 renderList :: (a -> Doc) -> [a] -> Doc

@@ -28,11 +28,30 @@ zipperFoldl' f z = go [] z
     go p !r (x:rest) =
         go (x:p) (f r x (Zipper p rest)) rest
 
-zippelMmapAccumLs' :: (b -> a -> Zipper a -> (b, [a])) -> b -> [a] -> (b, [a])
-zippelMmapAccumLs' f z = go [] z
+zipperFoldr :: (a -> Zipper a -> b -> b) -> b -> [a] -> b
+zipperFoldr f z = go [] z
+  where
+    go _ r [] = r
+    go p r (x:rest) =
+        f x (Zipper p rest) (go (x:p) r rest)
+
+zipperMapAccumLs' :: (b -> a -> Zipper a -> (b, [a])) -> b -> [a] -> (b, [a])
+zipperMapAccumLs' f z = go [] z
   where
     go _ !r [] = (r, [])
     go p !r (x:rest) =
         (part ++) <$> go (x:p) r' rest
       where
         (r', part) = f r x (Zipper p rest)
+
+mapAccumLs' :: (b -> a -> (b, [a])) -> b -> [a] -> (b, [a])
+mapAccumLs' f z = go [] z
+  where
+    go _ !r [] = (r, [])
+    go p !r (x:rest) =
+        (part ++) <$> go (x:p) r' rest
+      where
+        (r', part) = f r x
+
+focii :: [a] -> [(a, Zipper a)]
+focii = zipperFoldr (\x z -> ((x,z):)) []
