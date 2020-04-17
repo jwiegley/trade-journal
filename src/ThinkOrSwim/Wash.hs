@@ -144,62 +144,58 @@ The following tables show the many possible trade combinations that can
 trigger a wash sale and that are fully supported by the code below.
 
 Buy Stock then Sell at a Loss
-- Buy Stock on Same Ticker
-- Buy Call for Same Ticker
+  - Buy Stock on Same Ticker
+  - Buy Call for Same Ticker
 
 Buy Call Option, Sell or Close at a Loss
-- Buy Stock on Same Ticker
-- Buy Call for Same Ticker
+  - Buy Stock on Same Ticker
+  - Buy Call for Same Ticker
 
 Buy Put Option, Sell or Close at a Loss
-- Buy Stock on Same Ticker
-- Buy Call for Same Ticker
-- Buy Put for Same Ticker
+  - Buy Stock on Same Ticker
+  - Buy Call for Same Ticker
+  - Buy Put for Same Ticker
 
 Sell Stock Short then Buy to Cover at a Loss
-- Buy Stock on Same Ticker
-- Sell Stock on Same Ticker
-- Buy Call for Same Ticker
-- Sell Call for Same Ticker
-- Buy Put for Same Ticker
-- Sell Put for Same Ticker
+  - Buy Stock on Same Ticker
+  - Sell Stock on Same Ticker
+  - Buy Call for Same Ticker
+  - Sell Call for Same Ticker
+  - Buy Put for Same Ticker
+  - Sell Put for Same Ticker
 
 Sell Call (Writer) then Close at a Loss
-- Buy Stock on Same Ticker
-- Sell Stock on Same Ticker
-- Buy Call for Same Ticker
-- Sell Call for Same Ticker
-- Buy Put for Same Ticker
-- Sell Put for Same Ticker
+  - Buy Stock on Same Ticker
+  - Sell Stock on Same Ticker
+  - Buy Call for Same Ticker
+  - Sell Call for Same Ticker
+  - Buy Put for Same Ticker
+  - Sell Put for Same Ticker
 
 Sell Put (Writer) then Close at a Loss
-- Buy Stock on Same Ticker
-- Sell Stock on Same Ticker
-- Buy Call for Same Ticker
-- Sell Call for Same Ticker
-- Buy Put for Same Ticker
-- Sell Put for Same Ticker
+  - Buy Stock on Same Ticker
+  - Sell Stock on Same Ticker
+  - Buy Call for Same Ticker
+  - Sell Call for Same Ticker
+  - Buy Put for Same Ticker
+  - Sell Put for Same Ticker
 
 -}
 
 module ThinkOrSwim.Wash where
 
 import Control.Lens
-import           Control.Monad.State
--- import Data.Amount
-import           Data.Coerce
-import           Data.Ledger as Ledger
--- import           Data.List.NonEmpty (NonEmpty(..))
--- import qualified Data.List.NonEmpty as NE
-import           Data.Maybe (isNothing, maybeToList, catMaybes)
-import           Data.Text (Text, unpack)
--- import Data.Time
-import           Data.Zipper
-import           Prelude hiding (Float, Double, (<>))
-import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Types
+import Control.Monad.State
+import Data.Coerce
+import Data.Ledger as Ledger
+import Data.Maybe (isNothing, maybeToList, catMaybes)
+import Data.Text (Text, unpack)
+import Data.Zipper
+import Prelude hiding (Float, Double, (<>))
+import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import ThinkOrSwim.Types
 
-import           Text.PrettyPrint
+import Text.PrettyPrint
 
 -- Given a history of closing and opening transactions (where the opening
 -- transactions are identified as having a loss of 0.0), determine the washed
