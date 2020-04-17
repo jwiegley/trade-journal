@@ -235,14 +235,16 @@ import Text.PrettyPrint
 -- - Transactions in OP may be split and/or changed to increase cost basis.
 washSaleRule
     :: Text
-    -> [LotAndPL API.Transaction]
-    -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
+    -> [(Bool, LotAndPL API.Transaction)]
+      -- ^ The boolean value is True if is an opening transaction.
+    -> State (GainsKeeperState API.Transaction)
+            [(Bool, LotAndPL API.Transaction)]
 washSaleRule underlying ls =
     zoom (positionEvents.at underlying.non []) $ do
     events <- get
     res <- fmap concat $ forM ls $ \pl -> do
         if -- If called for a close that is not a loss, ignore.
-           | pl^.plLoss < 0 -> pure [pl]
+           | pl^._2.plLoss < 0 -> pure [pl]
 
            -- If closing at a loss, and the corresponding open was <= 30 days
            -- ago, check if a purchase of the same or equivalent security
@@ -250,7 +252,7 @@ washSaleRule underlying ls =
            -- that opening and record any remaining loss; otherwise record the
            -- whole loss so it may be applied to future openings within 30
            -- days from the loss.
-           | pl^.plLoss > 0 -> wash pl washLoss
+           | pl^._2.plLoss > 0 -> wash pl washLoss
 
            -- We're opening a transaction to which the wash sale rule may
            -- apply. Check whether an applicable losing transaction was made
@@ -267,11 +269,11 @@ washSaleRule underlying ls =
         $$ text " events " <> renderList (text . show) events'
     pure res
   where
-    wash pl f = do
+    wash (b,pl) f = do
         events <- get
         let (pls, events') = mapAccumLs' f (Left [pl]) (justify events)
         put $ catMaybes events'
-        pure $ reverse $ either id id pls
+        pure $ reverse ((b,) <$> either id id pls)
       where
         justify :: [a] -> [Maybe a]
         justify [] = [Nothing]

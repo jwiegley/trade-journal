@@ -45,13 +45,15 @@ gainsKeeper t cl = do
         pls   = pl^..losses.traverse.to (False,)
              ++ pl^..opening.traverse.to (LotAndPL BreakEven 0).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-        wfees = handleFees fees' pls
-        res   = wfees^..traverse._2
-        hist' = pl^.history ++ wfees^..traverse.filtered fst._2.plLot
+        wfees = pls & partsOf (each._2) %~ handleFees fees'
+
+    res <- washSaleRule underlying wfees
+
+    let hist' = pl^.history ++ res^..traverse.filtered fst._2.plLot
 
     openTransactions.at sym ?= hist'
 
-    traceCurrentState sym l hist hist' =<< washSaleRule underlying res
+    traceCurrentState sym l hist hist' (map snd res)
   where
     sym = cl^.Ledger.symbol
 
@@ -141,26 +143,26 @@ closeLot x y' = LotApplied {..}
 -- them. Yet if the fee is oddly divided, we must carry the remaining penny,
 -- since otherwise .03 divided by 2 (for example) will round to two instances
 -- of .01. See tests for examples.
-handleFees :: forall t a. Amount 2 -> [(a, LotAndPL t)] -> [(a, LotAndPL t)]
+handleFees :: forall t. Amount 2 -> [LotAndPL t] -> [LotAndPL t]
 
 -- If there is only a single transaction to apply the fee to, we add (or
 -- subtract) it directly to (from) the basis cost, rather than dividing it
 -- into the P/L of multiple transactions.
-handleFees fee [(w, LotAndPL k 0 x)] =
-    [(w, LotAndPL k 0 $ x & Ledger.cost.mapped +~
-             coerce (if x^.quantity < 0 then (-fee) else fee))]
+handleFees fee [LotAndPL k 0 x] =
+    [ LotAndPL k 0 $ x & Ledger.cost.mapped +~
+          coerce (if x^.quantity < 0 then (-fee) else fee) ]
 
 handleFees fee lots = go True lots
   where
     go _ [] = []
-    go b ((w, LotAndPL k g x):xs) = (w, LotAndPL k (g' + sum') x) : go False xs
+    go b (LotAndPL k g x:xs) = LotAndPL k (g' + sum') x : go False xs
       where
         g'   = normalizeAmount mpfr_RNDNA g
         sum' = normalizeAmount mpfr_RNDZ (sumOfParts x + if b then diff else 0)
-        diff = fee - sum (map (sumOfParts . view plLot . snd) lots)
+        diff = fee - sum (map (sumOfParts . view plLot) lots)
 
         sumOfParts l =
             normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
           where
             perShare = coerce fee / shares
-            shares   = sum (map (^._2.plLot.quantity) lots)
+            shares   = sum (map (^.plLot.quantity) lots)

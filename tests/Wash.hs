@@ -20,9 +20,9 @@ import ThinkOrSwim.Wash
 testWashSaleRule :: TestTree
 testWashSaleRule = testGroup "washSaleRule"
     [ testCase "AAPL [] <-- [12@@300 $$ 0.0]" $
-      runState (washSaleRule "AAPL" [12@@300 ## "2020-02-15" $$$ 0.00])
+      runState (washSaleRule "AAPL" [(True, 12@@300 ## "2020-02-15" $$$ 0.00)])
                newGainsKeeperState
-          @?= ([12.00 @@ 300.00 ## "2020-02-15" $$$ 0.00],
+          @?= ([(True, 12.00 @@ 300.00 ## "2020-02-15" $$$ 0.00)],
                GainsKeeperState mempty
                    (mempty & at "AAPL"
                         ?~ [TransactionEvent
