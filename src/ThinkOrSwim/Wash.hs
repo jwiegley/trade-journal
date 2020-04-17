@@ -250,23 +250,21 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
            -- that opening and record any remaining loss; otherwise record the
            -- whole loss so it may be applied to future openings within 30
            -- days from the loss.
-           | pl^.loss > 0 -> do
-             events <- get
-             let (pls, events') = mapAccumLs' washLoss (Left [pl]) events
-             put events'
-             pure $ reverse $ either id id pls
+           | pl^.loss > 0 -> wash pl washLoss
 
            -- We're opening a transaction to which the wash sale rule may
            -- apply. Check whether an applicable losing transaction was made
            -- within the last 30 days, and if so, adjust the cost basis and
            -- remove the losing historical transaction since wash sales are
            -- only applied once.
-           | otherwise -> do
-             events <- get
-             let (pls, events') = mapAccumLs' washOpen (Left [pl]) events
-             put events'
-             pure $ reverse $ either id id pls
+           | otherwise -> wash pl washOpen
   where
+    wash pl f = do
+        events <- get
+        let (pls, events') = mapAccumLs' f (Left [pl]) events
+        put events'
+        pure $ reverse $ either id id pls
+
     ev `shouldWash` pl = do
         guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.lot)
         if | pl^.loss < 0 -> mzero
