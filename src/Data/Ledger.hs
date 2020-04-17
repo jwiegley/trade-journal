@@ -252,7 +252,7 @@ data LotAndPL t = LotAndPL
 makeClassy ''LotAndPL
 
 instance Show (LotAndPL t) where
-    show x = showCommodityLot (x^.plLot) ++ " $$$ "  ++ show (- x^.plLoss)
+    show x = showCommodityLot (x^.plLot) ++ " $$$ "  ++ show (x^.plLoss)
 
 ($$$) :: CommodityLot t -> Amount 2 -> LotAndPL t
 l $$$ a = LotAndPL (if | a < 0 -> GainShort

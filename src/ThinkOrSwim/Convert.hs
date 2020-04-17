@@ -120,8 +120,8 @@ convertPostings actId t =
         & at "XID"         ?~ T.pack (show (t^.xactId))
         & at "Instruction" .~ t^?item.instruction._Just.to show.packed
         & at "Effect"      .~ t^?item.positionEffect._Just.to show.packed
-        & at "CUSIP"       .~ t^?instr._Just.cusip
-        & at "Instrument"  .~ t^?instr._Just.assetType.to assetKind
+        & at "CUSIP"       .~ t^?instrument_._Just.cusip
+        & at "Instrument"  .~ t^?instrument_._Just.assetType.to assetKind
         & at "Side"        .~ t^?option'.putCall.to show.packed
         & at "Strike"      .~ t^?option'.strikePrice._Just.to thousands.packed
         & at "Expiration"  .~ t^?option'.expirationDate.to toIso8601
@@ -139,7 +139,7 @@ convertPostings actId t =
         Just (CashEquivalentAsset _) -> MoneyMarkets actId
         Nothing                      -> OpeningBalances
 
-    atype  = t^?instr._Just.assetType
+    atype  = t^?instrument_._Just.assetType
     subtyp = t^.transactionInfo_.transactionSubType
 
     post a b m = Posting

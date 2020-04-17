@@ -192,7 +192,7 @@ import           Data.Ledger as Ledger
 -- import           Data.List.NonEmpty (NonEmpty(..))
 -- import qualified Data.List.NonEmpty as NE
 import           Data.Maybe (isNothing, maybeToList, catMaybes)
-import           Data.Text (Text)
+import           Data.Text (Text, unpack)
 -- import Data.Time
 import           Data.Zipper
 import           Prelude hiding (Float, Double, (<>))
@@ -241,19 +241,12 @@ washSaleRule
     :: Text
     -> [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-washSaleRule underlying ls = pure ls
-{-
+washSaleRule underlying ls =
     zoom (positionEvents.at underlying.non []) $ do
     events <- get
-    traceM $ render
-         $ text "Washing " <> renderList (text . show) ls
-        $$ text "against " <> renderList (text . show) events
-    fmap concat $ forM ls $ \pl -> do
-        traceM $ render $ text "Considering " <> text (show pl)
+    res <- fmap concat $ forM ls $ \pl -> do
         if -- If called for a close that is not a loss, ignore.
-           | pl^.plLoss < 0 -> do
-             traceM $ render $ text "Non-loss close, ignoring"
-             pure [pl]
+           | pl^.plLoss < 0 -> pure [pl]
 
            -- If closing at a loss, and the corresponding open was <= 30 days
            -- ago, check if a purchase of the same or equivalent security
@@ -261,29 +254,27 @@ washSaleRule underlying ls = pure ls
            -- that opening and record any remaining loss; otherwise record the
            -- whole loss so it may be applied to future openings within 30
            -- days from the loss.
-           | pl^.plLoss > 0 -> do
-             traceM $ render $ text "Closing at a loss, calling washLoss"
-             wash pl washLoss
+           | pl^.plLoss > 0 -> wash pl washLoss
 
            -- We're opening a transaction to which the wash sale rule may
            -- apply. Check whether an applicable losing transaction was made
            -- within the last 30 days, and if so, adjust the cost basis and
            -- remove the losing historical transaction since wash sales are
            -- only applied once.
-           | otherwise -> do
-             traceM $ render $ text "Opening a position, calling washOpen"
-             wash pl washOpen
+           | otherwise -> wash pl washOpen
+    events' <- get
+    traceM $ render
+         $ text "Wash " <> text (unpack underlying) <> text ": "
+             <> renderList (text . show) ls
+        $$ text "against " <> renderList (text . show) events
+        $$ text " result " <> renderList (text . show) res
+        $$ text " events " <> renderList (text . show) events'
+    pure res
   where
     wash pl f = do
         events <- get
-        traceM $ render $ text "wash.1: " <> renderList (text . show) events
         let (pls, events') = mapAccumLs' f (Left [pl]) (justify events)
-        traceM $ render $ text "wash.2: " <> renderList (text . show) ls
-        traceM $ render $ text "wash.3: "
-            <> renderList (text . show) (catMaybes events')
         put $ catMaybes events'
-        traceM $ render $ text "wash.4: "
-            <> renderList (text . show) (reverse $ either id id pls)
         pure $ reverse $ either id id pls
       where
         justify :: [a] -> [Maybe a]
@@ -291,21 +282,14 @@ washSaleRule underlying ls = pure ls
         justify (x:xs) = Just x:justify xs
 
     ev `shouldWash` pl = do
-        traceM $ render $ text "shouldWash.1"
         guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.plLot)
-        traceM $ render $ text "shouldWash.2"
         if | pl^.plLoss < 0 -> mzero
            | pl^.plLoss > 0 -> guard $ isNothing (ev^.gainOrLoss)
            | otherwise -> do
-                 traceM $ render $ text "shouldWash.3"
                  gorl <- ev^.gainOrLoss
-                 traceM $ render $ text "shouldWash.4"
                  guard $ gorl > 0
-        traceM $ render $ text "shouldWash.5"
         distance <- (pl^.plLot) `daysApart` (ev^.eventDate)
-        traceM $ render $ text "shouldWash.6"
         guard $ distance <= 30
-        traceM $ render $ text "shouldWash.7"
         pure $ eventToPL ev
 
     washLoss (Left [pl]) (Just ev)
@@ -350,8 +334,11 @@ transferWashLoss x y
            & _SplitUsed.plKind .~ WashLoss
            & _SplitUsed.plLoss .~ part^.plLoss
            & _SplitUsed.plLot.Ledger.cost._Just +~ coerce (part^.plLoss)
+           & _SplitUsed.plLot.refs <>~
+               [Ref (WashSaleRule (coerce (part^.plLoss)))
+                    (y^?!refs._head.refId)
+                    (y^?!refs._head.refOrig)]
       )
     | otherwise = (Just x, None (LotAndPL BreakEven 0 y))
   where
     (r, l) = y `alignLotAndPL` x
--}

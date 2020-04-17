@@ -629,7 +629,7 @@ baseSymbol =
     instrument_._Just.failing (assetType._OptionAsset.underlyingSymbol) symbol
 
 symbolName :: Transaction -> Text
-symbolName t = case t^.instr of
+symbolName t = case t^.instrument_ of
     Nothing ->
         error $ "Transaction instrument missing for XID " ++ show (t^.xactId)
     Just inst -> case inst^.symbol of
@@ -651,16 +651,13 @@ item :: Lens' Transaction TransactionItem
 item = transactionInfo_.transactionItem_
 
 instrument_ :: Lens' Transaction (Maybe Instrument)
-instrument_ = transactionInfo_.transactionItem_.transactionInstrument
+instrument_ = item.transactionInstrument
 
 accountId_ :: Lens' Transaction AccountId
-accountId_ = transactionInfo_.transactionItem_.accountId
-
-instr :: Lens' Transaction (Maybe Instrument)
-instr = item.transactionInstrument
+accountId_ = item.accountId
 
 option' :: Traversal' Transaction Option
-option' = instr._Just.assetType._OptionAsset
+option' = instrument_._Just.assetType._OptionAsset
 
 infixr 7 <+>
 (<+>) :: (Applicative m, Num a) => m a -> m a -> m a
