@@ -3,26 +3,25 @@
 
 module Main where
 
-import           Control.Applicative
-import           Control.Lens
-import           Control.Monad (forM_)
-import           Data.Aeson
-import           Data.ByteString.Lazy as BL
-import           Data.Data (Data)
-import           Data.Ledger as Ledger
-import qualified Data.Map as M
-import           Data.Text as T
-import           Data.Text.IO as T
-import           Data.Time
-import           Data.Typeable (Typeable)
-import           Network.HTTP.Client
-import           Network.HTTP.Client.TLS
-import           Options.Applicative
-import           Servant.Client
-import           ThinkOrSwim.API
-import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Convert
-import           ThinkOrSwim.Types
+import Control.Applicative
+import Control.Lens
+import Control.Monad (forM_)
+import Data.Aeson
+import Data.ByteString.Lazy as BL
+import Data.Data (Data)
+import Data.Ledger as Ledger
+import Data.Text as T
+import Data.Text.IO as T
+import Data.Time
+import Data.Typeable (Typeable)
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
+import Options.Applicative
+import Servant.Client
+import ThinkOrSwim.API
+import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import ThinkOrSwim.Convert
+import ThinkOrSwim.Types
 
 version :: String
 version = "0.0.1"
@@ -92,16 +91,16 @@ main = do
                 =<< createManager
 
     let addLots xs = xs ++ Prelude.map (& quantity %~ negate) xs
-        priceData = flip GainsKeeperState M.empty $ M.empty
-            & at "ZM"   ?~ addLots
+        priceData = newGainsKeeperState
+            & openTransactions.at "ZM" ?~ addLots
                 [ lt Stock (-140) "ZM"  99.7792 "2019-06-24"
                 , lt Stock (- 10) "ZM"  89.785  "2019-06-24"
                 , lt Stock (- 30) "ZM" 106.68   "2019-06-24"
                 , lt Stock (-170) "ZM"  85.8415 "2019-06-25" ]
-            & at "CRWD" ?~ addLots
+            & openTransactions.at "CRWD" ?~ addLots
                 [ lt Stock (-140) "CRWD" 73.7914 "2019-06-20"
                 , lt Stock (-140) "CRWD" 69.683  "2019-06-21" ]
-            & at "WORK" ?~ addLots
+            & openTransactions.at "WORK" ?~ addLots
                 [ lt Stock (-250) "WORK" 38.97284 "2019-06-20" ]
 
     Prelude.putStrLn "; -*- ledger -*-"
