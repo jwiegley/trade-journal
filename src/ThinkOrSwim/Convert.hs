@@ -56,12 +56,14 @@ convertTransaction m (sd, getOrder m -> o) = do
   where
     underlying
         | Prelude.all (== Prelude.head xs) (Prelude.tail xs) = Prelude.head xs
-        | otherwise = error $ "Transaction deals with various symbols: " ++ show xs
+        | otherwise =
+              error $ "Transaction deals with various symbols: " ++ show xs
         where
             xs = Prelude.map (^.baseSymbol) (o^.transactions)
 
 convertPostings
-    :: Text -> API.Transaction
+    :: Text
+    -> API.Transaction
     -> State (GainsKeeperState API.Transaction) [Ledger.Posting API.Transaction]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
