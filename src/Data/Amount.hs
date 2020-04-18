@@ -15,6 +15,7 @@ module Data.Amount
     , thousands
     , renderAmount
     , normalizeAmount
+    , spreadAmounts
     , showAmount
     , mpfr_RNDN
     , mpfr_RNDZ
@@ -23,7 +24,6 @@ module Data.Amount
     , mpfr_RNDA
     , mpfr_RNDF
     , mpfr_RNDNA
-    , scatter
     ) where
 
 import Data.Aeson
@@ -163,9 +163,9 @@ normalizeAmount = (read .) . showAmount
 -- count. Thus, if passed a two element list with counts 60 and 40, the amount
 -- would be divided 60% to the first, and 40% to the second. The only wrinkle
 -- is that any remaining cent from rounding is given to the first element.
-scatter :: (KnownNat n, KnownNat m)
-        => (a -> Amount m) -> Amount n -> [a] -> [(Amount n, a)]
-scatter f n input = go True input
+spreadAmounts :: (KnownNat n, KnownNat m)
+              => (a -> Amount m) -> Amount n -> [a] -> [(Amount n, a)]
+spreadAmounts f n input = go True input
   where
     diff   = n - sum (map sumOfParts input)
     per    = coerce n / shares

@@ -33,14 +33,17 @@ traceM :: Applicative f => String -> f ()
 -- traceM _ = pure ()
 traceM = Trace.traceM
 
-data LotApplied t = LotApplied
+data LotApplied a = LotApplied
     { _loss    :: Amount 2
-    , _wasOpen :: LotSplit (CommodityLot t)
-    , _close   :: LotSplit (CommodityLot t)
+    , _wasOpen :: LotSplit a
+    , _close   :: LotSplit a
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''LotApplied
+
+nothingApplied :: a -> a -> LotApplied a
+nothingApplied x y = LotApplied 0 (None x) (None y)
 
 data CalculatedPL = CalculatedPL
     { _losses  :: [LotAndPL API.Transaction]

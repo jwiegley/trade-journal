@@ -7,6 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 {- The "Wash Sale Rule"
 
@@ -233,47 +234,44 @@ import Text.PrettyPrint
 -- - CL may be split and/or changed to reduce losses.
 -- - CL with losses (or their fractioned parts) may be added to RECENT.
 -- - Transactions in OP may be split and/or changed to increase cost basis.
+--
+-- If called for a close that is not a loss, ignore.
+--
+-- If closing at a loss, and the corresponding open was <= 30 days ago, check
+-- if a purchase of the same or equivalent security happened within the last
+-- 30 days. If so, transfer the loss to that opening and record any remaining
+-- loss; otherwise record the whole loss so it may be applied to future
+-- openings within 30 days from the loss.
+--
+-- We're opening a transaction to which the wash sale rule may apply. Check
+-- whether an applicable losing transaction was made within the last 30 days,
+-- and if so, adjust the cost basis and remove the losing historical
+-- transaction since wash sales are only applied once.
 washSaleRule
     :: Text
     -> [(Bool, LotAndPL API.Transaction)]
       -- ^ The boolean value is True if is an opening transaction.
     -> State (GainsKeeperState API.Transaction)
             [(Bool, LotAndPL API.Transaction)]
-washSaleRule underlying ls =
-    zoom (positionEvents.at underlying.non []) $ do
-    events <- get
-    res <- fmap concat $ forM ls $ \pl -> do
-        if -- If called for a close that is not a loss, ignore.
-           | pl^._2.plLoss < 0 -> pure [pl]
-
-           -- If closing at a loss, and the corresponding open was <= 30 days
-           -- ago, check if a purchase of the same or equivalent security
-           -- happened within the last 30 days. If so, transfer the loss to
-           -- that opening and record any remaining loss; otherwise record the
-           -- whole loss so it may be applied to future openings within 30
-           -- days from the loss.
+washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
+    fmap concat $ forM ls $ \pl ->
+        if | pl^._2.plLoss < 0 -> pure [pl]
            | pl^._2.plLoss > 0 -> wash pl washLoss
-
-           -- We're opening a transaction to which the wash sale rule may
-           -- apply. Check whether an applicable losing transaction was made
-           -- within the last 30 days, and if so, adjust the cost basis and
-           -- remove the losing historical transaction since wash sales are
-           -- only applied once.
-           | otherwise -> wash pl washOpen
-    events' <- get
-    traceM $ render
-         $ text "Wash " <> text (unpack underlying) <> text ": "
-             <> renderList (text . show) ls
-        $$ text "against " <> renderList (text . show) events
-        $$ text " result " <> renderList (text . show) res
-        $$ text " events " <> renderList (text . show) events'
-    pure res
+           | otherwise         -> wash pl washOpen
   where
     wash (b,pl) f = do
         events <- get
-        let (pls, events') = mapAccumLs' f (Left [pl]) (justify events)
-        put $ catMaybes events'
-        pure $ reverse ((b,) <$> either id id pls)
+        let (either id id -> pls, catMaybes -> events') =
+                mapAccumLs' f (Left [pl]) (justify events)
+        put events'
+        let res = reverse ((b,) <$> pls)
+        traceM $ render
+             $ text "Wash " <> text (unpack underlying) <> text ": "
+                 <> renderList (text . show) ls
+            $$ text "against " <> renderList (text . show) events
+            $$ text " result " <> renderList (text . show) res
+            $$ text " events " <> renderList (text . show) events'
+        pure res
       where
         justify :: [a] -> [Maybe a]
         justify [] = [Nothing]

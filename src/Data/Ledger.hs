@@ -257,12 +257,15 @@ data LotAndPL t = LotAndPL
 
 makeClassy ''LotAndPL
 
+_Lot :: Prism' (LotAndPL t) (CommodityLot t)
+_Lot = prism' (LotAndPL BreakEven 0) (Just . _plLot)
+
 instance Show (LotAndPL t) where
     show x = showCommodityLot (x^.plLot) ++ " $$$ "  ++ show (x^.plLoss)
 
 ($$$) :: CommodityLot t -> Amount 2 -> LotAndPL t
-l $$$ a = LotAndPL (if | a < 0 -> GainShort
-                       | a > 0 -> LossShort
+l $$$ a = LotAndPL (if | a < 0     -> GainShort
+                       | a > 0     -> LossShort
                        | otherwise -> BreakEven) a l
 
 alignLotAndPL :: CommodityLot t -> LotAndPL t
@@ -270,7 +273,7 @@ alignLotAndPL :: CommodityLot t -> LotAndPL t
 alignLotAndPL x y =
     (l, r & unsafePartsOf _Splits
          %~ fmap (uncurry (LotAndPL (y^.plKind)))
-          . scatter (^.quantity) (y^.plLoss))
+          . spreadAmounts (^.quantity) (y^.plLoss))
   where
     (l, r) = x `alignLots` (y^.plLot)
 

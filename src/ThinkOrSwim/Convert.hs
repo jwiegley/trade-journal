@@ -66,53 +66,49 @@ convertPostings
     -> State (GainsKeeperState API.Transaction) [Ledger.Posting API.Transaction]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings actId t =
-    posts <$> case t^.item.API.amount of
-        Just _  ->
-            gainsKeeper t $ newCommodityLot
-                & Ledger.instrument .~ case atype of
-                    Just Equity               -> Ledger.Stock
-                    Just MutualFund           -> Ledger.Stock
-                    Just (OptionAsset _)      -> Ledger.Option
-                    Just (FixedIncomeAsset _) -> Ledger.Bond
-                    Just (CashEquivalentAsset
-                          CashMoneyMarket)    -> Ledger.MoneyMarket
-                    Nothing                   -> error "Unexpected"
-
-                & Ledger.symbol   .~ symbolName t
-                & Ledger.price    .~ coerce (t^.item.API.price)
-                & Ledger.quantity .~ coerce (getXactAmount t)
-                & Ledger.refs     .~ [Ref OpeningOrder (t^.xactId) (Just t)]
-        Nothing -> pure []
+convertPostings actId t = posts <$> case t^.item.API.amount of
+    Just n -> gainsKeeper t $ newCommodityLot
+        & Ledger.instrument .~ case atype of
+              Just Equity               -> Ledger.Stock
+              Just MutualFund           -> Ledger.Stock
+              Just (OptionAsset _)      -> Ledger.Option
+              Just (FixedIncomeAsset _) -> Ledger.Bond
+              Just (CashEquivalentAsset
+                    CashMoneyMarket)    -> Ledger.MoneyMarket
+              Nothing                   -> error "Unexpected"
+        & Ledger.symbol   .~ symbolName t
+        & Ledger.price    .~ coerce (t^.item.API.price)
+        & Ledger.quantity .~ coerce (case t^.item.instruction of
+                                         Just Sell -> -n
+                                         _ -> n)
+        & Ledger.refs     .~ [Ref OpeningOrder (t^.xactId) (Just t)]
+    Nothing -> pure []
   where
-    posts cs =
-        [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
-        | t^.fees_.regFee /= 0 ]
-          ++
-        [ post Ledger.Charges True (DollarAmount (t^.fees_.otherCharges))
-        | t^.fees_.otherCharges /= 0 ]
-          ++
-        [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
-        | t^.fees_.commission /= 0 ]
-          ++
-        (flip Prelude.concatMap cs $ \pl ->
-             [ post (fromMaybe (error $ "No account for " ++ show pl)
-                               (plAccount (pl^.plKind)))
-                    False (DollarAmount (pl^.plLoss))
-             | pl^.plLoss /= 0 ]
-          ++ [ post act False (CommodityAmount (pl^.plLot))
-                   & postMetadata .~ meta ])
-          ++
-        [ case t^.item.API.price of
-              Just _                     -> cashPost
-              Nothing | t^.netAmount /= 0 -> cashPost
-                      | otherwise        -> post act False NoAmount
-        | case t^.item.API.price of
-              Just _  -> t^.netAmount /= 0
-              Nothing -> not fromEquity ]
-          ++
-        [ post OpeningBalances False NoAmount
-        | isNothing (t^.item.API.amount) || fromEquity ]
+    posts cs
+        = [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
+          | t^.fees_.regFee /= 0 ]
+       ++ [ post Ledger.Charges True (DollarAmount (t^.fees_.otherCharges))
+          | t^.fees_.otherCharges /= 0 ]
+       ++ [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
+          | t^.fees_.commission /= 0 ]
+
+       ++ (flip Prelude.concatMap cs $ \pl ->
+               [ post (fromMaybe (error $ "No account for " ++ show pl)
+                                 (plAccount (pl^.plKind)))
+                      False (DollarAmount (pl^.plLoss))
+               | pl^.plLoss /= 0 ]
+            ++ [ post act False (CommodityAmount (pl^.plLot))
+                     & postMetadata .~ meta ])
+
+       ++ [ case t^.item.API.price of
+                Just _                     -> cashPost
+                Nothing | t^.netAmount /= 0 -> cashPost
+                        | otherwise        -> post act False NoAmount
+          | case t^.item.API.price of
+                Just _  -> t^.netAmount /= 0
+                Nothing -> not fromEquity ]
+       ++ [ post OpeningBalances False NoAmount
+          | isNothing (t^.item.API.amount) || fromEquity ]
 
     cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
 

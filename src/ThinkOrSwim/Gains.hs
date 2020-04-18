@@ -44,26 +44,24 @@ gainsKeeper t cl = do
         l     = setEvent (coerce cst)
         pl    = calculatePL l hist
         pls   = pl^..losses.traverse.to (False,)
-             ++ pl^..opening.traverse.to (LotAndPL BreakEven 0).to (True,)
+             ++ pl^..opening.traverse.to (review _Lot).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
-        wfees = pls & partsOf (each._2) %~ handleFees fees'
 
-    res <- washSaleRule underlying wfees
+    res <- washSaleRule (t^.baseSymbol) $
+        pls & partsOf (each._2) %~ handleFees fees'
 
     let hist' = pl^.history ++ res^..traverse.filtered fst._2.plLot
 
     openTransactions.at sym ?= hist'
 
-    traceCurrentState sym l hist hist' (map snd res)
+    traceCurrentState sym l hist hist' $ map snd res
   where
     sym = cl^.Ledger.symbol
-
-    underlying = t^.baseSymbol
 
     setEvent cst = cl
         & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
         & purchaseDate ?~ t^.xactDate
-        & refs         .~ [Ref OpeningOrder (t^.xactId) (Just t)]
+        & refs         .~ [ Ref OpeningOrder (t^.xactId) (Just t) ]
 
 traceCurrentState
     :: Text
@@ -72,12 +70,11 @@ traceCurrentState
     -> [CommodityLot API.Transaction]
     -> [LotAndPL API.Transaction]
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-traceCurrentState sym l hist next res = do
-    hist' <- use (openTransactions.at sym.non [])
-    traceM $ render
-           $ renderHistoryBeforeAndAfter
-                 (unpack sym) l hist next res hist'
-    return res
+traceCurrentState sym l hist next res = res <$
+    (traceM . render
+            . renderHistoryBeforeAndAfter
+                  (unpack sym) l hist next res
+          =<< use (openTransactions.at sym.non []))
 
 calculatePL :: CommodityLot API.Transaction
             -> [CommodityLot API.Transaction]
@@ -89,7 +86,7 @@ calculatePL curr opens = CalculatedPL {..}
       reverse     -> _history ) = foldl' fifo (Just curr, [], []) opens
 
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
-    fifo (Just z, res, keep)  x =
+    fifo (Just z,  res, keep) x =
         ( _close^?_SplitKept
         , maybe res ((:res) . LotAndPL kind _loss) (_wasOpen^?_SplitUsed)
         , maybe keep (:keep) (_wasOpen^?_SplitKept)
@@ -109,15 +106,13 @@ calculatePL curr opens = CalculatedPL {..}
 -- remains to be further deducted from, and how much was consumed, and
 -- similarly for 'y'.
 closeLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
-         -> LotApplied API.Transaction
-closeLot x y | not (pairedCommodityLots x y) =
-    LotApplied 0.0 (None x) (None y)
+         -> LotApplied (CommodityLot API.Transaction)
+closeLot x y | not (pairedCommodityLots x y) = nothingApplied x y
 
-closeLot x y
-    | Just x' <- x^?refs._head.refOrig._Just.item.positionEffect._Just,
-      Just y' <- y^?refs._head.refOrig._Just.item.positionEffect._Just,
-      x' == y' =
+closeLot x y | Just x' <- x^?effect, Just y' <- y^?effect, x' == y' =
     error $ show x ++ " has same position effect as " ++ show y
+  where
+    effect = refs._head.refOrig._Just.item.positionEffect._Just
 
 closeLot x y' = LotApplied {..}
   where
@@ -130,6 +125,7 @@ closeLot x y' = LotApplied {..}
     _loss | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
           | Just ocost <- _wasOpen^?_SplitUsed.Ledger.cost._Just,
             Just ccost <- _close^?_SplitUsed.Ledger.cost._Just =
+            -- coerce (sign x ocost + sign y ccost)
             coerce (normalizeAmount mpfr_RNDN
                         (coerce (sign x ocost + sign y ccost) :: Amount 3))
           | otherwise = 0
@@ -143,16 +139,14 @@ closeLot x y' = LotApplied {..}
 -- them. Yet if the fee is oddly divided, we must carry the remaining penny,
 -- since otherwise .03 divided by 2 (for example) will round to two instances
 -- of .01. See tests for examples.
-handleFees :: forall t. Amount 2 -> [LotAndPL t] -> [LotAndPL t]
+--
+-- If there is only a single opening transaction to apply the fee to, we add
+-- it directly to the basis cost, rather than spread it across the multiple
+-- transactions.
+handleFees :: Amount 2 -> [LotAndPL t] -> [LotAndPL t]
+handleFees fee [l@(LotAndPL _ 0 x)] =
+    [ l & plLot.Ledger.cost.mapped +~ coerce (sign x fee) ]
 
--- If there is only a single transaction to apply the fee to, we add (or
--- subtract) it directly to (from) the basis cost, rather than dividing it
--- into the P/L of multiple transactions.
-handleFees fee [LotAndPL k 0 x] =
-    [ LotAndPL k 0 $ x & Ledger.cost.mapped +~
-          coerce (if x^.quantity < 0 then (-fee) else fee) ]
-
-handleFees fee lots = map go $ scatter (^.plLot.quantity) fee lots
+handleFees fee ls = go <$> spreadAmounts (^.plLot.quantity) fee ls
   where
-    go (n, l) = l & plLoss %~ \g -> norm g + n
-    norm = normalizeAmount mpfr_RNDNA
+    go (n, l) = l & plLoss %~ \g -> normalizeAmount mpfr_RNDNA g + n
