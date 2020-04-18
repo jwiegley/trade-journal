@@ -23,6 +23,7 @@ module Data.Amount
     , mpfr_RNDA
     , mpfr_RNDF
     , mpfr_RNDNA
+    , scatter
     ) where
 
 import Data.Aeson
@@ -155,3 +156,25 @@ renderAmount d = thousands d
 
 normalizeAmount :: KnownNat n => CUInt -> Amount n -> Amount n
 normalizeAmount = (read .) . showAmount
+
+
+-- Given a way of project a "count" from an element, an amount, and a list of
+-- elements, divide the given amount among the elements each according to its
+-- count. Thus, if passed a two element list with counts 60 and 40, the amount
+-- would be divided 60% to the first, and 40% to the second. The only wrinkle
+-- is that any remaining cent from rounding is given to the first element.
+scatter :: (KnownNat n, KnownNat m)
+        => (a -> Amount m) -> Amount n -> [a] -> [(Amount n, a)]
+scatter f n input = go True input
+  where
+    diff   = n - sum (map sumOfParts input)
+    per    = coerce n / shares
+    shares = sum (map f input)
+
+    sumOfParts l = normalizeAmount mpfr_RNDZ (coerce (f l * per))
+
+    go _ []     = []
+    go b (x:xs) = (sum', x) : go False xs
+      where
+        sum' = normalizeAmount mpfr_RNDZ val
+        val  = sumOfParts x + if b then diff else 0

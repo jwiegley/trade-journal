@@ -151,6 +151,11 @@ instance Monad LotSplit where
     None k >>= f   = f k
 -}
 
+_Splits :: Traversal' (LotSplit a) a
+_Splits f (Some u k) = Some <$> f u <*> f k
+_Splits f (All u)    = All <$> f u
+_Splits f (None k)   = None <$> f k
+
 _SplitUsed :: Traversal' (LotSplit a) a
 _SplitUsed f (Some u k) = Some <$> f u <*> pure k
 _SplitUsed f (All u)    = All <$> f u

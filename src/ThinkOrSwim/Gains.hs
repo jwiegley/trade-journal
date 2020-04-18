@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
@@ -120,8 +121,7 @@ closeLot x y
 
 closeLot x y' = LotApplied {..}
   where
-    y | isTransactionSubType OptionExpiration y' =
-        y' & quantity %~ negate
+    y | isTransactionSubType OptionExpiration y' = y' & quantity %~ negate
       | otherwise = y'
 
     (open', _close) = x `alignLots` y
@@ -152,17 +152,7 @@ handleFees fee [LotAndPL k 0 x] =
     [ LotAndPL k 0 $ x & Ledger.cost.mapped +~
           coerce (if x^.quantity < 0 then (-fee) else fee) ]
 
-handleFees fee lots = go True lots
+handleFees fee lots = map go $ scatter (^.plLot.quantity) fee lots
   where
-    go _ [] = []
-    go b (LotAndPL k g x:xs) = LotAndPL k (g' + sum') x : go False xs
-      where
-        g'   = normalizeAmount mpfr_RNDNA g
-        sum' = normalizeAmount mpfr_RNDZ (sumOfParts x + if b then diff else 0)
-        diff = fee - sum (map (sumOfParts . view plLot) lots)
-
-        sumOfParts l =
-            normalizeAmount mpfr_RNDZ (coerce (l^.quantity * perShare))
-          where
-            perShare = coerce fee / shares
-            shares   = sum (map (^.plLot.quantity) lots)
+    go (n, l) = l & plLoss %~ \g -> norm g + n
+    norm = normalizeAmount mpfr_RNDNA

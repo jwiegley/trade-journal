@@ -467,13 +467,20 @@ makeClassy ''Transaction
 
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
-    _transactionItem_       <- obj .: "transactionItem"
+    tritem                  <- obj .: "transactionItem"
     _transactionId          <- obj .: "transactionId"
     _transactionSubType     <- obj .: "transactionSubType"
     _transactionDate        <- obj .: "transactionDate"
     _transactionDescription <- obj .: "description"
     let _transactionRelated = [] -- filled in by 'processTransactions'
         _transactionInfo_ = TransactionInfo {..}
+        _transactionItem_ =
+            tritem & price %~ \case
+                Just p  -> Just p
+                Nothing
+                    | _transactionSubType == OptionExpiration ->
+                      Just 0
+                    | otherwise -> Nothing
 
     _accruedInterest               <- obj .:? "accruedInterest"
     _achStatus                     <- obj .:? "achStatus"
