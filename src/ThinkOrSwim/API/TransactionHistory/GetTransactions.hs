@@ -474,12 +474,11 @@ instance FromJSON Transaction where
     _transactionDescription <- obj .: "description"
     let _transactionRelated = [] -- filled in by 'processTransactions'
         _transactionInfo_ = TransactionInfo {..}
-        _transactionItem_ =
-            tritem & price %~ \case
-                Just p  -> Just p
-                Nothing
-                    | _transactionSubType == OptionExpiration ->
-                      Just 0
+        _transactionItem_ = tritem & price %~ \case
+            Just p -> Just p
+            Nothing | _transactionSubType `elem`
+                          [ OptionExpiration
+                          , OptionAssignment ] -> Just 0
                     | otherwise -> Nothing
 
     _accruedInterest               <- obj .:? "accruedInterest"
@@ -561,7 +560,7 @@ processTransactions :: [Transaction] -> TransactionHistory
 processTransactions xs = (`execState` newTransactionHistory) $ do
     mapM_ go (prep xs)
     allTransactions %= Prelude.reverse
-    settlementList %= Prelude.reverse
+    settlementList  %= Prelude.reverse
     ordersMap.traverse.transactions %= orderTransactions
   where
     prep = Prelude.reverse
@@ -572,10 +571,8 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
         Nothing -> check t
         Just inst -> case inst^.symbol of
             "" -> preuse (cusipMap.ix (inst^.cusip)) >>= \case
-                Nothing ->
-                    error $ "Unknown CUSIP: " ++ T.unpack (inst^.cusip)
-                Just inst' ->
-                    check $ t & instrument_ ?~ inst'
+                Nothing -> error $ "Unknown CUSIP: " ++ T.unpack (inst^.cusip)
+                Just inst' -> check $ t & instrument_ ?~ inst'
             _sym -> do
                 cusipMap.at (inst^.cusip) ?= inst
                 check t

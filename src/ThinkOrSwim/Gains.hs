@@ -59,9 +59,9 @@ gainsKeeper t cl = do
     sym = cl^.Ledger.symbol
 
     setEvent cst = cl
-        & Ledger.cost  .~ (if cst /= 0 then Just cst else Nothing)
+        & Ledger.cost  ?~ cst
         & purchaseDate ?~ t^.xactDate
-        & refs         .~ [ Ref OpeningOrder (t^.xactId) (Just t) ]
+        & refs         .~ [ transactionRef t ]
 
 traceCurrentState
     :: Text
@@ -114,11 +114,8 @@ closeLot x y | Just x' <- x^?effect, Just y' <- y^?effect, x' == y' =
   where
     effect = refs._head.refOrig._Just.item.positionEffect._Just
 
-closeLot x y' = LotApplied {..}
+closeLot x y = LotApplied {..}
   where
-    y | isTransactionSubType OptionExpiration y' = y' & quantity %~ negate
-      | otherwise = y'
-
     (open', _close) = x `alignLots` y
 
     _loss :: Amount 2
@@ -128,7 +125,7 @@ closeLot x y' = LotApplied {..}
             -- coerce (sign x ocost + sign y ccost)
             coerce (normalizeAmount mpfr_RNDN
                         (coerce (sign x ocost + sign y ccost) :: Amount 3))
-          | otherwise = 0
+          | otherwise = error "No cost found"
 
     _wasOpen = open'
         & _SplitUsed.quantity     %~ negate

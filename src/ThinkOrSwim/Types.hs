@@ -28,10 +28,13 @@ import           Text.PrettyPrint
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
                      as API hiding ((<+>))
 
-import qualified Debug.Trace as Trace
+-- import qualified Debug.Trace as Trace
 traceM :: Applicative f => String -> f ()
--- traceM _ = pure ()
-traceM = Trace.traceM
+traceM _ = pure ()
+-- traceM = Trace.traceM
+
+transactionRef :: API.Transaction -> Ref API.Transaction
+transactionRef t = Ref OpeningOrder (t^.xactId) (Just t)
 
 data LotApplied a = LotApplied
     { _loss    :: Amount 2
@@ -155,14 +158,14 @@ pairedCommodityLots :: CommodityLot API.Transaction
                     -> CommodityLot API.Transaction
                     -> Bool
 pairedCommodityLots x y
-    | Just x' <- x^?refs._head.refOrig._Just.API.instrument_._Just.assetType,
-      Just y' <- y^?refs._head.refOrig._Just.API.instrument_._Just.assetType,
-      x' /= y' = Trace.trace (show x' ++ " /= " ++ show y') False
+    | Just x' <- x^?asset, Just y' <- y^?asset, x' /= y' = False
+    | x^.quantity < 0 && y^.quantity > 0 = True
+    | x^.quantity > 0 && y^.quantity < 0 = True
+    | otherwise = False
+  where
+    asset = refs._head.refOrig._Just.API.instrument_._Just.assetType
 
-pairedCommodityLots x y
-    = (x^.quantity < 0 && y^.quantity > 0)
-    || (  x^.quantity > 0
-       && (  y^.quantity < 0
-          || isTransactionSubType OptionExpiration y
-         )
-      )
+-- pairedCommodityLots x y
+    --       || isTransactionSubType OptionExpiration y
+    --      )
+    --   )

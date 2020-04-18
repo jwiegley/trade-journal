@@ -49,17 +49,16 @@ convertTransaction m (sd, getOrder m -> o) = do
             M.empty & at "Type"   ?~ T.pack (show (o^.orderType))
                     & at "Symbol" .~ case underlying of "" -> Nothing; s -> Just s
         _provenance    = o
-    _postings <-
-        Prelude.concat <$> mapM
-            (convertPostings (T.pack (show (o^.orderAccountId))))
-            (o^.transactions)
+    _postings <- Prelude.concat <$>
+        mapM (convertPostings (T.pack (show (o^.orderAccountId))))
+             (o^.transactions)
     pure Ledger.Transaction {..}
   where
-    underlying =
-        let xs = Prelude.map (^.baseSymbol) (o^.transactions)
-        in if Prelude.all (== Prelude.head xs) (Prelude.tail xs)
-           then Prelude.head xs
-           else error $ "Transaction deals with various symbols: " ++ show xs
+    underlying
+        | Prelude.all (== Prelude.head xs) (Prelude.tail xs) = Prelude.head xs
+        | otherwise = error $ "Transaction deals with various symbols: " ++ show xs
+        where
+            xs = Prelude.map (^.baseSymbol) (o^.transactions)
 
 convertPostings
     :: Text -> API.Transaction
@@ -77,11 +76,10 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
                     CashMoneyMarket)    -> Ledger.MoneyMarket
               Nothing                   -> error "Unexpected"
         & Ledger.symbol   .~ symbolName t
+        & Ledger.quantity .~
+              coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
         & Ledger.price    .~ coerce (t^.item.API.price)
-        & Ledger.quantity .~ coerce (case t^.item.instruction of
-                                         Just Sell -> -n
-                                         _ -> n)
-        & Ledger.refs     .~ [Ref OpeningOrder (t^.xactId) (Just t)]
+        & Ledger.refs     .~ [ transactionRef t ]
     Nothing -> pure []
   where
     posts cs
@@ -101,16 +99,18 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
                      & postMetadata .~ meta ])
 
        ++ [ case t^.item.API.price of
-                Just _                     -> cashPost
-                Nothing | t^.netAmount /= 0 -> cashPost
-                        | otherwise        -> post act False NoAmount
+                Just _              -> cashPost
+                Nothing | isPriced  -> cashPost
+                        | otherwise -> post act False NoAmount
           | case t^.item.API.price of
-                Just _  -> t^.netAmount /= 0
+                Just _  -> isPriced
                 Nothing -> not fromEquity ]
        ++ [ post OpeningBalances False NoAmount
           | isNothing (t^.item.API.amount) || fromEquity ]
 
-    cashPost = post (Cash actId) False (DollarAmount (t^.netAmount))
+    cashPost = post (Cash actId) False (if t^.netAmount == 0
+                                        then NoAmount
+                                        else DollarAmount (t^.netAmount))
 
     meta = M.empty
         & at "Subtype"     ?~ T.pack (show subtyp)
@@ -124,9 +124,7 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
         & at "Expiration"  .~ t^?option'.expirationDate.to toIso8601
         & at "Contract"    .~ t^?option'.description
 
-    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn
-                          , OptionAssignment
-                          , OptionExpiration ]
+    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
 
     act = case atype of
         Just Equity                  -> Equities actId
@@ -138,6 +136,9 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
 
     atype  = t^?instrument_._Just.assetType
     subtyp = t^.transactionInfo_.transactionSubType
+
+    isPriced = t^.netAmount /= 0
+        || subtyp `elem` [ OptionExpiration, OptionAssignment ]
 
     post a b m = Posting
         { _account      = a

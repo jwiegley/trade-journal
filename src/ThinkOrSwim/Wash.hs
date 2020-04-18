@@ -253,7 +253,8 @@ washSaleRule
       -- ^ The boolean value is True if is an opening transaction.
     -> State (GainsKeeperState API.Transaction)
             [(Bool, LotAndPL API.Transaction)]
-washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
+washSaleRule underlying ls = pure ls -- zoom (positionEvents.at underlying.non []) $
+{-
     fmap concat $ forM ls $ \pl ->
         if | pl^._2.plLoss < 0 -> pure [pl]
            | pl^._2.plLoss > 0 -> wash pl washLoss
@@ -340,3 +341,4 @@ transferWashLoss x y
     | otherwise = (Just x, None (LotAndPL BreakEven 0 y))
   where
     (r, l) = y `alignLotAndPL` x
+-}
