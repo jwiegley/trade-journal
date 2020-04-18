@@ -151,7 +151,7 @@ instance Monad LotSplit where
     None k >>= f   = f k
 -}
 
-_Splits :: Traversal' (LotSplit a) a
+_Splits :: Traversal (LotSplit a) (LotSplit b) a b
 _Splits f (Some u k) = Some <$> f u <*> f k
 _Splits f (All u)    = All <$> f u
 _Splits f (None k)   = None <$> f k
@@ -268,14 +268,11 @@ l $$$ a = LotAndPL (if | a < 0 -> GainShort
 alignLotAndPL :: CommodityLot t -> LotAndPL t
               -> (LotSplit (CommodityLot t), LotSplit (LotAndPL t))
 alignLotAndPL x y =
-    (l, (LotAndPL (y^.plKind) 0 <$> r)
-            & _SplitUsed.plLoss .~ coerce (per * abs (r^?!_SplitUsed.quantity))
-            & _SplitKept.plLoss .~ coerce (per * abs (r^?!_SplitKept.quantity)))
+    (l, r & unsafePartsOf _Splits
+         %~ fmap (uncurry (LotAndPL (y^.plKind)))
+          . scatter (^.quantity) (y^.plLoss))
   where
     (l, r) = x `alignLots` (y^.plLot)
-
-    q   = abs (y^.plLot.quantity)
-    per = coerce (y^.plLoss) / q
 
 isFullTransfer :: (Maybe (LotAndPL t), LotSplit t) -> Bool
 isFullTransfer (Nothing, All _) = True
