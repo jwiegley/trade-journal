@@ -1,14 +1,17 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module ThinkOrSwim.Convert (convertTransactions) where
 
+import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
@@ -99,7 +102,11 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
                       False (DollarAmount (pl^.plLoss))
                | pl^.plLoss /= 0 ]
             ++ [ post act False (CommodityAmount (pl^.plLot))
-                     & postMetadata .~ meta ])
+                     & postMetadata %~ meta
+                     & postMetadata.at "Effect" %~
+                           (<|> Just (if pl^.plLoss == 0
+                                      then "Opening"
+                                      else "Closing")) ])
 
        ++ [ case t^.item.API.price of
                 Just _              -> cashPost
@@ -115,7 +122,7 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
                                         then NoAmount
                                         else DollarAmount (t^.netAmount))
 
-    meta = M.empty
+    meta m = m
         & at "Subtype"     ?~ T.pack (show subtyp)
         & at "XId"         ?~ T.pack (show (t^.xactId))
         & at "XDate"       ?~ T.pack (iso8601Show (t^.xactDate))
