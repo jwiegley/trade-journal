@@ -118,10 +118,6 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
        ++ [ post OpeningBalances False NoAmount
           | isNothing (t^.item.API.amount) || fromEquity ]
 
-    cashPost = post (Cash actId) False (if t^.netAmount == 0
-                                        then NoAmount
-                                        else DollarAmount (t^.netAmount))
-
     meta m = m
         & at "Subtype"     ?~ T.pack (show subtyp)
         & at "XId"         ?~ T.pack (show (t^.xactId))
@@ -135,8 +131,6 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
         & at "Expiration"  .~ t^?option'.expirationDate.to (T.pack . iso8601Show)
         & at "Contract"    .~ t^?option'.description
 
-    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
-
     act = case atype of
         Just Equity                  -> Equities actId
         Just MutualFund              -> Equities actId
@@ -145,12 +139,13 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
         Just (CashEquivalentAsset _) -> MoneyMarkets actId
         Nothing                      -> OpeningBalances
 
-    atype  = t^?instrument_._Just.assetType
-    subtyp = t^.transactionInfo_.transactionSubType
-
-    isPriced = t^.netAmount /= 0
-        || subtyp `elem` [ OptionExpiration, OptionAssignment ]
-
+    atype      = t^?instrument_._Just.assetType
+    subtyp     = t^.transactionInfo_.transactionSubType
+    isPriced   = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
+    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
+    cashPost   = post (Cash actId) False (if t^.netAmount == 0
+                                          then NoAmount
+                                          else DollarAmount (t^.netAmount))
     post a b m = Posting
         { _account      = a
         , _isVirtual    = b
