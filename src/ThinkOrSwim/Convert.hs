@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module ThinkOrSwim.Convert (convertTransactions) where
+module ThinkOrSwim.Convert (convertTransactions, fixupTransaction) where
 
 import           Control.Applicative
 import           Control.Lens
@@ -56,7 +56,7 @@ convertTransaction m (sd, getOrder m -> o) = do
     _postings <- Prelude.concat <$>
         mapM (convertPostings (T.pack (show (o^.orderAccountId))))
              (o^.transactions)
-    pure Ledger.Transaction {..}
+    fixupTransaction Ledger.Transaction {..}
   where
     underlying
         | Prelude.all (== Prelude.head xs) (Prelude.tail xs) = Prelude.head xs
@@ -64,6 +64,23 @@ convertTransaction m (sd, getOrder m -> o) = do
               error $ "Transaction deals with various symbols: " ++ show xs
         where
             xs = Prelude.map (^.baseSymbol) (o^.transactions)
+
+fixupTransaction
+    :: Ledger.Transaction o API.Transaction
+    -> State (GainsKeeperState API.Transaction)
+            (Ledger.Transaction o API.Transaction)
+fixupTransaction t = pure t
+  where
+    xactOA = Prelude.any optionA (t^.postings)
+           && Prelude.any equityA (t^.postings)
+
+    isOA p = p^?Ledger.amount._CommodityAmount.refs._head.refOrig._Just.xactSubType
+        == Just OptionAssignment
+
+    optionA p = isOA p &&
+        has (Ledger.amount._CommodityAmount.Ledger.instrument._Option) p
+    equityA p = isOA p &&
+        has (Ledger.amount._CommodityAmount.Ledger.instrument._Stock) p
 
 convertPostings
     :: Text
@@ -88,6 +105,7 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
         & Ledger.refs     .~ [ transactionRef t ]
     Nothing -> pure []
   where
+    post = newPosting
     posts cs
         = [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
           | t^.fees_.regFee /= 0 ]
@@ -153,11 +171,3 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
         if t^.netAmount == 0
         then NoAmount
         else DollarAmount (t^.netAmount)
-
-    post a b m = Posting
-        { _account      = a
-        , _isVirtual    = b
-        , _isBalancing  = not b
-        , _amount       = m
-        , _postMetadata = M.empty
-        }

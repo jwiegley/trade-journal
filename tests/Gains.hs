@@ -7,22 +7,19 @@
 
 module Gains (testGainsKeeper) where
 
-import Control.Lens
-import Data.Amount
-import Data.Coerce
-import Data.Ledger as Ledger
-import Data.Maybe (fromMaybe)
--- import Data.Ratio
--- import Data.Time
--- import Hedgehog
--- import Hedgehog.Gen as Gen
--- import Hedgehog.Range as Range
-import Test.Tasty
-import Test.Tasty.HUnit
--- import Test.Tasty.Hedgehog
-import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import ThinkOrSwim.Gains
-import ThinkOrSwim.Types
+import           Control.Lens
+import           Control.Monad.State
+import           Data.Amount
+import           Data.Coerce
+import           Data.Ledger as Ledger
+import           Data.Maybe (fromJust, fromMaybe)
+import           Data.Time.Format.ISO8601
+import           Test.Tasty
+import           Test.Tasty.HUnit
+import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           ThinkOrSwim.Convert
+import           ThinkOrSwim.Gains
+import           ThinkOrSwim.Types
 
 pl :: Amount 4 -> CommodityLot t -> CommodityLot t -> Amount 2
 pl q x y = coerce $
@@ -201,13 +198,65 @@ testGainsKeeper = testGroup "gainsKeeper"
                   ]
           @?= (-8677.47)
 
-    -- , testProperty "closeLot" $ property $ do
-    --       x <- forAll genCommodityLot
-    --       y <- forAll genCommodityLot
-    --       let (_gain, (used, kept), _left) = x `closeLot` y
-    --       Hedgehog.assert $ isJust used || isJust kept
-    --       Prelude.maybe 0 lotCost used + Prelude.maybe 0 lotCost kept
-    --           === lotCost x
+    , testCase "fixupTransaction" $
+      let xact = Transaction
+              { _actualDate    = fromJust (iso8601ParseM "2020-03-01")
+              , _effectiveDate = Nothing
+              , _code          = "TEST"
+              , _payee         = "TEST"
+              , _postings      =
+                [ newPosting Ledger.Commissions True
+                      (DollarAmount 19.99)
+                , newPosting (Equities "1")     False
+                      (CommodityAmount
+                           ( 100.00 @@ 33019.99
+                                 & symbol .~ "NFLX"
+                                 & price ?~ 330.00 ))
+                , newPosting (Cash "1")         False
+                      (DollarAmount (-33019.99))
+                , newPosting CapitalGainShort   False
+                      (DollarAmount (-168.23))
+                , newPosting (Options "1")      False
+                      (CommodityAmount
+                           ( 1.00 @@ 168.23
+                                 & symbol .~ "NFLX_071919P330"
+                                 & price ?~ 330.00 ))
+                ]
+              , _xactMetadata  = mempty
+              , _provenance    = ()
+              }
+          res = Transaction
+              { _actualDate    = fromJust (iso8601ParseM "2020-03-01")
+              , _effectiveDate = Nothing
+              , _code          = "TEST"
+              , _payee         = "TEST"
+              , _postings      =
+                [ newPosting Ledger.Commissions True
+                      (DollarAmount 19.99)
+                , newPosting (Equities "1")     False
+                      (CommodityAmount
+                           ( 100.00 @@ 32851.76
+                                 & symbol .~ "NFLX"
+                                 & price ?~ 330.00 ))
+                , newPosting (Cash "1")         False
+                      (DollarAmount (-33019.99))
+                , newPosting (Options "1")      False
+                      (CommodityAmount
+                           ( 1.00 @@ 168.23
+                                 & symbol .~ "NFLX_071919P330"
+                                 & price ?~ 330.00 ))
+                ]
+              , _xactMetadata  = mempty
+              , _provenance    = ()
+              }
+      in runState
+             (fixupTransaction xact)
+             (newGainsKeeperState
+                  & openTransactions.at "NFLX_071919P330"
+                        ?~ [ (-1.00) @@ 168.23
+                                 & symbol .~ "NFLX_071919P330"
+                                 & price ?~ 1.69 ])
+          @?= (res, newGainsKeeperState)
     ]
   where
     q12c300  =    12 @@ 300
@@ -218,31 +267,3 @@ testGainsKeeper = testGroup "gainsKeeper"
     qn12c500 = (-12) @@ 500
     q10c300  =    10 @@ 300
     qn10c300 = (-10) @@ 300
-
-{-
-genAmount :: MonadGen m => m (Amount n)
-genAmount = Amount <$> liftM2 (%)
-    (integral (Range.constantFrom 100 (-1000) 1000))
-    (integral (Range.constantFrom 100 1 1000))
-
-genCommodityLot :: MonadGen m => m CommodityLot
-genCommodityLot = do
-    _instrument   <- enumBounded
-    _quantity     <- genAmount
-    _symbol       <- pure "???"
-    _cost         <- Just <$> genAmount
-    _purchaseDate <- Just <$> genUTCTime
-    _refs         <- pure []
-    _price        <- Just <$> genAmount
-    pure CommodityLot {..}
-
-genUTCTime :: MonadGen m => m UTCTime
-genUTCTime = do
-    y <- toInteger <$> Gen.int (Range.constant 2000 2019)
-    m <- Gen.int (Range.constant 1 12)
-    d <- Gen.int (Range.constant 1 28)
-    let day = fromGregorian y m d
-    secs <- toInteger <$> Gen.int (Range.constant 0 86401)
-    let delta = secondsToDiffTime secs
-    pure $ UTCTime day delta
--}

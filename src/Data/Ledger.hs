@@ -287,11 +287,8 @@ perShareCost CommodityLot {..} =
 sumLotAndPL :: [LotAndPL t] -> Amount 2
 sumLotAndPL = foldl' go 0
   where
-    norm = normalizeAmount mpfr_RNDNA
-
-    cst l = sign l (fromMaybe 0 (l^.cost))
-
-    go :: Amount 2 -> LotAndPL t -> Amount 2
+    norm      = normalizeAmount mpfr_RNDNA
+    cst l     = sign l (fromMaybe 0 (l^.cost))
     go acc pl = acc + norm (coerce (cst (pl^.plLot))) + norm (pl^.plLoss)
 
 data PostingAmount t
@@ -300,7 +297,7 @@ data PostingAmount t
     | CommodityAmount (CommodityLot t)
     deriving (Eq, Ord, Show)
 
-makePrisms ''Amount
+makePrisms ''PostingAmount
 
 data Account
     = Equities Text
@@ -344,6 +341,15 @@ data Posting t = Posting
     deriving (Eq, Ord, Show)
 
 makeClassy ''Posting
+
+newPosting :: Account -> Bool -> PostingAmount t -> Posting t
+newPosting a b m = Posting
+    { _account      = a
+    , _isVirtual    = b
+    , _isBalancing  = not b
+    , _amount       = m
+    , _postMetadata = M.empty
+    }
 
 data Transaction o t = Transaction
     { _actualDate    :: Day
