@@ -115,8 +115,13 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
           | case t^.item.API.price of
                 Just _  -> isPriced
                 Nothing -> not fromEquity ]
-       ++ [ post OpeningBalances False NoAmount
-          | isNothing (t^.item.API.amount) || fromEquity ]
+       ++ if | isNothing (t^.item.API.amount) || fromEquity ->
+               [ post OpeningBalances False NoAmount ]
+             | rounding /= 0 ->
+               [ post RoundingError False (DollarAmount rounding) ]
+             | otherwise -> []
+      where
+        rounding = - (t^.netAmount + sumLotAndPL cs)
 
     meta m = m
         & at "Subtype"     ?~ T.pack (show subtyp)
@@ -143,9 +148,12 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
     subtyp     = t^.transactionInfo_.transactionSubType
     isPriced   = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
     fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
-    cashPost   = post (Cash actId) False (if t^.netAmount == 0
-                                          then NoAmount
-                                          else DollarAmount (t^.netAmount))
+
+    cashPost = post (Cash actId) False $
+        if t^.netAmount == 0
+        then NoAmount
+        else DollarAmount (t^.netAmount)
+
     post a b m = Posting
         { _account      = a
         , _isVirtual    = b

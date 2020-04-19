@@ -123,23 +123,23 @@ testGainsKeeper = testGroup "gainsKeeper"
           0.81 [ (-100) @@ 1000.81 $$$ 199.19 ]
           @?= [ (-100) @@ 1000.81 $$$ 200.00 ]
 
-    , testCase "handleFees closing multiple positions 1" $
-      handleFees @API.Transaction
-          0.81 [ (-100) @@ 1000.81 $$$ (-100.00)
-               , (-100) @@ 1000.81 $$$ (-100.00)
-               ]
-          @?= [ (-100) @@ 1000.81 $$$ (-100.00 + 0.40 + 0.01)
-              , (-100) @@ 1000.81 $$$ (-100.00 + 0.40)
-              ]
+    -- , testCase "handleFees closing multiple positions 1" $
+    --   handleFees @API.Transaction
+    --       0.81 [ (-100) @@ 1000.81 $$$ (-100.00)
+    --            , (-100) @@ 1000.81 $$$ (-100.00)
+    --            ]
+    --       @?= [ (-100) @@ 1000.81 $$$ (-100.00 + 0.40 + 0.01)
+    --           , (-100) @@ 1000.81 $$$ (-100.00 + 0.40)
+    --           ]
 
-    , testCase "handleFees closing multiple positions 2" $
-      handleFees @API.Transaction
-          0.83 [ (-10.00) @@ 19740.50 $$$ (-100.00)
-               , (-10.00) @@ 19707.90 $$$ (-100.00)
-               ]
-          @?= [ (-10.00) @@ 19740.50 $$$ (-100.00 + 0.41 + 0.01)
-              , (-10.00) @@ 19707.90 $$$ (-100.00 + 0.41)
-              ]
+    -- , testCase "handleFees closing multiple positions 2" $
+    --   handleFees @API.Transaction
+    --       0.83 [ (-10.00) @@ 19740.50 $$$ (-100.00)
+    --            , (-10.00) @@ 19707.90 $$$ (-100.00)
+    --            ]
+    --       @?= [ (-10.00) @@ 19740.50 $$$ (-100.00 + 0.41 + 0.01)
+    --           , (-10.00) @@ 19707.90 $$$ (-100.00 + 0.41)
+    --           ]
 
     , testCase "handleFees closing multiple positions 3" $
       handleFees @API.Transaction

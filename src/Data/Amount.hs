@@ -160,8 +160,7 @@ normalizeAmount = (read .) . showAmount
 -- Given a way of project a "count" from an element, an amount, and a list of
 -- elements, divide the given amount among the elements each according to its
 -- count. Thus, if passed a two element list with counts 60 and 40, the amount
--- would be divided 60% to the first, and 40% to the second. The only wrinkle
--- is that any remaining cent from rounding is given to the first element.
+-- would be divided 60% to the first, and 40% to the second.
 spreadAmounts :: (KnownNat n, KnownNat m)
               => (a -> Amount m) -> Amount n -> [a] -> [(Amount n, a)]
 spreadAmounts f n input = go True input
@@ -169,10 +168,9 @@ spreadAmounts f n input = go True input
     diff   = n - sum (map sump input)
     per    = coerce n / shares
     shares = sum (map f input)
-    norm   = normalizeAmount mpfr_RNDZ
-    sump l = norm (coerce (f l * per))
+    sump l = coerce (f l * per)
 
     go _ []     = []
     go b (x:xs) = (sum', x) : go False xs
       where
-        sum' = sump x + if b then norm diff else 0
+        sum' = sump x + if b then diff else 0

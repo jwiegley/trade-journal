@@ -19,6 +19,7 @@ import           Data.Amount
 import           Data.Char (isAlpha)
 import           Data.Coerce
 import           Data.Int
+import           Data.List (foldl')
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, maybeToList)
@@ -274,6 +275,14 @@ alignLotAndPL x y =
 isFullTransfer :: (Maybe (LotAndPL t), LotSplit t) -> Bool
 isFullTransfer (Nothing, All _) = True
 isFullTransfer _ = False
+
+sumLotAndPL :: [LotAndPL t] -> Amount 2
+sumLotAndPL = foldl' go 0
+  where
+    go acc pl =
+        normalizeAmount mpfr_RNDNA
+            (coerce (sign (pl^.plLot) (fromMaybe 0 (pl^.plLot.cost)))) +
+        normalizeAmount mpfr_RNDNA (pl^.plLoss) + acc
 
 data PostingAmount t
     = NoAmount

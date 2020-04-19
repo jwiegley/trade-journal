@@ -124,9 +124,7 @@ closeLot x y = LotApplied {..}
     _loss | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
           | Just ocost <- _wasOpen^?_SplitUsed.Ledger.cost._Just,
             Just ccost <- _close^?_SplitUsed.Ledger.cost._Just =
-            -- coerce (sign x ocost + sign y ccost)
-            coerce (normalizeAmount mpfr_RNDN
-                        (coerce (sign x ocost + sign y ccost) :: Amount 3))
+            coerce (sign x ocost + sign y ccost)
           | otherwise = error "No cost found"
 
     _wasOpen = open'
@@ -148,4 +146,4 @@ handleFees fee [l@(LotAndPL _ 0 x)] =
 
 handleFees fee ls = go <$> spreadAmounts (^.plLot.quantity) fee ls
   where
-    go (f, l) = l & plLoss %~ \g -> normalizeAmount mpfr_RNDNA g + f
+    go (f, l) = l & plLoss +~ f
