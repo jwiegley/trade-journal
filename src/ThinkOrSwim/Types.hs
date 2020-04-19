@@ -15,13 +15,12 @@ module ThinkOrSwim.Types where
 import           Control.Applicative ((<|>))
 import           Control.Lens
 import           Data.Amount
-import           Data.Fixed (Pico)
 import           Data.Foldable (foldl')
 import           Data.Ledger as Ledger
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
-import           Data.Text (Text, unpack)
+import           Data.Text (Text)
 import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double, (<>))
