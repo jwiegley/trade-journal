@@ -23,6 +23,7 @@ import           Data.Amount
 import           Data.Int
 import           Data.List (sortBy)
 import           Data.Map (Map)
+import           Data.Maybe (fromMaybe)
 import           Data.Ord
 import           Data.Semigroup hiding (Option, option)
 import           Data.Text (Text)
@@ -197,9 +198,12 @@ instance FromJSON TransactionItem where
     _instruction           <- obj .:? "instruction"
     -- _parentChildIndicator  <- obj .:? "parentChildIndicator"
     -- _parentOrderKey        <- obj .:? "parentOrderKey"
-    _cost                  <- obj .:  "cost"
+    cst                    <- obj .:  "cost"
     _price                 <- obj .:? "price"
     _amount                <- obj .:? "amount"
+    let _cost = case _transactionInstrument^?_Just.assetType._CashEquivalentAsset of
+            Nothing -> cst
+            Just _ -> fromMaybe 1 _amount
     _accountId             <- obj .:  "accountId"
     pure TransactionItem{..}
 

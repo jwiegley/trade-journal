@@ -117,7 +117,7 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
                 Nothing -> not fromEquity ]
        ++ if | isNothing (t^.item.API.amount) || fromEquity ->
                [ post OpeningBalances False NoAmount ]
-             | rounding /= 0 ->
+             | not cashXact && rounding /= 0 ->
                [ post RoundingError False (DollarAmount rounding) ]
              | otherwise -> []
       where
@@ -148,6 +148,8 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
     subtyp     = t^.transactionInfo_.transactionSubType
     isPriced   = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
     fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
+    cashXact   = subtyp `elem` [ CashAlternativesPurchase
+                          , CashAlternativesRedemption ]
 
     cashPost = post (Cash actId) False $
         if t^.netAmount == 0

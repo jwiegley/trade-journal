@@ -161,12 +161,8 @@ pairedCommodityLots :: CommodityLot API.Transaction
 pairedCommodityLots x y
     | Just x' <- x^?asset, Just y' <- y^?asset, x' /= y' = False
     | x^.quantity < 0 && y^.quantity > 0 = True
-    | x^.quantity > 0 && y^.quantity < 0 = True
+    | x^.quantity > 0 &&
+      (y^.quantity < 0 || isTransactionSubType OptionExpiration y) = True
     | otherwise = False
   where
     asset = refs._head.refOrig._Just.API.instrument_._Just.assetType
-
--- pairedCommodityLots x y
-    --       || isTransactionSubType OptionExpiration y
-    --      )
-    --   )
