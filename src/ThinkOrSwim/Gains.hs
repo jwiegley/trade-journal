@@ -148,4 +148,4 @@ handleFees fee [l@(LotAndPL _ 0 x)] =
 
 handleFees fee ls = go <$> spreadAmounts (^.plLot.quantity) fee ls
   where
-    go (n, l) = l & plLoss %~ \g -> normalizeAmount mpfr_RNDNA g + n
+    go (f, l) = l & plLoss %~ \g -> normalizeAmount mpfr_RNDNA g + f
