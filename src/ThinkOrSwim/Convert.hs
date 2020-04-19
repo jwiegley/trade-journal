@@ -72,7 +72,7 @@ convertPostings
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings actId t = posts <$> case t^.item.API.amount of
-    Just n -> gainsKeeper t $ newCommodityLot
+    Just n -> gainsKeeper t maybeNet $ newCommodityLot
         & Ledger.instrument .~ case atype of
               Just Equity               -> Ledger.Stock
               Just MutualFund           -> Ledger.Stock
@@ -106,7 +106,8 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
                      & postMetadata.at "Effect" %~
                            (<|> Just (if pl^.plLoss == 0
                                       then "Opening"
-                                      else "Closing")) ])
+                                      else "Closing"))
+               | pl^.plKind /= Rounding ])
 
        ++ [ case t^.item.API.price of
                 Just _              -> cashPost
@@ -115,13 +116,8 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
           | case t^.item.API.price of
                 Just _  -> isPriced
                 Nothing -> not fromEquity ]
-       ++ if | isNothing (t^.item.API.amount) || fromEquity ->
-               [ post OpeningBalances False NoAmount ]
-             | not cashXact && rounding /= 0 ->
-               [ post RoundingError False (DollarAmount rounding) ]
-             | otherwise -> []
-      where
-        rounding = - (t^.netAmount + sumLotAndPL cs)
+       ++ [ post OpeningBalances False NoAmount
+          | isNothing (t^.item.API.amount) || fromEquity ]
 
     meta m = m
         & at "Subtype"     ?~ T.pack (show subtyp)
@@ -147,6 +143,8 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
     atype      = t^?instrument_._Just.assetType
     subtyp     = t^.transactionInfo_.transactionSubType
     isPriced   = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
+    direct     = cashXact || isNothing (t^.item.API.amount) || fromEquity
+    maybeNet   = if direct then Nothing else Just (t^.netAmount)
     fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
     cashXact   = subtyp `elem` [ CashAlternativesPurchase
                           , CashAlternativesRedemption ]

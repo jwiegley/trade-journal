@@ -28,10 +28,10 @@ import           Text.PrettyPrint
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
                      as API hiding ((<+>))
 
--- import qualified Debug.Trace as Trace
+import qualified Debug.Trace as Trace
 traceM :: Applicative f => String -> f ()
-traceM _ = pure ()
--- traceM = Trace.traceM
+-- traceM _ = pure ()
+traceM = Trace.traceM
 
 transactionRef :: API.Transaction -> Ref API.Transaction
 transactionRef t = Ref OpeningOrder (t^.xactId) (Just t)
@@ -118,21 +118,6 @@ renderList f ts =
   where
     go (_, True) x    = (lbrack <> space <> f x, False)
     go (acc, False) x = (acc $$ comma <> space <> f x, False)
-
-renderHistoryBeforeAndAfter
-    :: String
-    -> CommodityLot t
-    -> [CommodityLot t]
-    -> [CommodityLot t]
-    -> [LotAndPL t]
-    -> [CommodityLot t]
-    -> Doc
-renderHistoryBeforeAndAfter sym l hist next res final =
-    text sym <> text ": " <> text (showCommodityLot l)
-        $$ text " ++> " <> renderList (text . showCommodityLot) hist
-        $$ text " --> " <> renderList (text . showCommodityLot) next
-        $$ text " ==> " <> renderList (text . showCommodityLot) final
-        $$ text " <-- " <> renderList (text . show) res
 
 data GainsKeeperState t = GainsKeeperState
     { _openTransactions :: Map Text [CommodityLot t]

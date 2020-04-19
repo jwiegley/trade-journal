@@ -239,6 +239,7 @@ data PL
     | LossShort
     | LossLong
     | WashLoss
+    | Rounding
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''PL
@@ -276,13 +277,22 @@ isFullTransfer :: (Maybe (LotAndPL t), LotSplit t) -> Bool
 isFullTransfer (Nothing, All _) = True
 isFullTransfer _ = False
 
+perShareCost :: CommodityLot t -> Maybe (Amount 6)
+perShareCost CommodityLot {..} =
+    fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)
+
+-- The idea of this function is to replicate what Ledger will calculate the
+-- sum to be, so that if there's any discrepancy we can add a rounding
+-- adjustment to pass the balancing check.
 sumLotAndPL :: [LotAndPL t] -> Amount 2
 sumLotAndPL = foldl' go 0
   where
-    go acc pl =
-        normalizeAmount mpfr_RNDNA
-            (coerce (sign (pl^.plLot) (fromMaybe 0 (pl^.plLot.cost)))) +
-        normalizeAmount mpfr_RNDNA (pl^.plLoss) + acc
+    norm = normalizeAmount mpfr_RNDNA
+
+    cst l = sign l (fromMaybe 0 (l^.cost))
+
+    go :: Amount 2 -> LotAndPL t -> Amount 2
+    go acc pl = acc + norm (coerce (cst (pl^.plLot))) + norm (pl^.plLoss)
 
 data PostingAmount t
     = NoAmount
@@ -322,6 +332,7 @@ plAccount GainLong  = Just CapitalGainLong
 plAccount LossShort = Just CapitalLossShort
 plAccount LossLong  = Just CapitalLossLong
 plAccount WashLoss  = Just CapitalWashLoss
+plAccount Rounding  = Just RoundingError
 
 data Posting t = Posting
     { _account      :: Account
@@ -364,18 +375,20 @@ renderRefs = T.intercalate "," . map go
         ExistingEquity -> "Equity"
 
 renderPostingAmount :: PostingAmount t -> [Text]
--- jww (2020-03-29): Need to add commas, properly truncate, etc.
 renderPostingAmount NoAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
-renderPostingAmount (CommodityAmount CommodityLot {..}) =
-    [ T.pack (renderAmount _quantity)
-    , T.pack $ printf "%s%s%s%s%s"
-          (if T.all isAlpha _symbol then _symbol else "\"" <> _symbol <> "\"")
-          -- (maybe "" (T.pack . printf " {{$%s}}" . thousands . abs) _cost)
+renderPostingAmount (CommodityAmount l@(CommodityLot {..})) = map T.pack
+    [ renderAmount _quantity
+    , printf "%s%s%s%s%s"
+          (if T.all isAlpha _symbol
+           then _symbol
+           else "\"" <> _symbol <> "\"")
           (maybe "" (T.pack . printf " {$%s}" . thousands . abs)
-                    (fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)))
+                    (perShareCost l))
           (maybe "" (T.pack . printf " [%s]" . iso8601Show) _purchaseDate)
-          (case _refs of [] -> ""; xs -> (T.pack . printf " (%s)" . renderRefs) xs)
+          (case _refs of
+               [] -> ""
+               xs -> (T.pack . printf " (%s)" . renderRefs) xs)
           (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
     ]
 

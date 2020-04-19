@@ -34,8 +34,6 @@ import           Prelude hiding (Float, Double)
 import           System.IO.Unsafe
 import           Text.Show.Pretty
 
-import           Debug.Trace (trace)
-
 data FixedIncome = FixedIncome
     { _bondInterestRate :: Amount 2
     , _bondMaturityDate :: UTCTime
@@ -705,8 +703,8 @@ pairAssignments (x:y:xs)
              & transactionOrderDate ?~ x^.xactDate)
         : (y & transactionOrderId   ?~ assignmentId
              & transactionOrderDate ?~ x^.xactDate)
-        : trace ("FOUND " ++ info) (pairAssignments xs)
-    | otherwise = trace info (x : pairAssignments (y:xs))
+        : pairAssignments xs
+    | otherwise = x : pairAssignments (y:xs)
   where
     assignmentId = "OA" <> T.pack (show (x^.transactionInfo_.transactionId))
 

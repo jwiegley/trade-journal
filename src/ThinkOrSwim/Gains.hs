@@ -23,7 +23,7 @@ import Data.Ledger as Ledger
 import Data.Maybe (maybeToList)
 import Data.Text (Text, unpack)
 import Data.Time
-import Prelude hiding (Float, Double)
+import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
@@ -33,9 +33,11 @@ import ThinkOrSwim.Wash
 -- what impact a given transaction, based on existing positions, should have
 -- on an account.
 gainsKeeper
-    :: API.Transaction -> CommodityLot API.Transaction
+    :: API.Transaction
+    -> Maybe (Amount 2)
+    -> CommodityLot API.Transaction
     -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-gainsKeeper t cl = do
+gainsKeeper t mnet cl = do
     hist <- use (openTransactions.at sym.non [])
 
     -- If there are no existing lots, then this is either a purchase or a
@@ -48,15 +50,26 @@ gainsKeeper t cl = do
         pls   = pl^..losses.traverse.to (False,)
              ++ pl^..opening.traverse.to (review _Lot).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
+        pls'  = pls & partsOf (each._2) %~ handleFees fees'
 
-    res <- washSaleRule (t^.baseSymbol) $
-        pls & partsOf (each._2) %~ handleFees fees'
+    (doc, res) <- washSaleRule (t^.baseSymbol) pls'
 
     let hist' = pl^.history ++ res^..traverse.filtered fst._2.plLot
 
     openTransactions.at sym ?= hist'
 
-    traceCurrentState sym l hist hist' $ map snd res
+    let res'  = map snd res
+        res'' = case mnet of
+            Nothing -> res'
+            Just net ->
+                let slip = - (net + sumLotAndPL res')
+                in res' ++ [ LotAndPL Rounding slip newCommodityLot
+                           | slip /= 0 ]
+
+    when (sym == "") $
+        traceCurrentState sym mnet l pls pls' hist hist' doc res' res''
+
+    pure res''
   where
     sym = cl^.Ledger.symbol
 
@@ -67,16 +80,29 @@ gainsKeeper t cl = do
 
 traceCurrentState
     :: Text
+    -> Maybe (Amount 2)
     -> CommodityLot API.Transaction
+    -> [(Bool, LotAndPL API.Transaction)]
+    -> [(Bool, LotAndPL API.Transaction)]
     -> [CommodityLot API.Transaction]
     -> [CommodityLot API.Transaction]
+    -> Doc
     -> [LotAndPL API.Transaction]
-    -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-traceCurrentState sym l hist next res = res <$
-    (traceM . render
-            . renderHistoryBeforeAndAfter
-                  (unpack sym) l hist next res
-          =<< use (openTransactions.at sym.non []))
+    -> [LotAndPL API.Transaction]
+    -> State (GainsKeeperState API.Transaction) ()
+traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
+    hist'' <- use (openTransactions.at sym.non [])
+    traceM $ render
+        $ text (unpack sym) <> text ": " <> text (showCommodityLot l)
+       $$ text " mnet  > " <> text (show mnet)
+       $$ text " pls   > " <> renderList (text . show) (map snd pls)
+       $$ text " pls'  > " <> renderList (text . show) (map snd pls')
+       $$ text " hist  > " <> renderList (text . showCommodityLot) hist
+       $$ text " hist' > " <> renderList (text . showCommodityLot) hist'
+       $$ text " hist''> " <> renderList (text . showCommodityLot) hist''
+       $$ text " washed> " <> doc
+       $$ text " res'  > " <> renderList (text . show) res'
+       $$ text " res'' > " <> renderList (text . show) res''
 
 calculatePL :: CommodityLot API.Transaction
             -> [CommodityLot API.Transaction]

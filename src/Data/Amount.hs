@@ -117,11 +117,11 @@ rounded = dimap coerce (fmap coerce)
 amountToString :: forall n. KnownNat n => Amount n -> String
 amountToString = cleanup 2 . showAmount mpfr_RNDNA
   where
-    cleanup m t =
-        let len = length (last (splitOn "." t)) in
-        if len > m && last t == '0'
-        then cleanup m (take (length t - 1) t)
-        else t
+    cleanup m t
+        | len > m && last t == '0' = cleanup m (take (length t - 1) t)
+        | otherwise = t
+      where
+        len = length (last (splitOn "." t))
 
 thousands :: forall n. KnownNat n => Amount n -> String
 thousands d = intercalate "." $ case splitOn "." str of

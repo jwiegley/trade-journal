@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -185,18 +186,18 @@ Sell Put (Writer) then Close at a Loss
 
 module ThinkOrSwim.Wash where
 
+import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad.State
 import Data.Coerce
 import Data.Ledger as Ledger
 import Data.Maybe (isNothing, maybeToList, catMaybes)
-import Data.Text (Text, unpack)
+import Data.Text (Text)
 import Data.Zipper
 import Prelude hiding (Float, Double, (<>))
+import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
-
-import Text.PrettyPrint
 
 -- Given a history of closing and opening transactions (where the opening
 -- transactions are identified as having a loss of 0.0), determine the washed
@@ -252,11 +253,10 @@ washSaleRule
     -> [(Bool, LotAndPL API.Transaction)]
       -- ^ The boolean value is True if is an opening transaction.
     -> State (GainsKeeperState API.Transaction)
-            [(Bool, LotAndPL API.Transaction)]
-washSaleRule underlying ls = pure ls -- zoom (positionEvents.at underlying.non []) $
-{-
-    fmap concat $ forM ls $ \pl ->
-        if | pl^._2.plLoss < 0 -> pure [pl]
+            (Doc, [(Bool, LotAndPL API.Transaction)])
+washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
+    fmap ((vcat *** concat) . unzip) $ forM ls $ \pl ->
+        if | pl^._2.plLoss < 0 -> pure (empty, [pl])
            | pl^._2.plLoss > 0 -> wash pl washLoss
            | otherwise         -> wash pl washOpen
   where
@@ -266,13 +266,11 @@ washSaleRule underlying ls = pure ls -- zoom (positionEvents.at underlying.non [
                 mapAccumLs' f (Left [pl]) (justify events)
         put events'
         let res = reverse ((b,) <$> pls)
-        traceM $ render
-             $ text "Wash " <> text (unpack underlying) <> text ": "
-                 <> renderList (text . show) ls
-            $$ text "against " <> renderList (text . show) events
-            $$ text " result " <> renderList (text . show) res
-            $$ text " events " <> renderList (text . show) events'
-        pure res
+            doc = text "pl: " <> text (show pl)
+               $$ text "ev: " <> renderList (text . show) events
+               $$ text "<-- " <> renderList (text . show) (map snd res)
+               $$ text "EV: " <> renderList (text . show) events'
+        pure (doc, res)
       where
         justify :: [a] -> [Maybe a]
         justify [] = [Nothing]
@@ -341,4 +339,3 @@ transferWashLoss x y
     | otherwise = (Just x, None (LotAndPL BreakEven 0 y))
   where
     (r, l) = y `alignLotAndPL` x
--}
