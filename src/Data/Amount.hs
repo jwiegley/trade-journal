@@ -166,14 +166,13 @@ spreadAmounts :: (KnownNat n, KnownNat m)
               => (a -> Amount m) -> Amount n -> [a] -> [(Amount n, a)]
 spreadAmounts f n input = go True input
   where
-    diff   = n - sum (map sumOfParts input)
+    diff   = n - sum (map sump input)
     per    = coerce n / shares
     shares = sum (map f input)
-
-    sumOfParts l = normalizeAmount mpfr_RNDZ (coerce (f l * per))
+    norm   = normalizeAmount mpfr_RNDZ
+    sump l = norm (coerce (f l * per))
 
     go _ []     = []
     go b (x:xs) = (sum', x) : go False xs
       where
-        sum' = normalizeAmount mpfr_RNDZ val
-        val  = sumOfParts x + if b then diff else 0
+        sum' = sump x + if b then norm diff else 0
