@@ -645,6 +645,9 @@ xactId = transactionInfo_.transactionId
 xactDate :: Lens' Transaction UTCTime
 xactDate = transactionInfo_.transactionDate
 
+xactSubType :: Lens' Transaction TransactionSubType
+xactSubType = transactionInfo_.transactionSubType
+
 xactAmount :: Getter Transaction (Amount 6)
 xactAmount f t =
     t & item.instruction %%~ \x -> x <$ case x of Just Sell -> f (-n); _ -> f n
