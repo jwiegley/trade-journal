@@ -11,7 +11,7 @@ import Data.Proxy
 import Data.Text as T
 import Data.Text.Encoding as T
 import Data.Time
--- import Network.URI.Encode as URI
+import Data.Time.Format.ISO8601
 import Servant.API
 import Servant.Client
 import ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (AccountId)
@@ -47,11 +47,10 @@ newtype Symbol = Symbol Text
 instance ToHttpApiData Symbol where
     toUrlPiece (Symbol t) = t
 
-newtype ISO8601Date = ISO8601Date UTCTime
+newtype ISO8601Date = ISO8601Date Day
 
 instance ToHttpApiData ISO8601Date where
-    toUrlPiece (ISO8601Date s) =
-        T.pack $ formatTime defaultTimeLocale "%Y-%m-%d" s
+    toUrlPiece (ISO8601Date s) = T.pack (iso8601Show s)
 
 data TransactionQueryType
     = All

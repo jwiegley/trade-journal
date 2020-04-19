@@ -19,6 +19,7 @@ import           Data.Maybe (isNothing, fromMaybe)
 import           Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
+import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double)
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
@@ -37,7 +38,7 @@ getOrder m (Right oid) = m^?!ix oid
 
 convertTransaction
     :: OrdersMap
-    -> (UTCTime, Either API.Transaction API.OrderId)
+    -> (Day, Either API.Transaction API.OrderId)
     -> State (GainsKeeperState API.Transaction)
             (Ledger.Transaction API.Order API.Transaction)
 convertTransaction m (sd, getOrder m -> o) = do
@@ -116,14 +117,15 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
 
     meta = M.empty
         & at "Subtype"     ?~ T.pack (show subtyp)
-        & at "XID"         ?~ T.pack (show (t^.xactId))
+        & at "XId"         ?~ T.pack (show (t^.xactId))
+        & at "XDate"       ?~ T.pack (iso8601Show (t^.xactDate))
         & at "Instruction" .~ t^?item.instruction._Just.to show.packed
         & at "Effect"      .~ t^?item.positionEffect._Just.to show.packed
         & at "CUSIP"       .~ t^?instrument_._Just.cusip
         & at "Instrument"  .~ t^?instrument_._Just.assetType.to assetKind
         & at "Side"        .~ t^?option'.putCall.to show.packed
         & at "Strike"      .~ t^?option'.strikePrice._Just.to thousands.packed
-        & at "Expiration"  .~ t^?option'.expirationDate.to toIso8601
+        & at "Expiration"  .~ t^?option'.expirationDate.to (T.pack . iso8601Show)
         & at "Contract"    .~ t^?option'.description
 
     fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]

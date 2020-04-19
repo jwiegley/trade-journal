@@ -157,7 +157,6 @@ renderAmount d = thousands d
 normalizeAmount :: KnownNat n => CUInt -> Amount n -> Amount n
 normalizeAmount = (read .) . showAmount
 
-
 -- Given a way of project a "count" from an element, an amount, and a list of
 -- elements, divide the given amount among the elements each according to its
 -- count. Thus, if passed a two element list with counts 60 and 40, the amount

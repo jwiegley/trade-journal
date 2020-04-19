@@ -2,9 +2,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -19,6 +19,7 @@ import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
+import           Data.Amount
 import           Data.Int
 import           Data.List (sortBy)
 import           Data.Map (Map)
@@ -27,7 +28,7 @@ import           Data.Semigroup hiding (Option, option)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
-import           Data.Amount
+import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double)
 import           System.IO.Unsafe
 
@@ -51,7 +52,7 @@ instance FromJSON PutCall where
     case text of
       "PUT"  -> pure Put
       "CALL" -> pure Call
-      _      -> fail $ "putCall unexpected: " ++ T.unpack text
+      _ -> fail $ "putCall unexpected: " ++ T.unpack text
 
 data Option = Option
     { _description      :: Text
@@ -74,7 +75,7 @@ instance FromJSON CashEquivalent where
   parseJSON = withText "cashEquivalent" $ \text ->
     case text of
       "MONEY_MARKET" -> pure CashMoneyMarket
-      _              -> fail $ "cashEquivalent unexpected: " ++ T.unpack text
+      _ -> fail $ "cashEquivalent unexpected: " ++ T.unpack text
 
 data AssetType
     = Equity
@@ -153,7 +154,7 @@ instance FromJSON PositionEffect where
       "OPENING"   -> pure Open
       "CLOSING"   -> pure Close
       "AUTOMATIC" -> pure Automatic
-      _           -> fail $ "positionEffect unexpected: " ++ T.unpack text
+      _ -> fail $ "positionEffect unexpected: " ++ T.unpack text
 
 data Instruction
     = Buy
@@ -167,7 +168,7 @@ instance FromJSON Instruction where
     case text of
       "BUY"  -> pure Buy
       "SELL" -> pure Sell
-      _      -> fail $ "instruction unexpected: " ++ T.unpack text
+      _ -> fail $ "instruction unexpected: " ++ T.unpack text
 
 type AccountId = Int32
 
@@ -266,7 +267,7 @@ instance FromJSON AchStatus where
       "Rejected" -> pure Rejected
       "Cancel"   -> pure Cancel
       "Error"    -> pure Error_
-      _          -> fail $ "achStatus unexpected: " ++ T.unpack text
+      _ -> fail $ "achStatus unexpected: " ++ T.unpack text
 
 data TransactionType
     = Trade
@@ -324,7 +325,7 @@ instance FromJSON TransactionType where
       "MARGIN_CALL"          -> pure MarginCall
       "MONEY_MARKET"         -> pure MoneyMarket
       "SMA_ADJUSTMENT"       -> pure SmaAdjustment
-      _                      -> fail $ "transactionType unexpected: " ++ T.unpack text
+      _ -> fail $ "transactionType unexpected: " ++ T.unpack text
 
 type TransactionId = Int64
 
@@ -423,7 +424,7 @@ instance FromJSON TransactionSubType where
       "WI" -> pure WireIncoming
       "XI" -> pure TransferFromForexAccount
       "XO" -> pure TransferToForexAccount
-      _    -> fail $ "transactionSubType unexpected: " ++ T.unpack text
+      _ -> fail $ "transactionSubType unexpected: " ++ T.unpack text
 
 data TransactionInfo t = TransactionInfo
     { _transactionId          :: TransactionId
@@ -456,7 +457,7 @@ data Transaction = Transaction
     , _requirementReallocationAmount :: Maybe (Amount 2)
     , _sma                           :: Maybe (Amount 2)
     , _transactionOrderId            :: Maybe Text
-    , _settlementDate                :: UTCTime
+    , _settlementDate                :: Day
     , _subAccount                    :: Text
     , _clearingReferenceNumber       :: Maybe Text
     , _type_                         :: TransactionType
@@ -491,9 +492,7 @@ instance FromJSON Transaction where
     _requirementReallocationAmount <- obj .:? "requirementReallocationAmount"
     _sma                           <- obj .:? "sma"
     _transactionOrderId            <- obj .:? "orderId"
-    _settlementDateText            <- obj .:  "settlementDate"
-    let _settlementDate =
-            parseTimeOrError False defaultTimeLocale "%Y-%m-%d" _settlementDateText
+    _settlementDate                <- iso8601ParseM =<< obj .: "settlementDate"
     _subAccount                    <- obj .:  "subAccount"
     _clearingReferenceNumber       <- obj .:? "clearingReferenceNumber"
     _type_                         <- obj .:  "type"
@@ -514,7 +513,7 @@ makeClassy ''Order
 type CUSIPMap       = Map Text Instrument
 type OrderId        = Text
 type OrdersMap      = Map OrderId Order
-type SettlementList = [(UTCTime, Either Transaction OrderId)]
+type SettlementList = [(Day, Either Transaction OrderId)]
 
 data TransactionHistory = TransactionHistory
     { _allTransactions :: [Transaction]
@@ -686,7 +685,8 @@ contractList f (x:y:xs) = case f x y of
     Nothing -> x : contractList f (y:xs)
     Just z  ->     contractList f (z:xs)
 
-mergeTransactionItems :: TransactionItem -> TransactionItem -> Maybe TransactionItem
+mergeTransactionItems :: TransactionItem -> TransactionItem
+                      -> Maybe TransactionItem
 mergeTransactionItems x y = do
     guard conditions
     pure TransactionItem {..}
@@ -709,10 +709,12 @@ mergeTransactionItems x y = do
     _price                 = x^.price
     _transactionInstrument = x^.transactionInstrument
 
-mergeTransactionInfos :: TransactionInfo t -> TransactionInfo t -> Maybe (TransactionInfo t)
+mergeTransactionInfos :: TransactionInfo t -> TransactionInfo t
+                      -> Maybe (TransactionInfo t)
 mergeTransactionInfos x y = do
     guard conditions
-    _transactionItem_ <- mergeTransactionItems (x^.transactionItem_) (y^.transactionItem_)
+    _transactionItem_ <-
+        mergeTransactionItems (x^.transactionItem_) (y^.transactionItem_)
     pure TransactionInfo {..}
   where
     conditions
@@ -726,8 +728,10 @@ mergeTransactionInfos x y = do
 
     -- jww (2020-04-05): Here is where we discard information when coalescing
     -- multiple transactions into an order.
-    _transactionId          = getMax $ Max (x^.transactionId) <> Max (y^.transactionId)
-    _transactionDate        = getMax $ Max (x^.transactionDate) <> Max (y^.transactionDate)
+    _transactionId          = getMax $ Max (x^.transactionId)
+                                    <> Max (y^.transactionId)
+    _transactionDate        = getMax $ Max (x^.transactionDate)
+                                    <> Max (y^.transactionDate)
 
 mergeTransactions :: Transaction -> Transaction -> Maybe Transaction
 mergeTransactions x y = do
@@ -753,12 +757,14 @@ mergeTransactions x y = do
     _achStatus                     = x^.achStatus
     _cashBalanceEffectFlag         = x^.cashBalanceEffectFlag
     _clearingReferenceNumber       = x^.clearingReferenceNumber
-    _dayTradeBuyingPowerEffect     = x^.dayTradeBuyingPowerEffect <+> y^.dayTradeBuyingPowerEffect
+    _dayTradeBuyingPowerEffect     = x^.dayTradeBuyingPowerEffect
+                                 <+> y^.dayTradeBuyingPowerEffect
     _fees_                         = x^.fees_ <> y^.fees_
     _netAmount                     = x^.netAmount + y^.netAmount
     _transactionOrderId            = x^.transactionOrderId
     _transactionOrderDate          = x^.transactionOrderDate
-    _requirementReallocationAmount = x^.requirementReallocationAmount <+> y^.requirementReallocationAmount
+    _requirementReallocationAmount = x^.requirementReallocationAmount
+                                 <+> y^.requirementReallocationAmount
     _settlementDate                = x^.settlementDate
     _sma                           = x^.sma <+> y^.sma
     _subAccount                    = x^.subAccount

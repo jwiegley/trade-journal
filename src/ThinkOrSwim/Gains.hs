@@ -21,6 +21,7 @@ import Data.Foldable (foldl')
 import Data.Ledger as Ledger
 import Data.Maybe (maybeToList)
 import Data.Text (Text, unpack)
+import Data.Time
 import Prelude hiding (Float, Double)
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -60,7 +61,7 @@ gainsKeeper t cl = do
 
     setEvent cst = cl
         & Ledger.cost  ?~ cst
-        & purchaseDate ?~ t^.xactDate
+        & purchaseDate ?~ utctDay (t^.xactDate)
         & refs         .~ [ transactionRef t ]
 
 traceCurrentState

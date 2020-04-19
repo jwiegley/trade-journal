@@ -12,7 +12,7 @@ import Data.Data (Data)
 import Data.Ledger as Ledger
 import Data.Text as T
 import Data.Text.IO as T
-import Data.Time
+import Data.Time.Format.ISO8601
 import Data.Typeable (Typeable)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
@@ -115,9 +115,8 @@ main = do
         , _quantity      = q
         , Ledger._symbol = s
         , Ledger._cost   = Just (abs (q * p))
-        , _purchaseDate  =
-          Just (parseTimeOrError False defaultTimeLocale "%Y-%m-%d" d)
-        , _refs          = [Ref ExistingEquity 0 Nothing]
+        , _purchaseDate  = iso8601ParseM d
+        , _refs          = [ Ref ExistingEquity 0 Nothing ]
         , Ledger._price  = Just p
         }
 

@@ -23,6 +23,7 @@ import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
 import           Data.Text (Text, unpack)
 import           Data.Time
+import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
@@ -59,7 +60,7 @@ makeClassy ''CalculatedPL
 
 data TransactionEvent t = TransactionEvent
     { _gainOrLoss :: Maybe (Amount 2)
-    , _eventDate  :: UTCTime
+    , _eventDate  :: Day
     , _eventLot   :: CommodityLot t
     }
     deriving (Eq, Ord)
@@ -69,7 +70,7 @@ makeClassy ''TransactionEvent
 instance Show (TransactionEvent t) where
     show TransactionEvent {..} =
         show _gainOrLoss
-            ++ " // " ++ unpack (toIso8601 _eventDate)
+            ++ " // " ++ iso8601Show _eventDate
             ++ " // " ++ showCommodityLot _eventLot
 
 eventToPL :: TransactionEvent t -> LotAndPL t
@@ -92,15 +93,16 @@ isDateOrdered (x:y:xs)
     | x^.eventDate <= y^.eventDate = isDateOrdered (y:xs)
     | otherwise = False
 
-lotDate :: CommodityLot API.Transaction -> Maybe UTCTime
-lotDate l = l^.purchaseDate <|> l^?refs._head.refOrig._Just.xactDate
+lotDate :: CommodityLot API.Transaction -> Maybe Day
+lotDate l = l^.purchaseDate
+    <|> utctDay <$> l^?refs._head.refOrig._Just.xactDate
 
-daysApart :: CommodityLot API.Transaction -> UTCTime -> Maybe Pico
+daysApart :: CommodityLot API.Transaction -> Day -> Maybe Integer
 daysApart x yd = do
     xd <- lotDate x
-    pure $ nominalDiffTimeToSeconds (xd `diffUTCTime` yd) / 86400
+    pure $ xd `diffDays` yd
 
-eventFromPL :: Maybe UTCTime -> LotAndPL API.Transaction
+eventFromPL :: Maybe Day -> LotAndPL API.Transaction
             -> TransactionEvent API.Transaction
 eventFromPL md LotAndPL {..} = TransactionEvent
     { _gainOrLoss = if _plLoss /= 0 then Just _plLoss else Nothing

@@ -25,15 +25,9 @@ import           Data.Maybe (fromMaybe, maybeToList)
 import           Data.Text (Text, unpack)
 import qualified Data.Text as T
 import           Data.Time
+import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double)
 import           Text.Printf
-
-toIso8601 :: UTCTime -> Text
-toIso8601 = T.pack . formatTime defaultTimeLocale "%Y-%m-%d"
-
-fromIso8601 :: Text -> UTCTime
-fromIso8601 =
-    parseTimeOrError False defaultTimeLocale "%Y-%m-%d" . T.unpack
 
 data RefType
     = WashSaleRule (Amount 6)
@@ -77,7 +71,7 @@ data CommodityLot t = CommodityLot
     , _quantity     :: Amount 4
     , _symbol       :: Text
     , _cost         :: Maybe (Amount 4)
-    , _purchaseDate :: Maybe UTCTime
+    , _purchaseDate :: Maybe Day
     , _refs         :: [Ref t]
     , _price        :: Maybe (Amount 4)
     }
@@ -225,7 +219,7 @@ newCommodityLot = CommodityLot
 q @@ c = newCommodityLot & quantity .~ q & cost ?~ c
 
 (##) :: CommodityLot t -> Text -> CommodityLot t
-l ## d = l & purchaseDate ?~ fromIso8601 d
+l ## d = l & purchaseDate .~ iso8601ParseM (T.unpack d)
 
 showCommodityLot :: CommodityLot t -> String
 showCommodityLot CommodityLot {..} =
@@ -235,7 +229,7 @@ showCommodityLot CommodityLot {..} =
                Just xs -> " @@ " ++ show xs
         ++ case _purchaseDate of
                Nothing -> ""
-               Just d  -> " ## " ++ unpack (toIso8601 d)
+               Just d  -> " ## " ++ iso8601Show d
 
 data PL
     = BreakEven
@@ -332,8 +326,8 @@ data Posting t = Posting
 makeClassy ''Posting
 
 data Transaction o t = Transaction
-    { _actualDate    :: UTCTime
-    , _effectiveDate :: Maybe UTCTime
+    { _actualDate    :: Day
+    , _effectiveDate :: Maybe Day
     , _code          :: Text
     , _payee         :: Text
     , _postings      :: [Posting t]
@@ -354,11 +348,11 @@ renderRefs = T.intercalate "," . map go
   where
     go r = case r^.refType of
         WashSaleRule wash ->
-            "W$" <> T.pack (show wash) <> "|" <> T.pack (show (r^.refId))
+            "W$" <> T.pack (show wash) <> "-" <> T.pack (show (r^.refId))
         RollingOrder roll ->
-            "R$" <> T.pack (show roll) <> "|" <> T.pack (show (r^.refId))
-        OpeningOrder      -> "" <> T.pack (show (r^.refId))
-        ExistingEquity    -> "Equity"
+            "R$" <> T.pack (show roll) <> "-" <> T.pack (show (r^.refId))
+        OpeningOrder   -> "" <> T.pack (show (r^.refId))
+        ExistingEquity -> "Equity"
 
 renderPostingAmount :: PostingAmount t -> [Text]
 -- jww (2020-03-29): Need to add commas, properly truncate, etc.
@@ -371,7 +365,7 @@ renderPostingAmount (CommodityAmount CommodityLot {..}) =
           -- (maybe "" (T.pack . printf " {{$%s}}" . thousands . abs) _cost)
           (maybe "" (T.pack . printf " {$%s}" . thousands . abs)
                     (fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)))
-          (maybe "" (T.pack . printf " [%s]" . toIso8601) _purchaseDate)
+          (maybe "" (T.pack . printf " [%s]" . iso8601Show) _purchaseDate)
           (case _refs of [] -> ""; xs -> (T.pack . printf " (%s)" . renderRefs) xs)
           (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
     ]
@@ -420,8 +414,8 @@ renderTransaction xact =
         Just err -> error $ "Invalid transaction: " ++ err
         Nothing
             ->  [ T.concat
-                   $  [ toIso8601 (xact^.actualDate) ]
-                   ++ maybeToList (toIso8601 <$> xact^.effectiveDate)
+                   $  [ T.pack (iso8601Show (xact^.actualDate)) ]
+                   ++ maybeToList (T.pack . iso8601Show <$> xact^.effectiveDate)
                    ++ [ " * (", xact^.code, ") ", xact^.payee ]
                ]
             ++ renderMetadata (xact^.xactMetadata)
