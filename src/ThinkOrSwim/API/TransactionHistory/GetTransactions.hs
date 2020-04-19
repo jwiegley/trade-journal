@@ -31,6 +31,9 @@ import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double)
 import           System.IO.Unsafe
+import           Text.Show.Pretty
+
+import           Debug.Trace (trace)
 
 data FixedIncome = FixedIncome
     { _bondInterestRate :: Amount 2
@@ -557,52 +560,55 @@ instance FromJSON TransactionHistory where
 
 processTransactions :: [Transaction] -> TransactionHistory
 processTransactions xs = (`execState` newTransactionHistory) $ do
-    mapM_ go (prep xs)
+    prepare xs
     allTransactions %= Prelude.reverse
     settlementList  %= Prelude.reverse
     ordersMap.traverse.transactions %= orderTransactions
   where
-    prep = Prelude.reverse
-        . filter (\t -> t^.transactionInfo_.transactionSubType /= InternalTransfer)
+    prepare
+        = mapM_ check
+        . pairAssignments
+        . sortBy (comparing (^?transactionInfo_.transactionDate) <>
+                  comparing (^?baseSymbol))
+      <=< mapM findNames
+        . filter (\t -> t^.xactSubType `notElem` [ InternalTransfer
+                                        , TradeCorrection ])
+        . Prelude.reverse
 
-    go :: Transaction -> State TransactionHistory ()
-    go t = case t^?instrument_._Just of
-        Nothing -> check t
+    findNames :: Transaction -> State TransactionHistory Transaction
+    findNames t = case t^.instrument_ of
+        Nothing -> pure t
         Just inst -> case inst^.symbol of
             "" -> preuse (cusipMap.ix (inst^.cusip)) >>= \case
                 Nothing -> error $ "Unknown CUSIP: " ++ T.unpack (inst^.cusip)
-                Just inst' -> check $ t & instrument_ ?~ inst'
+                Just inst' -> pure $ t & instrument_ ?~ inst'
             _sym -> do
                 cusipMap.at (inst^.cusip) ?= inst
-                check t
+                pure t
 
     check :: Transaction -> State TransactionHistory ()
-    check t | t^.transactionInfo_.transactionSubType == TradeCorrection =
-        pure ()
-    check t = case t^?instrument_._Just.symbol of
-        Just "" -> error $ "symbol has no name: " ++ show t
-        _ -> do
-            allTransactions %= (t :)
+    check t | Just "" <- t^?instrument_._Just.symbol =
+                  error $ "Symbol has no name: " ++ ppShow t
+            | otherwise = do
+        allTransactions %= (t :)
 
-            let sd = t^.settlementDate
-            case orderIdAndDate t of
-                Just (oid, date) -> preuse (ordersMap.ix oid) >>= \case
-                    Nothing -> do
-                        let o = Order
-                                { _transactions     = [t]
-                                , _orderId          = oid
-                                , _orderType        = t^.type_
-                                , _orderDate        = date
-                                , _orderDescription =
-                                  t^.transactionInfo_.transactionDescription
-                                , _orderAccountId   = t^.accountId_
-                                }
-                        ordersMap.at oid ?= o
-                        settlementList %= ((sd, Right oid) :)
-                    Just _ ->
-                        ordersMap.ix oid.transactions <>= [t]
-                _ ->
-                    settlementList %= ((sd, Left t) :)
+        let sd = t^.settlementDate
+        case orderIdAndDate t of
+            Just (oid, date) -> use (ordersMap.at oid) >>= \case
+                Nothing -> do
+                    ordersMap.at oid ?= Order
+                        { _transactions     = [t]
+                        , _orderId          = oid
+                        , _orderType        = t^.type_
+                        , _orderDate        = date
+                        , _orderDescription =
+                          t^.transactionInfo_.transactionDescription
+                        , _orderAccountId   = t^.accountId_
+                        }
+                    settlementList %= ((sd, Right oid) :)
+                Just _ ->
+                    ordersMap.ix oid.transactions %= (t:)
+            _ -> settlementList %= ((sd, Left t) :)
 
 orderIdAndDate :: Transaction -> Maybe (OrderId, UTCTime)
 orderIdAndDate t = liftA2 (,) (t^?baseOrderId) (t^.transactionOrderDate)
@@ -634,7 +640,7 @@ baseSymbol =
 symbolName :: Transaction -> Text
 symbolName t = case t^.instrument_ of
     Nothing ->
-        error $ "Transaction instrument missing for XID " ++ show (t^.xactId)
+        error $ "Transaction instrument missing for XId " ++ show (t^.xactId)
     Just inst -> case inst^.symbol of
         " " -> inst^.cusip
         s   -> s
@@ -680,6 +686,35 @@ orderTransactions =
     contractList mergeTransactions
         . sortBy (comparing (^?instrument_._Just.assetType) <>
                   comparing (^?transactionInfo_.transactionDate))
+
+pairAssignments :: [Transaction] -> [Transaction]
+pairAssignments [] = []
+pairAssignments [x] = [x]
+pairAssignments (x:y:xs)
+    | x^.type_       == ReceiveAndDeliver &&
+      x^.xactSubType == OptionAssignment  &&
+      y^.type_       == Trade             &&
+      y^.xactSubType == OptionAssignment  &&
+      x^.baseSymbol  == y^.baseSymbol =
+          (x & settlementDate       .~ y^.settlementDate
+             & transactionOrderId   ?~ assignmentId
+             & transactionOrderDate ?~ x^.xactDate)
+        : (y & transactionOrderId   ?~ assignmentId
+             & transactionOrderDate ?~ x^.xactDate)
+        : trace ("FOUND " ++ info) (pairAssignments xs)
+    | otherwise = trace info (x : pairAssignments (y:xs))
+  where
+    assignmentId = "OA" <> T.pack (show (x^.transactionInfo_.transactionId))
+
+    info = show (x^.type_)
+        ++ " "
+        ++ show (x^.xactSubType)
+        ++ " "
+        ++ show (x^.baseSymbol)
+        ++ " & "
+        ++ show (y^.type_)
+        ++ " " ++ show (y^.xactSubType)
+        ++ " " ++ show (y^.baseSymbol)
 
 contractList :: (a -> a -> Maybe a) -> [a] -> [a]
 contractList _ [] = []
