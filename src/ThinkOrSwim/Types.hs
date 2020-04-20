@@ -49,30 +49,30 @@ nothingApplied :: a -> a -> LotApplied a
 nothingApplied x y = LotApplied 0 (None x) (None y)
 
 data CalculatedPL = CalculatedPL
-    { _losses  :: [LotAndPL API.Transaction]
-    , _history :: [CommodityLot API.Transaction]
-    , _opening :: [CommodityLot API.Transaction]
+    { _losses  :: [LotAndPL API.TransactionSubType API.Transaction]
+    , _history :: [CommodityLot API.TransactionSubType API.Transaction]
+    , _opening :: [CommodityLot API.TransactionSubType API.Transaction]
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''CalculatedPL
 
-data TransactionEvent t = TransactionEvent
+data TransactionEvent k t = TransactionEvent
     { _gainOrLoss :: Maybe (Amount 2)
     , _eventDate  :: Day
-    , _eventLot   :: CommodityLot t
+    , _eventLot   :: CommodityLot k t
     }
     deriving (Eq, Ord)
 
 makeClassy ''TransactionEvent
 
-instance Show (TransactionEvent t) where
+instance Show (TransactionEvent k t) where
     show TransactionEvent {..} =
         show _gainOrLoss
             ++ " // " ++ iso8601Show _eventDate
             ++ " // " ++ showCommodityLot _eventLot
 
-eventToPL :: TransactionEvent t -> LotAndPL t
+eventToPL :: TransactionEvent k t -> LotAndPL k t
 eventToPL ev = LotAndPL
     { _plKind = case ev^.gainOrLoss of
                     Nothing -> BreakEven
@@ -85,24 +85,25 @@ eventToPL ev = LotAndPL
     , _plLot  = ev^.eventLot
     }
 
-isDateOrdered :: [TransactionEvent t] -> Bool
+isDateOrdered :: [TransactionEvent k t] -> Bool
 isDateOrdered [] = True
 isDateOrdered [_] = True
 isDateOrdered (x:y:xs)
     | x^.eventDate <= y^.eventDate = isDateOrdered (y:xs)
     | otherwise = False
 
-lotDate :: CommodityLot API.Transaction -> Maybe Day
+lotDate :: CommodityLot API.TransactionSubType API.Transaction -> Maybe Day
 lotDate l = l^.purchaseDate
     <|> utctDay <$> l^?refs._head.refOrig._Just.xactDate
 
-daysApart :: CommodityLot API.Transaction -> Day -> Maybe Integer
+daysApart :: CommodityLot API.TransactionSubType API.Transaction -> Day
+          -> Maybe Integer
 daysApart x yd = do
     xd <- lotDate x
     pure $ xd `diffDays` yd
 
-eventFromPL :: Maybe Day -> LotAndPL API.Transaction
-            -> TransactionEvent API.Transaction
+eventFromPL :: Maybe Day -> LotAndPL API.TransactionSubType API.Transaction
+            -> TransactionEvent API.TransactionSubType API.Transaction
 eventFromPL md LotAndPL {..} = TransactionEvent
     { _gainOrLoss = if _plLoss /= 0 then Just _plLoss else Nothing
     , _eventDate  =
@@ -119,35 +120,28 @@ renderList f ts =
     go (_, True) x    = (lbrack <> space <> f x, False)
     go (acc, False) x = (acc $$ comma <> space <> f x, False)
 
-data GainsKeeperState t = GainsKeeperState
-    { _openTransactions :: Map Text [CommodityLot t]
-    , _positionEvents   :: Map Text [TransactionEvent t]
+data GainsKeeperState k t = GainsKeeperState
+    { _openTransactions :: Map Text [CommodityLot k t]
+    , _positionEvents   :: Map Text [TransactionEvent k t]
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''GainsKeeperState
 
-newGainsKeeperState :: GainsKeeperState t
+newGainsKeeperState :: GainsKeeperState k t
 newGainsKeeperState = GainsKeeperState
     { _openTransactions = M.empty
     , _positionEvents   = M.empty
     }
 
-isTransactionSubType :: TransactionSubType -> CommodityLot API.Transaction -> Bool
-isTransactionSubType subty y = case y^.refs of
-    [r] | Just subty' <- r^?refOrig._Just.transactionInfo_.transactionSubType,
-          subty' == subty -> True
-    _ -> False
-
 -- Return True if 'x' is an open and 'y' is a close.
-pairedCommodityLots :: CommodityLot API.Transaction
-                    -> CommodityLot API.Transaction
+pairedCommodityLots :: CommodityLot API.TransactionSubType API.Transaction
+                    -> CommodityLot API.TransactionSubType API.Transaction
                     -> Bool
 pairedCommodityLots x y
-    | Just x' <- x^?asset, Just y' <- y^?asset, x' /= y' = False
+    | x' <- x^?Ledger.instrument,
+      y' <- y^?Ledger.instrument, x' /= y' = False
     | x^.quantity < 0 && y^.quantity > 0 = True
     | x^.quantity > 0 &&
-      (y^.quantity < 0 || isTransactionSubType OptionExpiration y) = True
+      (y^.quantity < 0 || y^.kind == OptionExpiration) = True
     | otherwise = False
-  where
-    asset = refs._head.refOrig._Just.API.instrument_._Just.assetType

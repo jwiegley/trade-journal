@@ -22,22 +22,24 @@ import Data.Foldable (foldl')
 import Data.Ledger as Ledger
 import Data.Maybe (maybeToList)
 import Data.Text (Text, unpack)
-import Data.Time
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 import ThinkOrSwim.Wash
 
+import Debug.Trace (trace)
+
 -- The function seeks to replicate the logic used by GainsKeeper to determine
 -- what impact a given transaction, based on existing positions, should have
 -- on an account.
 gainsKeeper
-    :: API.Transaction
-    -> Maybe (Amount 2)
-    -> CommodityLot API.Transaction
-    -> State (GainsKeeperState API.Transaction) [LotAndPL API.Transaction]
-gainsKeeper t mnet cl = do
+    :: Maybe (Amount 2)
+    -> API.Transaction
+    -> Amount 6
+    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
+            [LotAndPL API.TransactionSubType API.Transaction]
+gainsKeeper mnet t n = do
     hist <- use (openTransactions.at sym.non [])
 
     -- If there are no existing lots, then this is either a purchase or a
@@ -71,25 +73,37 @@ gainsKeeper t mnet cl = do
 
     pure res''
   where
-    sym = cl^.Ledger.symbol
+    sym = symbolName t
 
-    setEvent cst = cl
+    setEvent cst = newCommodityLot
+        & Ledger.instrument .~ case t^?instrument_._Just.assetType of
+              Just API.Equity           -> Ledger.Equity
+              Just MutualFund           -> Ledger.Equity
+              Just (OptionAsset _)      -> Ledger.Option
+              Just (FixedIncomeAsset _) -> Ledger.Bond
+              Just (CashEquivalentAsset
+                    CashMoneyMarket)    -> Ledger.MoneyMarket
+              Nothing                   -> error "Unexpected"
+        & Ledger.kind     .~ t^.transactionInfo_.transactionSubType
+        & Ledger.symbol   .~ symbolName t
+        & Ledger.quantity .~
+              coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
         & Ledger.cost  ?~ cst
-        & purchaseDate ?~ utctDay (t^.xactDate)
-        & refs         .~ [ transactionRef t ]
+        & Ledger.price    .~ coerce (t^.item.API.price)
+        & Ledger.refs     .~ [ transactionRef t ]
 
 traceCurrentState
     :: Text
     -> Maybe (Amount 2)
-    -> CommodityLot API.Transaction
-    -> [(Bool, LotAndPL API.Transaction)]
-    -> [(Bool, LotAndPL API.Transaction)]
-    -> [CommodityLot API.Transaction]
-    -> [CommodityLot API.Transaction]
+    -> CommodityLot API.TransactionSubType API.Transaction
+    -> [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
+    -> [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
+    -> [CommodityLot API.TransactionSubType API.Transaction]
+    -> [CommodityLot API.TransactionSubType API.Transaction]
     -> Doc
-    -> [LotAndPL API.Transaction]
-    -> [LotAndPL API.Transaction]
-    -> State (GainsKeeperState API.Transaction) ()
+    -> [LotAndPL API.TransactionSubType API.Transaction]
+    -> [LotAndPL API.TransactionSubType API.Transaction]
+    -> State (GainsKeeperState API.TransactionSubType API.Transaction) ()
 traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
     hist'' <- use (openTransactions.at sym.non [])
     traceM $ render
@@ -104,8 +118,8 @@ traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
        $$ text " res'  > " <> renderList (text . show) res'
        $$ text " res'' > " <> renderList (text . show) res''
 
-calculatePL :: CommodityLot API.Transaction
-            -> [CommodityLot API.Transaction]
+calculatePL :: CommodityLot API.TransactionSubType API.Transaction
+            -> [CommodityLot API.TransactionSubType API.Transaction]
             -> CalculatedPL
 calculatePL curr opens = CalculatedPL {..}
   where
@@ -116,14 +130,14 @@ calculatePL curr opens = CalculatedPL {..}
     fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
     fifo (Just z,  res, keep) x =
         ( _close^?_SplitKept
-        , maybe res ((:res) . LotAndPL kind _loss) (_wasOpen^?_SplitUsed)
+        , maybe res ((:res) . LotAndPL knd _loss) (_wasOpen^?_SplitUsed)
         , maybe keep (:keep) (_wasOpen^?_SplitKept)
         )
       where
         -- jww (2020-04-17): What about LossLong and GainLong?
-        kind | _loss > 0 = LossShort
-             | _loss < 0 = GainShort
-             | otherwise = BreakEven
+        knd | _loss > 0 = LossShort
+            | _loss < 0 = GainShort
+            | otherwise = BreakEven
 
         LotApplied {..} = x `closeLot` z
 
@@ -133,8 +147,9 @@ calculatePL curr opens = CalculatedPL {..}
 -- gain (or less, if negative). Also, we need to return the part of 'x' that
 -- remains to be further deducted from, and how much was consumed, and
 -- similarly for 'y'.
-closeLot :: CommodityLot API.Transaction -> CommodityLot API.Transaction
-         -> LotApplied (CommodityLot API.Transaction)
+closeLot :: CommodityLot API.TransactionSubType API.Transaction
+         -> CommodityLot API.TransactionSubType API.Transaction
+         -> LotApplied (CommodityLot API.TransactionSubType API.Transaction)
 closeLot x y | not (pairedCommodityLots x y) = nothingApplied x y
 
 closeLot x y | Just x' <- x^?effect, Just y' <- y^?effect, x' == y' =
@@ -147,10 +162,10 @@ closeLot x y = LotApplied {..}
     (open', _close) = x `alignLots` y
 
     _loss :: Amount 2
-    _loss | isTransactionSubType TransferOfSecurityOrOptionIn y = 0
+    _loss | y^.kind == TransferOfSecurityOrOptionIn = 0
           | Just ocost <- _wasOpen^?_SplitUsed.Ledger.cost._Just,
             Just ccost <- _close^?_SplitUsed.Ledger.cost._Just =
-            coerce (sign x ocost + sign y ccost)
+                coerce (sign x ocost + sign y ccost)
           | otherwise = error "No cost found"
 
     _wasOpen = open'
@@ -166,7 +181,7 @@ closeLot x y = LotApplied {..}
 -- If there is only a single opening transaction to apply the fee to, we add
 -- it directly to the basis cost, rather than spread it across the multiple
 -- transactions.
-handleFees :: Amount 2 -> [LotAndPL t] -> [LotAndPL t]
+handleFees :: Amount 2 -> [LotAndPL k t] -> [LotAndPL k t]
 handleFees fee [l@(LotAndPL _ 0 x)] =
     [ l & plLot.Ledger.cost.mapped +~ coerce (sign x fee) ]
 

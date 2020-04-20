@@ -1,27 +1,36 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main where
 
-import Control.Applicative
-import Control.Lens
-import Control.Monad (forM_)
-import Data.Aeson
-import Data.ByteString.Lazy as BL
-import Data.Data (Data)
-import Data.Ledger as Ledger
-import Data.Text as T
-import Data.Text.IO as T
-import Data.Time.Format.ISO8601
-import Data.Typeable (Typeable)
-import Network.HTTP.Client
-import Network.HTTP.Client.TLS
-import Options.Applicative
-import Servant.Client
-import ThinkOrSwim.API
-import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import ThinkOrSwim.Convert
-import ThinkOrSwim.Types
+import           Control.Applicative
+import           Control.Lens
+import           Control.Monad.State
+import           Data.Aeson
+import           Data.Amount
+import           Data.ByteString.Lazy as BL
+import qualified Data.Csv as Csv
+import           Data.Data (Data)
+import           Data.Ledger as Ledger
+import           Data.Text as T
+import           Data.Text.Encoding as T
+import           Data.Text.IO as T
+import           Data.Time
+import           Data.Time.Format.ISO8601
+import           Data.Typeable (Typeable)
+import           GHC.Generics
+import           Network.HTTP.Client
+import           Network.HTTP.Client.TLS
+import           Options.Applicative
+import           Servant.Client
+import           ThinkOrSwim.API
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           ThinkOrSwim.Convert
+import           ThinkOrSwim.Types
 
 version :: String
 version = "0.0.1"
@@ -41,6 +50,7 @@ data Options = Options
     , account   :: String
     , accessKey :: Maybe String
     , jsonData  :: Maybe FilePath
+    , equity    :: Maybe FilePath
     }
     deriving (Data, Typeable, Show, Eq)
 
@@ -69,6 +79,9 @@ thinkorswimOpts = Main.Options
     <*> optional (strOption
         (   long "json-data"
          <> help "JSON file containing already downloaded data"))
+    <*> optional (strOption
+        (   long "equity"
+         <> help "CSV file containing details on existing equity"))
 
 optionsDefinition :: ParserInfo Main.Options
 optionsDefinition = info
@@ -77,6 +90,23 @@ optionsDefinition = info
 
 getOptions :: IO Main.Options
 getOptions = execParser optionsDefinition
+
+data Holding = Holding
+    { symbol :: Text
+    , amount :: Amount 4
+    , cost   :: Amount 4
+    , date   :: Day
+    }
+    deriving (Generic, Show)
+
+instance Csv.FromField Day where
+    parseField = iso8601ParseM . T.unpack . T.decodeUtf8
+
+instance Csv.ToField Day where
+    toField = T.encodeUtf8 . T.pack . iso8601Show
+
+instance Csv.FromRecord Holding
+instance Csv.ToRecord Holding
 
 main :: IO ()
 main = do
@@ -90,18 +120,21 @@ main = do
             downloadTransactions (T.pack (Main.account opts)) (T.pack key)
                 =<< createManager
 
-    let addLots xs = xs ++ Prelude.map (& quantity %~ negate) xs
-        priceData = newGainsKeeperState
-            & openTransactions.at "ZM" ?~ addLots
-                [ lt Stock (-140) "ZM"  99.7792 "2019-06-24"
-                , lt Stock (- 10) "ZM"  89.785  "2019-06-24"
-                , lt Stock (- 30) "ZM" 106.68   "2019-06-24"
-                , lt Stock (-170) "ZM"  85.8415 "2019-06-25" ]
-            & openTransactions.at "CRWD" ?~ addLots
-                [ lt Stock (-140) "CRWD" 73.7914 "2019-06-20"
-                , lt Stock (-140) "CRWD" 69.683  "2019-06-21" ]
-            & openTransactions.at "WORK" ?~ addLots
-                [ lt Stock (-250) "WORK" 38.97284 "2019-06-20" ]
+    let addLots xs = Prelude.map (& quantity %~ negate) xs ++ xs
+
+    priceData <- case equity opts of
+        Nothing -> pure newGainsKeeperState
+        Just fp -> do
+            eres <- Csv.decode Csv.NoHeader <$> BL.readFile fp
+            case eres of
+                Left err -> error $ "Failed to decode equity CSV: " ++ err
+                Right holdings -> pure $ (`execState` newGainsKeeperState) $
+                    forM_ holdings $ \h ->
+                        let lot = lt Ledger.Equity (Main.amount h)
+                                     (Main.symbol h) (Main.cost h)
+                                     (Just (date h))
+                        in openTransactions.at (Main.symbol h).non []
+                               <>= addLots [lot]
 
     Prelude.putStrLn "; -*- ledger -*-"
     Prelude.putStrLn ""
@@ -112,10 +145,11 @@ main = do
   where
     lt i q s p d = CommodityLot
         { _instrument    = i
+        , _kind          = TransferOfSecurityOrOptionIn
         , _quantity      = q
         , Ledger._symbol = s
         , Ledger._cost   = Just (abs (q * p))
-        , _purchaseDate  = iso8601ParseM d
+        , _purchaseDate  = d
         , _refs          = [ Ref ExistingEquity 0 Nothing ]
         , Ledger._price  = Just p
         }

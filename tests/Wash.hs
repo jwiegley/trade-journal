@@ -29,14 +29,17 @@ testWashSaleRule = testGroup "washSaleRule"
               , [ openEvent aapl0215 ])
     ]
 
-openEvent :: LotAndPL API.Transaction -> TransactionEvent API.Transaction
+openEvent
+    :: LotAndPL API.TransactionSubType API.Transaction
+    -> TransactionEvent API.TransactionSubType API.Transaction
 openEvent l = TransactionEvent
     Nothing (l^?!plLot.purchaseDate._Just) (l^.plLot)
 
 wash :: Text
-     -> [LotAndPL API.Transaction]
-     -> [TransactionEvent API.Transaction]
-     -> ([LotAndPL API.Transaction], [TransactionEvent API.Transaction])
+     -> [LotAndPL API.TransactionSubType API.Transaction]
+     -> [TransactionEvent API.TransactionSubType API.Transaction]
+     -> ([LotAndPL API.TransactionSubType API.Transaction],
+        [TransactionEvent API.TransactionSubType API.Transaction])
 wash sym pls evs =
     fixup $ runState (washSaleRule sym (map (True,) pls)) st
   where

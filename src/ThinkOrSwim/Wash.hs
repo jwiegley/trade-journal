@@ -250,10 +250,10 @@ import ThinkOrSwim.Types
 -- transaction since wash sales are only applied once.
 washSaleRule
     :: Text
-    -> [(Bool, LotAndPL API.Transaction)]
+    -> [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
       -- ^ The boolean value is True if is an opening transaction.
-    -> State (GainsKeeperState API.Transaction)
-            (Doc, [(Bool, LotAndPL API.Transaction)])
+    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
+            (Doc, [(Bool, LotAndPL API.TransactionSubType API.Transaction)])
 washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
     fmap ((vcat *** concat) . unzip) $ forM ls $ \pl ->
         if | pl^._2.plLoss < 0 -> pure (empty, [pl])
@@ -277,8 +277,8 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
         justify (x:xs) = Just x:justify xs
 
     ev `shouldWash` pl = do
-        guard $ ev^.eventLot.Ledger.instrument == Stock
-        guard $ pl^.plLot.Ledger.instrument == Stock
+        guard $ ev^.eventLot.Ledger.instrument == Ledger.Equity
+        guard $ pl^.plLot.Ledger.instrument == Ledger.Equity
         guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.plLot)
         if | pl^.plLoss < 0 -> mzero
            | pl^.plLoss > 0 -> guard $ isNothing (ev^.gainOrLoss)
@@ -321,9 +321,9 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
 -- includes any part of the loss that wasn't transferred, the part of the
 -- opening transaction that received the loss, and the part of the opening
 -- transaction that did not.
-transferWashLoss :: LotAndPL t
-                 -> CommodityLot t
-                 -> (Maybe (LotAndPL t), LotSplit (LotAndPL t))
+transferWashLoss :: LotAndPL k t
+                 -> CommodityLot k t
+                 -> (Maybe (LotAndPL k t), LotSplit (LotAndPL k t))
 transferWashLoss x y
     | Just part <- l^?_SplitUsed =
       ( l^?_SplitKept

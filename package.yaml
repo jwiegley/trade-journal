@@ -8,7 +8,9 @@ dependencies:
   - base
   - aeson
   - bytestring
+  - cassava
   - containers
+  - data-default
   - lens
   - mtl
   - pretty

@@ -18,6 +18,7 @@ import           Control.Monad
 import           Data.Amount
 import           Data.Char (isAlpha)
 import           Data.Coerce
+import           Data.Default
 import           Data.Int
 import           Data.List (foldl')
 import           Data.Map (Map)
@@ -57,7 +58,7 @@ data Ref t = Ref
 makeClassy ''Ref
 
 data Instrument
-    = Stock
+    = Equity
     | Option
     | Future
     | FutureOption
@@ -67,8 +68,9 @@ data Instrument
 
 makePrisms ''Instrument
 
-data CommodityLot t = CommodityLot
+data CommodityLot k t = CommodityLot
     { _instrument   :: Instrument
+    , _kind         :: k
     , _quantity     :: Amount 4
     , _symbol       :: Text
     , _cost         :: Maybe (Amount 4)
@@ -80,7 +82,7 @@ data CommodityLot t = CommodityLot
 
 makeClassy ''CommodityLot
 
-instance Semigroup (CommodityLot t) where
+instance (Eq k, Show k) => Semigroup (CommodityLot k t) where
     x <> y = CommodityLot
         { _instrument   =
           if x^.instrument == y^.instrument
@@ -88,6 +90,12 @@ instance Semigroup (CommodityLot t) where
           else error $ "Instrument mismatch: "
                    ++ show (x^.instrument) ++ " != "
                    ++ show (y^.instrument)
+        , _kind         =
+          if x^.kind == y^.kind
+          then y^.kind
+          else error $ "Kind mismatch: "
+                   ++ show (x^.kind) ++ " != "
+                   ++ show (y^.kind)
         , _quantity     = q
         , _symbol       =
           if x^.symbol == y^.symbol
@@ -108,14 +116,14 @@ instance Semigroup (CommodityLot t) where
         c = liftA2 (+) (sign x <$> x^.cost)
                        (sign y <$> y^.cost)
 
-lotPrice :: CommodityLot t -> Maybe (Amount 4)
+lotPrice :: CommodityLot k t -> Maybe (Amount 4)
 lotPrice l = case l^.instrument of
-    Stock  -> sign l <$> l^.price
+    Equity  -> sign l <$> l^.price
         <|> (/ l^.quantity) <$> l^.cost
     Option -> Nothing            -- jww (2020-04-16): NYI
     _      -> Nothing            -- jww (2020-04-16): NYI
 
-lotCost :: CommodityLot t -> Amount 4
+lotCost :: CommodityLot k t -> Amount 4
 lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
 data LotSplit a
@@ -166,14 +174,14 @@ keepAll (Some x y) = [x, y]
 keepAll (All x)    = [x]
 keepAll (None y)   = [y]
 
-showLotSplit :: LotSplit (CommodityLot t) -> String
+showLotSplit :: LotSplit (CommodityLot k t) -> String
 showLotSplit (None k)   = "None (" ++ showCommodityLot k ++ ")"
 showLotSplit (All u)    = "All (" ++ showCommodityLot u ++ ")"
 showLotSplit (Some u k) =
     "Some (" ++ showCommodityLot u ++ ") (" ++ showCommodityLot k ++ ")"
 
-alignLots :: CommodityLot t -> CommodityLot t
-          -> (LotSplit (CommodityLot t), LotSplit (CommodityLot t))
+alignLots :: CommodityLot k t -> CommodityLot k t
+          -> (LotSplit (CommodityLot k t), LotSplit (CommodityLot k t))
 alignLots x y
     | xq == 0 && yq == 0 = ( None x, None y )
     | xq == 0           = ( None x, All  y )
@@ -202,12 +210,13 @@ alignLots x y
     yps   = ycst / abs yq
     diff  = abs (abs xq - abs yq)
 
-sign :: Num a => CommodityLot t -> a -> a
+sign :: Num a => CommodityLot k t -> a -> a
 sign l = (if l^.quantity < 0 then negate else id) . abs
 
-newCommodityLot :: CommodityLot t
+newCommodityLot :: Default k => CommodityLot k t
 newCommodityLot = CommodityLot
-    { _instrument   = Stock
+    { _instrument   = Equity
+    , _kind         = def
     , _quantity     = 0.0
     , _symbol       = "???"
     , _cost         = Nothing
@@ -216,13 +225,13 @@ newCommodityLot = CommodityLot
     , _price        = Nothing
     }
 
-(@@) :: Amount 4 -> Amount 4 -> CommodityLot t
+(@@) :: Default k => Amount 4 -> Amount 4 -> CommodityLot k t
 q @@ c = newCommodityLot & quantity .~ q & cost ?~ c
 
-(##) :: CommodityLot t -> Text -> CommodityLot t
+(##) :: CommodityLot k t -> Text -> CommodityLot k t
 l ## d = l & purchaseDate .~ iso8601ParseM (T.unpack d)
 
-showCommodityLot :: CommodityLot t -> String
+showCommodityLot :: CommodityLot k t -> String
 showCommodityLot CommodityLot {..} =
     show _quantity
         ++ case _cost of
@@ -244,28 +253,28 @@ data PL
 
 makePrisms ''PL
 
-data LotAndPL t = LotAndPL
+data LotAndPL k t = LotAndPL
     { _plKind :: PL
     , _plLoss :: Amount 2           -- positive is loss, else gain or wash
-    , _plLot  :: CommodityLot t
+    , _plLot  :: CommodityLot k t
     }
     deriving (Eq, Ord)
 
 makeClassy ''LotAndPL
 
-_Lot :: Prism' (LotAndPL t) (CommodityLot t)
+_Lot :: Prism' (LotAndPL k t) (CommodityLot k t)
 _Lot = prism' (LotAndPL BreakEven 0) (Just . _plLot)
 
-instance Show (LotAndPL t) where
+instance Show (LotAndPL k t) where
     show x = showCommodityLot (x^.plLot) ++ " $$$ "  ++ show (x^.plLoss)
 
-($$$) :: CommodityLot t -> Amount 2 -> LotAndPL t
+($$$) :: CommodityLot k t -> Amount 2 -> LotAndPL k t
 l $$$ a = LotAndPL (if | a < 0     -> GainShort
                        | a > 0     -> LossShort
                        | otherwise -> BreakEven) a l
 
-alignLotAndPL :: CommodityLot t -> LotAndPL t
-              -> (LotSplit (CommodityLot t), LotSplit (LotAndPL t))
+alignLotAndPL :: CommodityLot k t -> LotAndPL k t
+              -> (LotSplit (CommodityLot k t), LotSplit (LotAndPL k t))
 alignLotAndPL x y =
     (l, r & unsafePartsOf _Splits
          %~ fmap (uncurry (LotAndPL (y^.plKind)))
@@ -273,28 +282,28 @@ alignLotAndPL x y =
   where
     (l, r) = x `alignLots` (y^.plLot)
 
-isFullTransfer :: (Maybe (LotAndPL t), LotSplit t) -> Bool
+isFullTransfer :: (Maybe (LotAndPL k t), LotSplit t) -> Bool
 isFullTransfer (Nothing, All _) = True
 isFullTransfer _ = False
 
-perShareCost :: CommodityLot t -> Maybe (Amount 6)
+perShareCost :: CommodityLot k t -> Maybe (Amount 6)
 perShareCost CommodityLot {..} =
     fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)
 
 -- The idea of this function is to replicate what Ledger will calculate the
 -- sum to be, so that if there's any discrepancy we can add a rounding
 -- adjustment to pass the balancing check.
-sumLotAndPL :: [LotAndPL t] -> Amount 2
+sumLotAndPL :: [LotAndPL k t] -> Amount 2
 sumLotAndPL = foldl' go 0
   where
     norm      = normalizeAmount mpfr_RNDNA
     cst l     = sign l (fromMaybe 0 (l^.cost))
     go acc pl = acc + norm (coerce (cst (pl^.plLot))) + norm (pl^.plLoss)
 
-data PostingAmount t
+data PostingAmount k t
     = NoAmount
     | DollarAmount (Amount 2)
-    | CommodityAmount (CommodityLot t)
+    | CommodityAmount (CommodityLot k t)
     deriving (Eq, Ord, Show)
 
 makePrisms ''PostingAmount
@@ -331,18 +340,18 @@ plAccount LossLong  = Just CapitalLossLong
 plAccount WashLoss  = Just CapitalWashLoss
 plAccount Rounding  = Just RoundingError
 
-data Posting t = Posting
+data Posting k t = Posting
     { _account      :: Account
     , _isVirtual    :: Bool
     , _isBalancing  :: Bool
-    , _amount       :: PostingAmount t
+    , _amount       :: PostingAmount k t
     , _postMetadata :: Map Text Text
     }
     deriving (Eq, Ord, Show)
 
 makeClassy ''Posting
 
-newPosting :: Account -> Bool -> PostingAmount t -> Posting t
+newPosting :: Account -> Bool -> PostingAmount k t -> Posting k t
 newPosting a b m = Posting
     { _account      = a
     , _isVirtual    = b
@@ -351,12 +360,12 @@ newPosting a b m = Posting
     , _postMetadata = M.empty
     }
 
-data Transaction o t = Transaction
+data Transaction k o t = Transaction
     { _actualDate    :: Day
     , _effectiveDate :: Maybe Day
     , _code          :: Text
     , _payee         :: Text
-    , _postings      :: [Posting t]
+    , _postings      :: [Posting k t]
     , _xactMetadata  :: Map Text Text
     , _provenance    :: o
     }
@@ -366,7 +375,7 @@ makeClassy ''Transaction
 
 -- | Check the transaction to ensure that it fully balances. The result is an
 --   error string, if an error is detected.
-checkTransaction :: Transaction o t -> Maybe String
+checkTransaction :: Transaction k o t -> Maybe String
 checkTransaction _ = Nothing
 
 renderRefs :: [Ref t] -> Text
@@ -380,7 +389,7 @@ renderRefs = T.intercalate "," . map go
         OpeningOrder   -> "" <> T.pack (show (r^.refId))
         ExistingEquity -> "Equity"
 
-renderPostingAmount :: PostingAmount t -> [Text]
+renderPostingAmount :: PostingAmount k t -> [Text]
 renderPostingAmount NoAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
 renderPostingAmount (CommodityAmount l@(CommodityLot {..})) = map T.pack
@@ -419,7 +428,7 @@ renderAccount = \case
     RoundingError        -> "Expenses:TD:Rounding"
     OpeningBalances      -> "Equity:TD:Opening Balances"
 
-renderPosting :: Posting t -> [Text]
+renderPosting :: Posting k t -> [Text]
 renderPosting Posting {..} =
     [ T.pack $ printf "    %-32s%16s%s"
         (if _isVirtual then "(" <> act <> ")" else act)
@@ -436,7 +445,7 @@ renderMetadata = Prelude.map go . M.assocs
   where
     go (k, v) = "    ; " <> k <> ": " <> v
 
-renderTransaction :: Transaction o t -> [Text]
+renderTransaction :: Transaction k o t -> [Text]
 renderTransaction xact =
     case checkTransaction xact of
         Just err -> error $ "Invalid transaction: " ++ err

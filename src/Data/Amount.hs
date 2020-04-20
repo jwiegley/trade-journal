@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
@@ -26,24 +28,29 @@ module Data.Amount
     , mpfr_RNDNA
     ) where
 
-import Data.Aeson
-import Data.Char (isDigit)
-import Data.Coerce
-import Data.Function (on)
-import Data.Int (Int64)
-import Data.List (intercalate)
-import Data.List.Split
-import Data.Profunctor
-import Data.Proxy
-import Data.Ratio
-import Foreign.C.String
-import Foreign.C.Types
-import Foreign.Marshal.Alloc
-import Foreign.Ptr
-import Foreign.Storable
-import GHC.TypeLits
-import Prelude hiding (Float, Double)
-import System.IO.Unsafe
+import           Control.Monad
+import           Data.Aeson
+import           Data.Char (isDigit)
+import           Data.Coerce
+import qualified Data.Csv as Csv
+import           Data.Data
+import           Data.Function (on)
+import           Data.Int (Int64)
+import           Data.List (intercalate)
+import           Data.List.Split
+import           Data.Profunctor
+import           Data.Ratio
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import           Foreign.C.String
+import           Foreign.C.Types
+import           Foreign.Marshal.Alloc
+import           Foreign.Ptr
+import           Foreign.Storable
+import           GHC.Generics
+import           GHC.TypeLits
+import           Prelude hiding (Float, Double)
+import           System.IO.Unsafe
 
 mpfr_RNDN, mpfr_RNDZ, mpfr_RNDU, mpfr_RNDD, mpfr_RNDA, mpfr_RNDF :: CUInt
 mpfr_RNDNA :: CUInt
@@ -61,7 +68,21 @@ foreign import ccall unsafe "rational_to_str" c'rational_to_str
     :: CLong -> CULong -> CUInt -> CSize -> Ptr CString -> IO ()
 
 newtype Amount (dec :: Nat) = Amount { getAmount :: Ratio Int64 }
-    deriving (Ord, Num, Fractional, Real, RealFrac)
+    deriving (Generic, Data, Typeable, Ord, Num, Fractional, Real, RealFrac)
+
+instance KnownNat n => Csv.FromField (Amount n) where
+    parseField = pure . read . T.unpack . T.decodeUtf8
+
+instance KnownNat n => Csv.ToField (Amount n) where
+    toField = T.encodeUtf8 . T.pack . show
+
+-- instance KnownNat n => Csv.FromRecord (Amount n) where
+--     parseRecord v
+--         | length v == 1 = read <$> v Csv..! 0
+--         | otherwise     = mzero
+
+-- instance KnownNat n => Csv.ToRecord (Amount n) where
+--     toRecord n = Csv.record [Csv.toField (show n)]
 
 showAmount :: forall n. KnownNat n => CUInt -> Amount n -> String
 showAmount rnd (Amount r) =
@@ -104,12 +125,12 @@ instance forall n. KnownNat n => FromJSON (Amount n) where
   parseJSON (Number n) = pure $ Amount (fromRational (toRational n))
   parseJSON v = error $ "Expected Amount, saw: " ++ show v
 
--- KnownNat n => Prism' String (Amount n)
+-- _Amount :: KnownNat n => Prism' String (Amount n)
 _Amount :: forall n p f. (KnownNat n, Choice p, Applicative f)
         => p (Amount n) (f (Amount n)) -> p String (f String)
 _Amount = dimap read (fmap show)
 
--- (KnownNat m, KnownNat n) => Iso' (Amount n) (Amount m)
+-- rounded :: (KnownNat m, KnownNat n) => Iso' (Amount n) (Amount m)
 rounded :: forall m n p f. (Profunctor p, Functor f)
         => p (Amount m) (f (Amount m)) -> p (Amount n) (f (Amount n))
 rounded = dimap coerce (fmap coerce)

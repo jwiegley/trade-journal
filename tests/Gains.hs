@@ -21,7 +21,7 @@ import           ThinkOrSwim.Convert
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Types
 
-pl :: Amount 4 -> CommodityLot t -> CommodityLot t -> Amount 2
+pl :: Amount 4 -> CommodityLot k t -> CommodityLot k t -> Amount 2
 pl q x y = coerce $
    q * (fromMaybe 0 (y^.Ledger.cost) / abs (y^.quantity) -
         fromMaybe 0 (x^.Ledger.cost) / abs (x^.quantity))
@@ -111,17 +111,17 @@ testGainsKeeper = testGroup "gainsKeeper"
               []
 
     , testCase "handleFees opening position" $
-      handleFees @API.Transaction
+      handleFees @API.TransactionSubType @API.Transaction
           0.81 [ 100 @@ 1000.00 $$$ 0.0 ]
           @?= [ 100 @@ 1000.81 $$$ 0.0 ]
 
     , testCase "handleFees closing single position" $
-      handleFees @API.Transaction
+      handleFees @API.TransactionSubType @API.Transaction
           0.81 [ (-100) @@ 1000.81 $$$ 199.19 ]
           @?= [ (-100) @@ 1000.81 $$$ 200.00 ]
 
     , testCase "handleFees closing multiple positions 1" $
-      handleFees @API.Transaction
+      handleFees @API.TransactionSubType @API.Transaction
           0.81 [ (-100) @@ 1000.81 $$$ (-100.00)
                , (-100) @@ 1000.81 $$$ (-100.00)
                ]
@@ -130,7 +130,7 @@ testGainsKeeper = testGroup "gainsKeeper"
               ]
 
     , testCase "handleFees closing multiple positions 2" $
-      handleFees @API.Transaction
+      handleFees @API.TransactionSubType @API.Transaction
           0.83 [ (-10.00) @@ 19740.50 $$$ (-100.00)
                , (-10.00) @@ 19707.90 $$$ (-100.00)
                ]
@@ -139,7 +139,7 @@ testGainsKeeper = testGroup "gainsKeeper"
               ]
 
     , testCase "handleFees closing multiple positions 3" $
-      handleFees @API.Transaction
+      handleFees @API.TransactionSubType @API.Transaction
           0.47 [ (-689.00) @@ 11864.3044 $$$ (-34.87)
                , (-300.00) @@ 5165.97 $$$ (-15.09)
                ]
@@ -180,24 +180,28 @@ testGainsKeeper = testGroup "gainsKeeper"
     --       @?= (-62130.01)
 
     , testCase "sumLotAndPL 6" $
-      sumLotAndPL [ 112.00 @@ (112 * 309.7473) $$$ 0.00
-                  ,  88.00 @@ ( 88 * 309.7521) $$$ (-0.42)
-                  ]
+      sumLotAndPL @API.TransactionSubType
+          [ 112.00 @@ (112 * 309.7473) $$$ 0.00
+          ,  88.00 @@ ( 88 * 309.7521) $$$ (-0.42)
+          ]
           @?= 61949.46
 
     , testCase "sumLotAndPL 7" $
-      sumLotAndPL [ (-34.00) @@ (34 * 309.7473) $$$ 11.41
-                  , (-78.00) @@ (78 * 309.7473) $$$ 26.96
-                  , (-88.00) @@ (88 * 309.7521) $$$ 30.84
-                  ]
+      sumLotAndPL @API.TransactionSubType
+          [ (-34.00) @@ (34 * 309.7473) $$$ 11.41
+          , (-78.00) @@ (78 * 309.7473) $$$ 26.96
+          , (-88.00) @@ (88 * 309.7521) $$$ 30.84
+          ]
           @?= (-61880.67)
 
     , testCase "sumLotAndPL 8" $
-      sumLotAndPL [ (-90.00) @@ (90 * 99.7792) $$$ 1170.41
-                  , (-10.00) @@ (10 * 89.785)  $$$   30.10
-                  ]
+      sumLotAndPL @API.TransactionSubType
+          [ (-90.00) @@ (90 * 99.7792) $$$ 1170.41
+          , (-10.00) @@ (10 * 89.785)  $$$   30.10
+          ]
           @?= (-8677.47)
 
+{-
     , testCase "fixupTransaction" $
       let xact = Transaction
               { _actualDate    = fromJust (iso8601ParseM "2020-03-01")
@@ -210,8 +214,10 @@ testGainsKeeper = testGroup "gainsKeeper"
                 , newPosting (Equities "1")     False
                       (CommodityAmount
                            ( 100.00 @@ 33019.99
-                                 & symbol .~ "NFLX"
-                                 & price ?~ 330.00 ))
+                                 & instrument .~ Stock
+                                 & kind       .~ API.OptionAssignment
+                                 & symbol     .~ "NFLX"
+                                 & price      ?~ 330.00 ))
                 , newPosting (Cash "1")         False
                       (DollarAmount (-33019.99))
                 , newPosting CapitalGainShort   False
@@ -219,8 +225,10 @@ testGainsKeeper = testGroup "gainsKeeper"
                 , newPosting (Options "1")      False
                       (CommodityAmount
                            ( 1.00 @@ 168.23
-                                 & symbol .~ "NFLX_071919P330"
-                                 & price ?~ 330.00 ))
+                                 & instrument .~ Option
+                                 & kind       .~ API.OptionAssignment
+                                 & symbol     .~ "NFLX_071919P330"
+                                 & price      ?~ 330.00 ))
                 ]
               , _xactMetadata  = mempty
               , _provenance    = ()
@@ -236,27 +244,34 @@ testGainsKeeper = testGroup "gainsKeeper"
                 , newPosting (Equities "1")     False
                       (CommodityAmount
                            ( 100.00 @@ 32851.76
-                                 & symbol .~ "NFLX"
-                                 & price ?~ 330.00 ))
+                                 & instrument .~ Stock
+                                 & kind       .~ API.OptionAssignment
+                                 & symbol     .~ "NFLX"
+                                 & price      ?~ 330.00 ))
                 , newPosting (Cash "1")         False
                       (DollarAmount (-33019.99))
                 , newPosting (Options "1")      False
                       (CommodityAmount
                            ( 1.00 @@ 168.23
-                                 & symbol .~ "NFLX_071919P330"
-                                 & price ?~ 330.00 ))
+                                 & instrument .~ Option
+                                 & kind       .~ API.OptionAssignment
+                                 & symbol     .~ "NFLX_071919P330"
+                                 & price      ?~ 330.00 ))
                 ]
               , _xactMetadata  = mempty
               , _provenance    = ()
               }
-      in runState
+      in evalState
              (fixupTransaction xact)
              (newGainsKeeperState
                   & openTransactions.at "NFLX_071919P330"
                         ?~ [ (-1.00) @@ 168.23
-                                 & symbol .~ "NFLX_071919P330"
-                                 & price ?~ 1.69 ])
-          @?= (res, newGainsKeeperState)
+                                 & instrument .~ Option
+                                 & kind       .~ API.SellTrade
+                                 & symbol     .~ "NFLX_071919P330"
+                                 & price      ?~ 1.69 ])
+          @?= res
+-}
     ]
   where
     q12c300  =    12 @@ 300

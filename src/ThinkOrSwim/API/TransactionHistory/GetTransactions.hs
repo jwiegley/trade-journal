@@ -20,6 +20,7 @@ import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson hiding ((.=))
 import           Data.Amount
+import           Data.Default
 import           Data.Int
 import           Data.List (sortBy)
 import           Data.Map (Map)
@@ -366,6 +367,9 @@ data TransactionSubType
     deriving (Eq, Ord, Enum, Bounded)
 
 makePrisms ''TransactionSubType
+
+instance Default TransactionSubType where
+    def = BuyTrade
 
 instance Show TransactionSubType where
     show = \case

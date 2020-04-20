@@ -1,12 +1,12 @@
-{ ghcCompiler ? "ghc882"
+{ ghcCompiler ? "ghc883"
 , coqPackages ? "coqPackages_8_11"
 
 , doBenchmark ? false
 , doProfiling ? false
 , doStrict    ? true
 
-, rev    ? "4a3f9aced7ff35ff8cd7e021a542121a66396586"
-, sha256 ? "0jhx75jv4m9nrhandbvi41shpv3sbqgaqrh6az8fhfybw6b5w7ip"
+, rev    ? "b76e3eab1875c897fb00c4a13ee144490c6227fb"
+, sha256 ? "1zjf23g0vwiwr85xwr45mn2maf3mly0n9yi64bk9nb8aq18gv1z1"
 
 , pkgs ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";

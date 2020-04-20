@@ -12,6 +12,7 @@
 module ThinkOrSwim.Convert (convertTransactions, fixupTransaction) where
 
 import           Control.Applicative
+import           Control.Arrow ((***))
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
@@ -24,14 +25,15 @@ import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double)
+import           Text.Show.Pretty
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Types
 
 convertTransactions
-    :: GainsKeeperState API.Transaction
+    :: GainsKeeperState API.TransactionSubType API.Transaction
     -> TransactionHistory
-    -> [Ledger.Transaction API.Order API.Transaction]
+    -> [Ledger.Transaction API.TransactionSubType API.Order API.Transaction]
 convertTransactions st hist = (`evalState` st) $
     Prelude.mapM (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
 
@@ -42,8 +44,8 @@ getOrder m (Right oid) = m^?!ix oid
 convertTransaction
     :: OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
-    -> State (GainsKeeperState API.Transaction)
-            (Ledger.Transaction API.Order API.Transaction)
+    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
+            (Ledger.Transaction API.TransactionSubType API.Order API.Transaction)
 convertTransaction m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
@@ -66,43 +68,64 @@ convertTransaction m (sd, getOrder m -> o) = do
             xs = Prelude.map (^.baseSymbol) (o^.transactions)
 
 fixupTransaction
-    :: Ledger.Transaction o API.Transaction
-    -> State (GainsKeeperState API.Transaction)
-            (Ledger.Transaction o API.Transaction)
-fixupTransaction t = pure t
+    :: Show o => Ledger.Transaction API.TransactionSubType o API.Transaction
+    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
+            (Ledger.Transaction API.TransactionSubType o API.Transaction)
+fixupTransaction t | not xactOA = do
+    -- traceM $ "Not fixing up "
+    --     ++ ppShow ((t^.postings)
+    --                & traverse.Ledger.amount._CommodityAmount.refs .~ [])
+    pure t
   where
     xactOA = Prelude.any optionA (t^.postings)
            && Prelude.any equityA (t^.postings)
 
-    isOA p = p^?Ledger.amount._CommodityAmount.refs._head.refOrig._Just.xactSubType
-        == Just OptionAssignment
+    hasOA = has (Ledger.amount._CommodityAmount.kind._OptionAssignment)
 
-    optionA p = isOA p &&
+    optionA p = hasOA p &&
         has (Ledger.amount._CommodityAmount.Ledger.instrument._Option) p
-    equityA p = isOA p &&
-        has (Ledger.amount._CommodityAmount.Ledger.instrument._Stock) p
+    equityA p = hasOA p &&
+        has (Ledger.amount._CommodityAmount.Ledger.instrument.Ledger._Equity) p
+
+fixupTransaction t = do
+    traceM $ "Fixing up " ++ ppShow (t^.postings)
+    let (res, mpp) =
+            Prelude.concat *** snd $
+            (`runState` (0 :: Amount 2, Nothing)) $
+            forM (Prelude.reverse (t^.postings)) $ \p ->
+                if p^.account `elem` [ CapitalGainShort
+                                , CapitalGainLong
+                                , CapitalLossShort
+                                , CapitalLossLong
+                                , CapitalWashLoss
+                                ]
+                then do
+                    _1 .= p^?!Ledger.amount._DollarAmount
+                    pure []
+                else case p^.account of
+                    Equities _ -> do
+                        amt <- use _1
+                        let p' = p & Ledger.amount._CommodityAmount.Ledger.cost
+                                  %~ fmap (+ coerce amt)
+                        _2 ?= (p, p')
+                        pure []
+                    _ -> pure [p]
+    forM_ mpp $ \(p, p') ->
+        openTransactions.at (p^?!Ledger.amount._CommodityAmount.Ledger.symbol)
+            %= fmap (Prelude.map (\x -> if p^?!Ledger.amount._CommodityAmount == x
+                                       then p'^?!Ledger.amount._CommodityAmount
+                                       else x))
+    pure $ t & postings .~ Prelude.reverse res
 
 convertPostings
     :: Text
     -> API.Transaction
-    -> State (GainsKeeperState API.Transaction) [Ledger.Posting API.Transaction]
+    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
+            [Ledger.Posting API.TransactionSubType API.Transaction]
 convertPostings _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings actId t = posts <$> case t^.item.API.amount of
-    Just n -> gainsKeeper t maybeNet $ newCommodityLot
-        & Ledger.instrument .~ case atype of
-              Just Equity               -> Ledger.Stock
-              Just MutualFund           -> Ledger.Stock
-              Just (OptionAsset _)      -> Ledger.Option
-              Just (FixedIncomeAsset _) -> Ledger.Bond
-              Just (CashEquivalentAsset
-                    CashMoneyMarket)    -> Ledger.MoneyMarket
-              Nothing                   -> error "Unexpected"
-        & Ledger.symbol   .~ symbolName t
-        & Ledger.quantity .~
-              coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
-        & Ledger.price    .~ coerce (t^.item.API.price)
-        & Ledger.refs     .~ [ transactionRef t ]
+    Just n  -> gainsKeeper maybeNet t n
     Nothing -> pure []
   where
     post = newPosting
@@ -138,7 +161,7 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
           | isNothing (t^.item.API.amount) || fromEquity ]
 
     meta m = m
-        & at "Subtype"     ?~ T.pack (show subtyp)
+        & at "XType"       ?~ T.pack (show subtyp)
         & at "XId"         ?~ T.pack (show (t^.xactId))
         & at "XDate"       ?~ T.pack (iso8601Show (t^.xactDate))
         & at "Instruction" .~ t^?item.instruction._Just.to show.packed
@@ -151,7 +174,7 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
         & at "Contract"    .~ t^?option'.description
 
     act = case atype of
-        Just Equity                  -> Equities actId
+        Just API.Equity              -> Equities actId
         Just MutualFund              -> Equities actId
         Just (OptionAsset _)         -> Options  actId
         Just (FixedIncomeAsset _)    -> Bonds actId
