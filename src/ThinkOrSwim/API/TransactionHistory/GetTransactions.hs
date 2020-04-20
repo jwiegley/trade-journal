@@ -441,14 +441,6 @@ data TransactionInfo t = TransactionInfo
     , _transactionDate        :: UTCTime
     , _transactionItem_       :: TransactionItem
     , _transactionDescription :: Text
-    , _transactionRelated     :: [t]
-      -- ^ If this is a closing transaction, the '_transactionRelated' field
-      --   gives the transaction(s) that it closed. This is needed to
-      --   establish the capital gain or loss of this transaction.
-      --
-      --   If it is an opening transaction, the '_transactionRelated' field
-      --   refers to the transactions for whom the wash sale rule applies to
-      --   the cost basis of this transaction.
     }
     deriving (Eq, Ord, Show)
 
@@ -482,8 +474,7 @@ instance FromJSON Transaction where
     _transactionSubType     <- obj .: "transactionSubType"
     _transactionDate        <- obj .: "transactionDate"
     _transactionDescription <- obj .: "description"
-    let _transactionRelated = [] -- filled in by 'processTransactions'
-        _transactionInfo_ = TransactionInfo {..}
+    let _transactionInfo_ = TransactionInfo {..}
         _transactionItem_ = tritem & price %~ \case
             Just p -> Just p
             Nothing | _transactionSubType `elem`
@@ -768,7 +759,6 @@ mergeTransactionInfos x y = do
 
     _transactionDescription = x^.transactionDescription
     _transactionSubType     = x^.transactionSubType
-    _transactionRelated     = [] -- jww (2020-04-07): NYI
 
     -- jww (2020-04-05): Here is where we discard information when coalescing
     -- multiple transactions into an order.
