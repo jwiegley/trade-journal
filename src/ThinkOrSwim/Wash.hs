@@ -327,15 +327,15 @@ transferWashLoss :: LotAndPL k t
 transferWashLoss x y
     | Just part <- l^?_SplitUsed =
       ( l^?_SplitKept
-      , (LotAndPL BreakEven 0 <$> r)
+      , fmap (_Lot #) r
            & _SplitUsed.plKind .~ WashLoss
            & _SplitUsed.plLoss .~ - (part^.plLoss)
            & _SplitUsed.plLot.Ledger.cost._Just +~ coerce (part^.plLoss)
            & _SplitUsed.plLot.refs <>~
-               [Ref (WashSaleRule (coerce (part^.plLoss)))
-                    (x^?!plLot.refs._head.refId)
-                    (x^?!plLot.refs._head.refOrig)]
+               [ Ref (WashSaleRule (coerce (part^.plLoss)))
+                     (x^?!plLot.refs._head.refId)
+                     (x^?!plLot.refs._head.refOrig) ]
       )
-    | otherwise = (Just x, None (LotAndPL BreakEven 0 y))
+    | otherwise = (Just x, None (_Lot # y))
   where
     (r, l) = y `alignLotAndPL` x

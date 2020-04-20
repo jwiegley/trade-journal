@@ -6,14 +6,15 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
 module Wash (testWashSaleRule) where
 
 import Control.Lens
-import Control.Monad.State
+import Control.Monad.Morph
+import Control.Monad.Trans.State
 import Data.Ledger
--- import Data.Maybe (fromJust)
 import Data.Text (Text)
--- import Data.Time.Format.ISO8601
 import Test.Tasty
 import Test.Tasty.HUnit
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -22,27 +23,69 @@ import ThinkOrSwim.Wash
 
 testWashSaleRule :: TestTree
 testWashSaleRule = testGroup "washSaleRule"
-    [ testCase "opening transaction, empty history" $ do
-      let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
-      wash "AAPL" [ aapl0215 ] []
-          @?= ( [ aapl0215 ]
-              , [ openEvent aapl0215 ])
+    [ testCase "open" $
+      flip evalStateT newGainsKeeperState $ do
+          let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
+          res <- wash "AAPL" [ aapl0215 ]
+          lift $ res @?= [ aapl0215 ]
+
+    , testCase "open, sell at loss <30, open again <30" $ do
+      flip evalStateT newGainsKeeperState $ do
+          let aapl0215o = 12@@300 ## "2020-02-15" $$$ 0.00
+                  & plLot.refs .~ [ openRef ]
+              aapl0215c = (-12)@@290 ## "2020-02-15" $$$ 120.00
+                  & plLot.refs .~ [ openRef ]
+              aapl0215w = 12@@420 ## "2020-02-15" $$$ (-120.00)
+                  & plKind .~ WashLoss
+                  & plLot.refs .~
+                      [ openRef, Ref (WashSaleRule 120.00) 1 Nothing ]
+
+          wash "AAPL" [ aapl0215o ] @?== [ aapl0215o ]
+          wash "AAPL" [ aapl0215c ] @?== [ aapl0215c ]
+          wash "AAPL" [ aapl0215o ] @?== [ aapl0215w ]
+
+    , testCase "open, open, sell at loss <30" $ do
+      flip evalStateT newGainsKeeperState $ do
+          let aapl0215o1 = 12@@300 ## "2020-02-15" $$$ 0.00
+                  & plLot.refs .~ [ openRef ]
+              aapl0215o2 = 10@@310 ## "2020-02-15" $$$ 0.00
+                  & plLot.refs .~ [ openRef & refId .~ 2 ]
+              aapl0215c = (-12)@@290 ## "2020-02-15" $$$ 120.00
+                  & plLot.refs .~ [ openRef & refId .~ 1 ]
+              aapl0215w = 10@@430 ## "2020-02-15" $$$ (-120.00)
+                  & plKind .~ WashLoss
+                  & plLot.refs .~
+                      [ openRef, Ref (WashSaleRule 120.00) 1 Nothing ]
+
+          wash "AAPL" [ aapl0215o1 ] @?== [ aapl0215o1 ]
+          wash "AAPL" [ aapl0215o2 ] @?== [ aapl0215o2 ]
+          wash "AAPL" [ aapl0215c ] @?== [ aapl0215c, aapl0215w ]
+
+    -- , testCase "open, sell at loss >30, open <30" $ do
+    -- , testCase "open, sell at loss <30, open >30" $ do
+    -- , testCase "open, open, sell at loss >30" $ do
+    -- , testCase "open, open, sell at loss <30, sell at loss <30, open" $ do
     ]
 
+openRef :: Ref API.Transaction
+openRef = Ref OpeningOrder 1 Nothing
+
+(@?==) :: (Show a, Eq a) => StateT s IO a -> a -> StateT s IO ()
+action @?== result = do
+    res <- action
+    lift $ res @?= result
+
+{-
 openEvent
     :: LotAndPL API.TransactionSubType API.Transaction
     -> TransactionEvent API.TransactionSubType API.Transaction
 openEvent l = TransactionEvent
     Nothing (l^?!plLot.purchaseDate._Just) (l^.plLot)
+-}
 
 wash :: Text
      -> [LotAndPL API.TransactionSubType API.Transaction]
-     -> [TransactionEvent API.TransactionSubType API.Transaction]
-     -> ([LotAndPL API.TransactionSubType API.Transaction],
-        [TransactionEvent API.TransactionSubType API.Transaction])
-wash sym pls evs =
-    fixup $ runState (washSaleRule sym (map (True,) pls)) st
-  where
-    st = newGainsKeeperState & positionEvents.at sym ?~ evs
-
-    fixup ((_, pls'), st') = (map snd pls', st'^?!positionEvents.ix sym)
+     -> StateT (GainsKeeperState API.TransactionSubType API.Transaction)
+           IO [LotAndPL API.TransactionSubType API.Transaction]
+wash sym pls = map snd . snd
+    <$> hoist (pure . runIdentity) (washSaleRule sym ((True,) <$> pls))

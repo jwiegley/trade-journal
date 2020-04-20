@@ -258,15 +258,18 @@ data LotAndPL k t = LotAndPL
     , _plLoss :: Amount 2           -- positive is loss, else gain or wash
     , _plLot  :: CommodityLot k t
     }
-    deriving (Eq, Ord)
+    deriving (Eq, Ord, Show)
 
 makeClassy ''LotAndPL
 
 _Lot :: Prism' (LotAndPL k t) (CommodityLot k t)
 _Lot = prism' (LotAndPL BreakEven 0) (Just . _plLot)
 
-instance Show (LotAndPL k t) where
-    show x = showCommodityLot (x^.plLot) ++ " $$$ "  ++ show (x^.plLoss)
+-- instance Show (LotAndPL k t) where
+showLotAndPL :: LotAndPL k t -> String
+showLotAndPL x = show (x^.plKind)
+    ++ " " ++ showCommodityLot (x^.plLot)
+    ++ " $$$ "  ++ show (x^.plLoss)
 
 ($$$) :: CommodityLot k t -> Amount 2 -> LotAndPL k t
 l $$$ a = LotAndPL (if | a < 0     -> GainShort

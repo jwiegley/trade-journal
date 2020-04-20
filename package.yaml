@@ -48,9 +48,11 @@ tests:
     dependencies:
       - thinkorswim
       - hedgehog
+      - mmorph
       - tasty
-      - tasty-hunit
       - tasty-hedgehog
+      - tasty-hunit
+      - transformers
 
 executables:
   thinkorswim:
