@@ -87,7 +87,7 @@ testGainsKeeper = testGroup "gainsKeeper"
                   [ (-100) @@ 17350.00 $$$ (-81.82)
                   , (-300) @@ 52291.95000000001 $$$ (-3.51) ]
                   [ 100 @@ 17430.65 ]
-                  []
+                  Nothing
 
     , testCase "calculatePL 400" $
       calculatePL
@@ -97,7 +97,7 @@ testGainsKeeper = testGroup "gainsKeeper"
           @?= Considered
                   []
                   [ 100 @@ 17350.00 ]
-                  [ 400 @@ 69722.60 ]
+                  (Just (400 @@ 69722.60))
 
     , testCase "calculatePL SNAP" $
       calculatePL
@@ -109,7 +109,7 @@ testGainsKeeper = testGroup "gainsKeeper"
               [ (-11) @@ 189.41559999999998 $$$ (-0.5544) ]
               [ 689.0 @@ 11864.304399999999
               , 300.0 @@ 5165.97 ]
-              []
+              Nothing
 
     , testCase "handleFees opening position" $
       handleFees @API.TransactionSubType @API.Transaction

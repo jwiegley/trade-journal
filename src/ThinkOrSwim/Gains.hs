@@ -41,8 +41,8 @@ gainsKeeper mnet t n = do
 
     -- If there are no existing lots, then this is either a purchase or a
     -- short sale. If there are existing lots for this symbol, then if the
-    -- current would add to or deduct from those positions, then it closes as
-    -- much of that previous positions as quantities dictate.
+    -- current transaction would add to or deduct from those positions, then
+    -- it closes as much of those previous positions as quantities dictate.
     let cst   = abs (t^.item.API.cost)
         l     = setEvent (coerce cst)
         pl    = calculatePL hist l

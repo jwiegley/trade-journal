@@ -9,7 +9,6 @@ module Data.Split where
 
 import Data.Default
 import Data.List (foldl')
-import Data.Maybe (maybeToList)
 import Control.Lens
 
 data Split a
@@ -21,24 +20,12 @@ data Split a
     | None a
     deriving (Eq, Ord, Show)
 
+makePrisms ''Split
+
 instance Functor Split where
     fmap f (Some u k) = Some (f u) (f k)
     fmap f (All u)    = All (f u)
     fmap f (None k)   = None (f k)
-
-{-
-instance Applicative Split where
-    pure = None
-    f <*> Some u k = fmap ($ u) f *> fmap ($ k) f
-    f <*> All u    = fmap ($ u) f
-    f <*> None k   = fmap ($ k) f
-
-instance Monad Split where
-    return = pure
-    Some u k >>= f = f u >> f k
-    All u >>= f    = f u
-    None k >>= f   = f k
--}
 
 _Splits :: Traversal (Split a) (Split b) a b
 _Splits f (Some u k) = Some <$> f u <*> f k
@@ -79,7 +66,7 @@ nothingApplied x y = Applied def (None x) (None y)
 data Considered b a = Considered
     { _fromList    :: [b]
     , _newList     :: [a]
-    , _fromElement :: [a]
+    , _fromElement :: Maybe a
     }
     deriving (Eq, Show)
 
@@ -89,7 +76,7 @@ newConsidered :: Considered b a
 newConsidered = Considered
     { _fromList    = []
     , _newList     = []
-    , _fromElement = []
+    , _fromElement = Nothing
     }
 
 -- Given a list, and an element, determine the following three data:
@@ -102,7 +89,7 @@ consider :: (a -> a -> Applied v a) -> (v -> a -> b) -> [a] -> a
 consider f mk lst el =
     result & fromList    %~ reverse
            & newList     %~ reverse
-           & fromElement %~ reverse . (maybeToList remaining ++)
+           & fromElement .~ remaining
   where
     (remaining, result) = foldl' go (Just el, newConsidered) lst
 
@@ -111,7 +98,6 @@ consider f mk lst el =
         ( _src^?_SplitKept
         , c & fromList    %~ maybe id ((:) . mk _value) (_dest^?_SplitUsed)
             & newList     %~ maybe id (:) (_dest^?_SplitKept)
-            -- & fromElement %~ maybe id (:) (_src^?_SplitUsed)
         )
       where
         Applied {..} = f x z
