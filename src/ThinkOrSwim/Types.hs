@@ -9,6 +9,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module ThinkOrSwim.Types where
 
@@ -20,6 +21,7 @@ import           Data.Ledger as Ledger
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
+import           Data.Split
 import           Data.Text (Text)
 import           Data.Time
 import           Data.Time.Format.ISO8601
@@ -36,26 +38,9 @@ traceM = Trace.traceM
 transactionRef :: API.Transaction -> Ref API.Transaction
 transactionRef t = Ref OpeningOrder (t^.xactId) (Just t)
 
-data LotApplied a = LotApplied
-    { _loss    :: Amount 2
-    , _wasOpen :: LotSplit a
-    , _close   :: LotSplit a
-    }
-    deriving (Eq, Ord, Show)
-
-makeClassy ''LotApplied
-
-nothingApplied :: a -> a -> LotApplied a
-nothingApplied x y = LotApplied 0 (None x) (None y)
-
-data CalculatedPL = CalculatedPL
-    { _losses  :: [LotAndPL API.TransactionSubType API.Transaction]
-    , _history :: [CommodityLot API.TransactionSubType API.Transaction]
-    , _opening :: [CommodityLot API.TransactionSubType API.Transaction]
-    }
-    deriving (Eq, Ord, Show)
-
-makeClassy ''CalculatedPL
+type CalculatedPL =
+    Considered (LotAndPL API.TransactionSubType API.Transaction)
+               (CommodityLot API.TransactionSubType API.Transaction)
 
 data TransactionEvent k t = TransactionEvent
     { _gainOrLoss :: Maybe (Amount 2)

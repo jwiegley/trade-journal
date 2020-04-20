@@ -24,6 +24,7 @@ import           Data.List (foldl')
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, maybeToList)
+import           Data.Split
 import           Data.Text (Text, unpack)
 import qualified Data.Text as T
 import           Data.Time
@@ -126,62 +127,14 @@ lotPrice l = case l^.instrument of
 lotCost :: CommodityLot k t -> Amount 4
 lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
 
-data LotSplit a
-    = Some
-        { _used :: a
-        , _kept :: a
-        }
-    | All a
-    | None a
-    deriving (Eq, Ord, Show)
-
-instance Functor LotSplit where
-    fmap f (Some u k) = Some (f u) (f k)
-    fmap f (All u)    = All (f u)
-    fmap f (None k)   = None (f k)
-
-{-
-instance Applicative LotSplit where
-    pure = None
-    f <*> Some u k = fmap ($ u) f *> fmap ($ k) f
-    f <*> All u    = fmap ($ u) f
-    f <*> None k   = fmap ($ k) f
-
-instance Monad LotSplit where
-    return = pure
-    Some u k >>= f = f u >> f k
-    All u >>= f    = f u
-    None k >>= f   = f k
--}
-
-_Splits :: Traversal (LotSplit a) (LotSplit b) a b
-_Splits f (Some u k) = Some <$> f u <*> f k
-_Splits f (All u)    = All <$> f u
-_Splits f (None k)   = None <$> f k
-
-_SplitUsed :: Traversal' (LotSplit a) a
-_SplitUsed f (Some u k) = Some <$> f u <*> pure k
-_SplitUsed f (All u)    = All <$> f u
-_SplitUsed _ (None k)   = pure $ None k
-
-_SplitKept :: Traversal' (LotSplit a) a
-_SplitKept f (Some u k) = Some u <$> f k
-_SplitKept _ (All u)    = pure $ All u
-_SplitKept f (None k)   = None <$> f k
-
-keepAll :: LotSplit a -> [a]
-keepAll (Some x y) = [x, y]
-keepAll (All x)    = [x]
-keepAll (None y)   = [y]
-
-showLotSplit :: LotSplit (CommodityLot k t) -> String
-showLotSplit (None k)   = "None (" ++ showCommodityLot k ++ ")"
-showLotSplit (All u)    = "All (" ++ showCommodityLot u ++ ")"
-showLotSplit (Some u k) =
+showSplit :: Split (CommodityLot k t) -> String
+showSplit (None k)   = "None (" ++ showCommodityLot k ++ ")"
+showSplit (All u)    = "All (" ++ showCommodityLot u ++ ")"
+showSplit (Some u k) =
     "Some (" ++ showCommodityLot u ++ ") (" ++ showCommodityLot k ++ ")"
 
 alignLots :: CommodityLot k t -> CommodityLot k t
-          -> (LotSplit (CommodityLot k t), LotSplit (CommodityLot k t))
+          -> (Split (CommodityLot k t), Split (CommodityLot k t))
 alignLots x y
     | xq == 0 && yq == 0 = ( None x, None y )
     | xq == 0           = ( None x, All  y )
@@ -277,17 +230,13 @@ l $$$ a = LotAndPL (if | a < 0     -> GainShort
                        | otherwise -> BreakEven) a l
 
 alignLotAndPL :: CommodityLot k t -> LotAndPL k t
-              -> (LotSplit (CommodityLot k t), LotSplit (LotAndPL k t))
+              -> (Split (CommodityLot k t), Split (LotAndPL k t))
 alignLotAndPL x y =
     (l, r & unsafePartsOf _Splits
          %~ fmap (uncurry (LotAndPL (y^.plKind)))
           . spreadAmounts (^.quantity) (y^.plLoss))
   where
     (l, r) = x `alignLots` (y^.plLot)
-
-isFullTransfer :: (Maybe (LotAndPL k t), LotSplit t) -> Bool
-isFullTransfer (Nothing, All _) = True
-isFullTransfer _ = False
 
 perShareCost :: CommodityLot k t -> Maybe (Amount 6)
 perShareCost CommodityLot {..} =

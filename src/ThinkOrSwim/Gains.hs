@@ -18,17 +18,14 @@ import Control.Lens
 import Control.Monad.State
 import Data.Amount
 import Data.Coerce
-import Data.Foldable (foldl')
 import Data.Ledger as Ledger
-import Data.Maybe (maybeToList)
+import Data.Split
 import Data.Text (Text, unpack)
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 import ThinkOrSwim.Wash
-
-import Debug.Trace (trace)
 
 -- The function seeks to replicate the logic used by GainsKeeper to determine
 -- what impact a given transaction, based on existing positions, should have
@@ -48,15 +45,15 @@ gainsKeeper mnet t n = do
     -- much of that previous positions as quantities dictate.
     let cst   = abs (t^.item.API.cost)
         l     = setEvent (coerce cst)
-        pl    = calculatePL l hist
-        pls   = pl^..losses.traverse.to (False,)
-             ++ pl^..opening.traverse.to (review _Lot).to (True,)
+        pl    = calculatePL hist l
+        pls   = pl^..fromList.traverse.to (False,)
+             ++ pl^..fromElement.traverse.to (review _Lot).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
         pls'  = pls & partsOf (each._2) %~ handleFees fees'
 
     (doc, res) <- washSaleRule (t^.baseSymbol) pls'
 
-    let hist' = pl^.history ++ res^..traverse.filtered fst._2.plLot
+    let hist' = pl^.newList ++ res^..traverse.filtered fst._2.plLot
 
     openTransactions.at sym ?= hist'
 
@@ -108,48 +105,37 @@ traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
     hist'' <- use (openTransactions.at sym.non [])
     traceM $ render
         $ text (unpack sym) <> text ": " <> text (showCommodityLot l)
-       $$ text " mnet  > " <> text (show mnet)
-       $$ text " pls   > " <> renderList (text . show) (map snd pls)
-       $$ text " pls'  > " <> renderList (text . show) (map snd pls')
-       $$ text " hist  > " <> renderList (text . showCommodityLot) hist
-       $$ text " hist' > " <> renderList (text . showCommodityLot) hist'
-       $$ text " hist''> " <> renderList (text . showCommodityLot) hist''
-       $$ text " washed> " <> doc
-       $$ text " res'  > " <> renderList (text . show) res'
-       $$ text " res'' > " <> renderList (text . show) res''
+       $$ text " mnet> " <> text (show mnet)
+       $$ text " ps  > " <> renderList (text . show) (map snd pls)
+       $$ text " ps' > " <> renderList (text . show) (map snd pls')
+       $$ text " hs  > " <> renderList (text . showCommodityLot) hist
+       $$ text " hs' > " <> renderList (text . showCommodityLot) hist'
+       $$ text " hs''> " <> renderList (text . showCommodityLot) hist''
+       $$ text " wash> " <> doc
+       $$ text " rs' > " <> renderList (text . show) res'
+       $$ text " rs''> " <> renderList (text . show) res''
 
-calculatePL :: CommodityLot API.TransactionSubType API.Transaction
-            -> [CommodityLot API.TransactionSubType API.Transaction]
+calculatePL :: [CommodityLot API.TransactionSubType API.Transaction]
+            -> CommodityLot API.TransactionSubType API.Transaction
             -> CalculatedPL
-calculatePL curr opens = CalculatedPL {..}
+calculatePL = consider closeLot f
   where
-    ( maybeToList -> _opening,
-      reverse     -> _losses,
-      reverse     -> _history ) = foldl' fifo (Just curr, [], []) opens
-
-    fifo (Nothing, res, keep) x = (Nothing, res, x:keep)
-    fifo (Just z,  res, keep) x =
-        ( _close^?_SplitKept
-        , maybe res ((:res) . LotAndPL knd _loss) (_wasOpen^?_SplitUsed)
-        , maybe keep (:keep) (_wasOpen^?_SplitKept)
-        )
+    f pl = LotAndPL knd pl
       where
-        -- jww (2020-04-17): What about LossLong and GainLong?
-        knd | _loss > 0 = LossShort
-            | _loss < 0 = GainShort
+        knd | pl > 0    = LossShort
+            | pl < 0    = GainShort
             | otherwise = BreakEven
 
-        LotApplied {..} = x `closeLot` z
-
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
--- a share sell; a buy for the reverse. If both have the same sign, nothing is
--- done. If the cost basis per share of the two are different, there will be a
--- gain (or less, if negative). Also, we need to return the part of 'x' that
--- remains to be further deducted from, and how much was consumed, and
--- similarly for 'y'.
+-- a sell to close; a buy to close for the reverse. If both have the same
+-- sign, nothing is done. If the cost basis per share of the two are
+-- different, there will be a gain (or less, if negative). Also, we need to
+-- return the part of 'x' that remains to be further deducted from, and how
+-- much was consumed, and similarly for 'y'.
 closeLot :: CommodityLot API.TransactionSubType API.Transaction
          -> CommodityLot API.TransactionSubType API.Transaction
-         -> LotApplied (CommodityLot API.TransactionSubType API.Transaction)
+         -> Applied (Amount 2)
+                   (CommodityLot API.TransactionSubType API.Transaction)
 closeLot x y | not (pairedCommodityLots x y) = nothingApplied x y
 
 closeLot x y | Just x' <- x^?effect, Just y' <- y^?effect, x' == y' =
@@ -157,18 +143,18 @@ closeLot x y | Just x' <- x^?effect, Just y' <- y^?effect, x' == y' =
   where
     effect = refs._head.refOrig._Just.item.positionEffect._Just
 
-closeLot x y = LotApplied {..}
+closeLot x y = Applied {..}
   where
-    (open', _close) = x `alignLots` y
+    (dest', _src) = x `alignLots` y
 
-    _loss :: Amount 2
-    _loss | y^.kind == TransferOfSecurityOrOptionIn = 0
-          | Just ocost <- _wasOpen^?_SplitUsed.Ledger.cost._Just,
-            Just ccost <- _close^?_SplitUsed.Ledger.cost._Just =
+    _value :: Amount 2
+    _value | y^.kind == TransferOfSecurityOrOptionIn = 0
+          | Just ocost <- _dest^?_SplitUsed.Ledger.cost._Just,
+            Just ccost <- _src^?_SplitUsed.Ledger.cost._Just =
                 coerce (sign x ocost + sign y ccost)
           | otherwise = error "No cost found"
 
-    _wasOpen = open'
+    _dest = dest'
         & _SplitUsed.quantity     %~ negate
         & _SplitUsed.Ledger.price .~ y^.Ledger.price
 

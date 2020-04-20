@@ -34,6 +34,7 @@ import           Data.Char (isDigit)
 import           Data.Coerce
 import qualified Data.Csv as Csv
 import           Data.Data
+import           Data.Default
 import           Data.Function (on)
 import           Data.Int (Int64)
 import           Data.List (intercalate)
@@ -69,6 +70,9 @@ foreign import ccall unsafe "rational_to_str" c'rational_to_str
 
 newtype Amount (dec :: Nat) = Amount { getAmount :: Ratio Int64 }
     deriving (Generic, Data, Typeable, Ord, Num, Fractional, Real, RealFrac)
+
+instance Default (Amount n) where
+    def = 0
 
 instance KnownNat n => Csv.FromField (Amount n) where
     parseField = pure . read . T.unpack . T.decodeUtf8

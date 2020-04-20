@@ -192,6 +192,7 @@ import Control.Monad.State
 import Data.Coerce
 import Data.Ledger as Ledger
 import Data.Maybe (isNothing, maybeToList, catMaybes)
+import Data.Split
 import Data.Text (Text)
 import Data.Zipper
 import Prelude hiding (Float, Double, (<>))
@@ -281,7 +282,8 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
         guard $ pl^.plLot.Ledger.instrument == Ledger.Equity
         guard $ (ev^.eventLot) `pairedCommodityLots` (pl^.plLot)
         if | pl^.plLoss < 0 -> mzero
-           | pl^.plLoss > 0 -> guard $ isNothing (ev^.gainOrLoss)
+           | pl^.plLoss > 0 ->
+                 guard $ isNothing (ev^.gainOrLoss)
            | otherwise -> do
                  gorl <- ev^.gainOrLoss
                  guard $ gorl > 0
@@ -291,6 +293,12 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
 
     washLoss (Left [pl]) (Just ev)
        | Just evl <- ev `shouldWash` pl =
+         -- jww (2020-04-19): What if a loss of 20 must be washed against two
+         -- opening position of 10 each?
+         --
+         -- jww (2020-04-19): What if an opening occurs after opening that the
+         -- loss is paired with? This must be washed by that loss as if we had
+         -- called washOpen.
          let (sev, spl) = (evl^.plLot) `alignLotAndPL` pl
          in ( Right [pl]
             , Just . eventFromPL (Just (ev^.eventDate))
@@ -323,7 +331,7 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
 -- transaction that did not.
 transferWashLoss :: LotAndPL k t
                  -> CommodityLot k t
-                 -> (Maybe (LotAndPL k t), LotSplit (LotAndPL k t))
+                 -> (Maybe (LotAndPL k t), Split (LotAndPL k t))
 transferWashLoss x y
     | Just part <- l^?_SplitUsed =
       ( l^?_SplitKept

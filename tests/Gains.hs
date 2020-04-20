@@ -13,6 +13,7 @@ import           Data.Amount
 import           Data.Coerce
 import           Data.Ledger as Ledger
 import           Data.Maybe (fromJust, fromMaybe)
+import           Data.Split
 import           Data.Time.Format.ISO8601
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -30,7 +31,7 @@ testGainsKeeper :: TestTree
 testGainsKeeper = testGroup "gainsKeeper"
     [ testCase "12@@300 `applyLots` -10@@500" $
       q12c300 `closeLot` qn10c500
-          @?= LotApplied
+          @?= Applied
                 (pl (-10) q12c300 qn10c500)
                 (Some ((-10)@@(10 * (300/12)))
                       (2@@(2 * (300/12))))
@@ -38,7 +39,7 @@ testGainsKeeper = testGroup "gainsKeeper"
 
     , testCase "10@@500 `closeLot` -12@@300" $
       q10c500 `closeLot` qn12c300
-          @?= LotApplied
+          @?= Applied
                 (pl (-10) qn10c500 q12c300)
                 (All ((-10)@@(10 * (500/10))))
                 (Some ((-10)@@(10 * (300/12)))
@@ -46,7 +47,7 @@ testGainsKeeper = testGroup "gainsKeeper"
 
     , testCase "12@@500 `closeLot` -10@@300" $
       q12c500 `closeLot` qn10c300
-          @?= LotApplied
+          @?= Applied
                 (pl (-10) q12c500 qn10c300)
                 (Some ((-10)@@(10 * (500/12)))
                       (2@@(2 * (500/12))))
@@ -54,7 +55,7 @@ testGainsKeeper = testGroup "gainsKeeper"
 
     , testCase "10@@300 `closeLot` -12@@500" $
       q10c300 `closeLot` qn12c500
-          @?= LotApplied
+          @?= Applied
                 (pl (-10) qn10c300 q12c500)
                 (All ((-10)@@(10 * (300/10))))
                 (Some ((-10)@@(10 * (500/12)))
@@ -62,7 +63,7 @@ testGainsKeeper = testGroup "gainsKeeper"
 
     , testCase "-10@@300 `closeLot` 12@@500" $
       qn10c300 `closeLot` q12c500
-          @?= LotApplied
+          @?= Applied
                 (pl 10 qn10c300 q12c500)
                 (All (10@@(10 * (300/10))))
                 (Some (10@@(10 * (500/12)))
@@ -70,7 +71,7 @@ testGainsKeeper = testGroup "gainsKeeper"
 
     , testCase "-10@@500 `closeLot` 12@@300" $
       qn10c500 `closeLot` q12c300
-          @?= LotApplied
+          @?= Applied
                 (pl 10 qn10c500 q12c300)
                 (All (10@@(10 * (500/10))))
                 (Some (10@@(10 * (300/12)))
@@ -78,11 +79,11 @@ testGainsKeeper = testGroup "gainsKeeper"
 
     , testCase "calculateGains -400" $
       calculatePL
-          ((-400) @@ 69727.28)
           [ 100 @@ 17350.00
           , 400 @@ 69722.60
           ]
-          @?= CalculatedPL
+          ((-400) @@ 69727.28)
+          @?= Considered
                   [ (-100) @@ 17350.00 $$$ (-81.82)
                   , (-300) @@ 52291.95000000001 $$$ (-3.51) ]
                   [ 100 @@ 17430.65 ]
@@ -90,21 +91,21 @@ testGainsKeeper = testGroup "gainsKeeper"
 
     , testCase "calculatePL 400" $
       calculatePL
-          (400 @@ 69722.60)
           [ 100 @@ 17350.00
           ]
-          @?= CalculatedPL
+          (400 @@ 69722.60)
+          @?= Considered
                   []
                   [ 100 @@ 17350.00 ]
                   [ 400 @@ 69722.60 ]
 
     , testCase "calculatePL SNAP" $
       calculatePL
-          ((-11.0) @@ 189.97)
           [ 700.0 @@ 12053.72
           , 300.0 @@ 5165.97
           ]
-      @?= CalculatedPL
+          ((-11.0) @@ 189.97)
+      @?= Considered
               [ (-11) @@ 189.41559999999998 $$$ (-0.5544) ]
               [ 689.0 @@ 11864.304399999999
               , 300.0 @@ 5165.97 ]
