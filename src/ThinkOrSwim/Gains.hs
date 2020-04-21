@@ -52,12 +52,11 @@ gainsKeeper mnet t n = do
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
         pls'  = pls & partsOf (each._2) %~ handleFees fees'
 
-    (doc, res) <-
-        -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash sale
-        -- rule on purchase of a call contract after an equity loss.
-        if l^.Ledger.instrument == Ledger.Equity
-        then washSaleRule (t^.baseSymbol) pls'
-        else pure (empty, pls')
+    res <- -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash sale
+          -- rule on purchase of a call contract after an equity loss.
+          if l^.Ledger.instrument == Ledger.Equity
+          then washSaleRule (t^.baseSymbol) pls'
+          else pure pls'
 
     let hist' = pl^.newList ++ res^..traverse.filtered fst._2.plLot
 
@@ -72,7 +71,7 @@ gainsKeeper mnet t n = do
                            | slip /= 0 ]
 
     when (sym == "BAC") $
-        traceCurrentState sym mnet l pls pls' hist hist' doc res' res''
+        traceCurrentState sym mnet l pls pls' hist hist' res' res''
 
     pure res''
   where
@@ -106,11 +105,10 @@ traceCurrentState
     -> [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
     -> [CommodityLot API.TransactionSubType API.Transaction]
     -> [CommodityLot API.TransactionSubType API.Transaction]
-    -> Doc
     -> [LotAndPL API.TransactionSubType API.Transaction]
     -> [LotAndPL API.TransactionSubType API.Transaction]
     -> State (GainsKeeperState API.TransactionSubType API.Transaction) ()
-traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
+traceCurrentState sym mnet l pls pls' hist hist' res' res'' = do
     hist'' <- use (openTransactions.at sym.non [])
     traceM $ render
         $ text (unpack sym) <> text ": " <> text (showCommodityLot l)
@@ -120,7 +118,6 @@ traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
        $$ text " hs  > " <> renderList (text . showCommodityLot) hist
        $$ text " hs' > " <> renderList (text . showCommodityLot) hist'
        $$ text " hs''> " <> renderList (text . showCommodityLot) hist''
-       $$ text " wash> " <> doc
        $$ text " rs' > " <> renderList (text . showLotAndPL) res'
        $$ text " rs''> " <> renderList (text . showLotAndPL) res''
 

@@ -188,7 +188,6 @@ Sell Put (Writer) then Close at a Loss
 module ThinkOrSwim.Wash (washSaleRule) where
 
 import Control.Applicative
-import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad.State
 import Data.Amount
@@ -261,9 +260,9 @@ washSaleRule
     -> [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
       -- ^ The boolean value is True if is an opening transaction.
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            (Doc, [(Bool, LotAndPL API.TransactionSubType API.Transaction)])
+            [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
 washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
-    fmap ((vcat *** concat) . unzip) $ forM ls $ \(b, l) -> do
+    fmap concat $ forM ls $ \(b, l) -> do
         events <- get
 
         let pr' = text "pl: " <> text (showLotAndPL l)
@@ -307,7 +306,9 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
 
         put evs
 
-        pure (rend doc 0 res events evs, (b,) <$> res)
+        traceM $ render $ rend doc 0 res events evs
+
+        pure $ (b,) <$> res
 
 transferLoss
     :: LotAndPL TransactionSubType API.Transaction
