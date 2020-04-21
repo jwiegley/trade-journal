@@ -153,16 +153,16 @@ closeLot x y = Applied {..}
   where
     (src', _dest) = x `alignLots` y
 
+    _src = src'
+        & _SplitUsed.quantity     %~ negate
+        & _SplitUsed.Ledger.price .~ y^.Ledger.price
+
     _value :: Amount 2
     _value | y^.kind == TransferOfSecurityOrOptionIn = 0
           | Just ocost <- _src^?_SplitUsed.Ledger.cost._Just,
             Just ccost <- _dest^?_SplitUsed.Ledger.cost._Just =
                 coerce (sign x ocost + sign y ccost)
           | otherwise = error "No cost found"
-
-    _src = src'
-        & _SplitUsed.quantity     %~ negate
-        & _SplitUsed.Ledger.price .~ y^.Ledger.price
 
 -- Handling fees is a touch tricky, since if we end up closing multiple
 -- positions via a single sale or purchase, the fees are applied across all of
