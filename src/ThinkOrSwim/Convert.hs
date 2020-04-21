@@ -24,7 +24,8 @@ import           Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
-import           Prelude hiding (Float, Double)
+import           Prelude hiding (Float, Double, (<>))
+import           Text.PrettyPrint as PP
 import           Text.Show.Pretty
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
@@ -88,7 +89,7 @@ fixupTransaction t | not xactOA = do
         has (Ledger.amount._CommodityAmount.Ledger.instrument.Ledger._Equity) p
 
 fixupTransaction t = do
-    traceM $ "Fixing up " ++ ppShow (t^.postings)
+    renderM $ PP.text "Fixing up " <> PP.text (ppShow (t^.postings))
     let (res, mpp) =
             Prelude.concat *** snd $
             (`runState` (0 :: Amount 2, Nothing)) $

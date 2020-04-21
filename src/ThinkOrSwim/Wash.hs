@@ -204,8 +204,6 @@ import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
-import Debug.Trace (trace)
-
 -- Given a history of closing and opening transactions (where the opening
 -- transactions are identified as having a loss of 0.0), determine the washed
 -- losses that should apply to either these are some pending set of opening
@@ -306,7 +304,7 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
 
         put evs
 
-        traceM $ render $ rend doc 0 res events evs
+        renderM $ rend doc 0 res events evs
 
         pure $ (b,) <$> res
 
@@ -347,18 +345,18 @@ wash inverted hs pl =
         | not (h^.plLot.Ledger.instrument == Ledger.Equity &&
              x^.plLot.Ledger.instrument == Ledger.Equity &&
              (h^.plLot) `pairedCommodityLots` (x^.plLot)) =
-              trace ("h.1 = " ++ showLotAndPL h) $
-              trace ("x.1 = " ++ showLotAndPL x) $
+              render_ (text ("h.1 = " ++ showLotAndPL h)) $
+              render_ (text ("x.1 = " ++ showLotAndPL x)) $
               unaligned h x
 
         | if inverted then opening else closing =
-              trace ("h.2 = " ++ showLotAndPL h) $
-              trace ("x.2 = " ++ showLotAndPL x) $
+              render_ (text ("h.2 = " ++ showLotAndPL h)) $
+              render_ (text ("x.2 = " ++ showLotAndPL x)) $
               aligned h x
 
         | if inverted then closing else opening =
-              trace ("h.3 = " ++ showLotAndPL h) $
-              trace ("x.3 = " ++ showLotAndPL x) $
+              render_ (text ("h.3 = " ++ showLotAndPL h)) $
+              render_ (text ("x.3 = " ++ showLotAndPL x)) $
               let res = aligned h x
                   tr  = liftA2 transferLoss in
               case (if inverted then flip else id)
@@ -370,8 +368,8 @@ wash inverted hs pl =
                   Nothing -> res
 
         | otherwise =
-              trace ("h.4 = " ++ showLotAndPL h) $
-              trace ("x.4 = " ++ showLotAndPL x) $
+              render_ (text ("h.4 = " ++ showLotAndPL h)) $
+              render_ (text ("x.4 = " ++ showLotAndPL x)) $
               unaligned h x
       where
         closing = h^.plLoss == 0 && x^.plLoss >  0

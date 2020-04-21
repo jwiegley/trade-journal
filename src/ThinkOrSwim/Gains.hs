@@ -49,7 +49,9 @@ gainsKeeper mnet t n = do
         pl    = calculatePL hist l
         pls   = pl^..fromList.traverse.to (False,)
              ++ pl^..newElement.traverse.to (review _Lot).to (True,)
-        fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
+        fees' = t^.fees_.regFee
+              + t^.fees_.otherCharges
+              + t^.fees_.commission
         pls'  = pls & partsOf (each._2) %~ handleFees fees'
 
     res <- -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash sale
@@ -71,7 +73,7 @@ gainsKeeper mnet t n = do
                            | slip /= 0 ]
 
     when (sym == "BAC") $
-        traceCurrentState sym mnet l pls pls' hist hist' res' res''
+        traceCurrentState sym mnet l pls pls' hist hist' res''
 
     pure res''
   where
@@ -106,20 +108,17 @@ traceCurrentState
     -> [CommodityLot API.TransactionSubType API.Transaction]
     -> [CommodityLot API.TransactionSubType API.Transaction]
     -> [LotAndPL API.TransactionSubType API.Transaction]
-    -> [LotAndPL API.TransactionSubType API.Transaction]
     -> State (GainsKeeperState API.TransactionSubType API.Transaction) ()
-traceCurrentState sym mnet l pls pls' hist hist' res' res'' = do
+traceCurrentState sym mnet l pls pls' hist hist' res'' = do
     hist'' <- use (openTransactions.at sym.non [])
-    traceM $ render
-        $ text (unpack sym) <> text ": " <> text (showCommodityLot l)
-       $$ text " mnet> " <> text (show mnet)
-       $$ text " ps  > " <> renderList (text . showLotAndPL) (map snd pls)
-       $$ text " ps' > " <> renderList (text . showLotAndPL) (map snd pls')
-       $$ text " hs  > " <> renderList (text . showCommodityLot) hist
-       $$ text " hs' > " <> renderList (text . showCommodityLot) hist'
-       $$ text " hs''> " <> renderList (text . showCommodityLot) hist''
-       $$ text " rs' > " <> renderList (text . showLotAndPL) res'
-       $$ text " rs''> " <> renderList (text . showLotAndPL) res''
+    renderM $ text (unpack sym) <> text ": " <> text (showCommodityLot l)
+       $$ text " nt> " <> text (show mnet)
+       $$ text " p0> " <> renderList (text . showLotAndPL) (map snd pls)
+       $$ text " p1> " <> renderList (text . showLotAndPL) (map snd pls')
+       $$ text " h0> " <> renderList (text . showCommodityLot) hist
+       $$ text " h1> " <> renderList (text . showCommodityLot) hist'
+       $$ text " h2> " <> renderList (text . showCommodityLot) hist''
+       $$ text " rs> " <> renderList (text . showLotAndPL) res''
 
 calculatePL :: [CommodityLot API.TransactionSubType API.Transaction]
             -> CommodityLot API.TransactionSubType API.Transaction

@@ -28,9 +28,12 @@ import           ThinkOrSwim.API.TransactionHistory.GetTransactions
                      as API hiding ((<+>))
 
 import qualified Debug.Trace as Trace
-traceM :: Applicative f => String -> f ()
--- traceM _ = pure ()
-traceM = Trace.traceM
+
+renderM :: Applicative f => Doc -> f ()
+renderM = Trace.traceM . render
+
+render_ :: Doc -> a -> a
+render_ = Trace.trace . render
 
 transactionRef :: API.Transaction -> Ref API.Transaction
 transactionRef t = Ref OpeningOrder (t^.xactId) (Just t)
