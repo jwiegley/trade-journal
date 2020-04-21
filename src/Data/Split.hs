@@ -53,8 +53,8 @@ isFullTransfer _ = False
 
 data Applied v a b = Applied
     { _value :: v
-    , _dest  :: Split a
-    , _src   :: Split b
+    , _src   :: Split a
+    , _dest  :: Split b
     }
     deriving (Eq, Ord, Show)
 
@@ -101,10 +101,10 @@ consider f mk lst el =
 
     go (Nothing, c) x = (Nothing, c & newList %~ (x:))
     go (Just z,  c) x =
-        ( _src^?_SplitKept
-        , c & fromList    %~ maybe id ((:) . mk z _value) (_dest^?_SplitUsed)
-            & newList     %~ maybe id (:) (_dest^?_SplitKept)
-            & fromElement %~ maybe id (:) (_src^?_SplitUsed)
+        ( _dest^?_SplitKept
+        , c & fromList    %~ maybe id ((:) . mk z _value) (_src^?_SplitUsed)
+            & newList     %~ maybe id (:) (_src^?_SplitKept)
+            & fromElement %~ maybe id (:) (_dest^?_SplitUsed)
         )
       where
         Applied {..} = f x z

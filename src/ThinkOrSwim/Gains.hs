@@ -52,7 +52,12 @@ gainsKeeper mnet t n = do
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
         pls'  = pls & partsOf (each._2) %~ handleFees fees'
 
-    (doc, res) <- washSaleRule (t^.baseSymbol) pls'
+    (doc, res) <-
+        -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash sale
+        -- rule on purchase of a call contract after an equity loss.
+        if l^.Ledger.instrument == Ledger.Equity
+        then washSaleRule (t^.baseSymbol) pls'
+        else pure (empty, pls')
 
     let hist' = pl^.newList ++ res^..traverse.filtered fst._2.plLot
 
@@ -66,7 +71,7 @@ gainsKeeper mnet t n = do
                 in res' ++ [ LotAndPL Rounding Nothing slip newCommodityLot
                            | slip /= 0 ]
 
-    when (sym == "NFLX") $
+    when (sym == "BAC") $
         traceCurrentState sym mnet l pls pls' hist hist' doc res' res''
 
     pure res''
@@ -110,14 +115,14 @@ traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
     traceM $ render
         $ text (unpack sym) <> text ": " <> text (showCommodityLot l)
        $$ text " mnet> " <> text (show mnet)
-       $$ text " ps  > " <> renderList (text . show) (map snd pls)
-       $$ text " ps' > " <> renderList (text . show) (map snd pls')
+       $$ text " ps  > " <> renderList (text . showLotAndPL) (map snd pls)
+       $$ text " ps' > " <> renderList (text . showLotAndPL) (map snd pls')
        $$ text " hs  > " <> renderList (text . showCommodityLot) hist
        $$ text " hs' > " <> renderList (text . showCommodityLot) hist'
        $$ text " hs''> " <> renderList (text . showCommodityLot) hist''
        $$ text " wash> " <> doc
-       $$ text " rs' > " <> renderList (text . show) res'
-       $$ text " rs''> " <> renderList (text . show) res''
+       $$ text " rs' > " <> renderList (text . showLotAndPL) res'
+       $$ text " rs''> " <> renderList (text . showLotAndPL) res''
 
 calculatePL :: [CommodityLot API.TransactionSubType API.Transaction]
             -> CommodityLot API.TransactionSubType API.Transaction
@@ -150,16 +155,16 @@ closeLot x y | Just x' <- x^?effect, Just y' <- y^?effect, x' == y' =
 
 closeLot x y = Applied {..}
   where
-    (dest', _src) = x `alignLots` y
+    (src', _dest) = x `alignLots` y
 
     _value :: Amount 2
     _value | y^.kind == TransferOfSecurityOrOptionIn = 0
-          | Just ocost <- _dest^?_SplitUsed.Ledger.cost._Just,
-            Just ccost <- _src^?_SplitUsed.Ledger.cost._Just =
+          | Just ocost <- _src^?_SplitUsed.Ledger.cost._Just,
+            Just ccost <- _dest^?_SplitUsed.Ledger.cost._Just =
                 coerce (sign x ocost + sign y ccost)
           | otherwise = error "No cost found"
 
-    _dest = dest'
+    _src = src'
         & _SplitUsed.quantity     %~ negate
         & _SplitUsed.Ledger.price .~ y^.Ledger.price
 

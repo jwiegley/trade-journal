@@ -205,6 +205,8 @@ import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import ThinkOrSwim.Types
 
+import Debug.Trace (trace)
+
 -- Given a history of closing and opening transactions (where the opening
 -- transactions are identified as having a loss of 0.0), determine the washed
 -- losses that should apply to either these are some pending set of opening
@@ -264,7 +266,7 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
     fmap ((vcat *** concat) . unzip) $ forM ls $ \(b, l) -> do
         events <- get
 
-        let pr = text "pl: " <> text (showLotAndPL l)
+        let pr' = text "pl: " <> text (showLotAndPL l)
                $$ text "ev: " <> renderList (text . showLotAndPL) events
 
             rend d (n :: Int) r eb ea = d
@@ -277,13 +279,19 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
 
             c = wash False events l
 
+            pr = pr'
+                $$ text "c^.fromList    " <> renderList (text . showLotAndPL) (c^.fromList)
+                $$ text "c^.newList     " <> renderList (text . showLotAndPL) (c^.newList)
+                $$ text "c^.fromElement " <> renderList (text . showLotAndPL) (c^.fromElement)
+                $$ text "c^.newElement  " <> text (show (fmap showLotAndPL (c^.newElement)))
+
             -- If the result of calling 'wash' is a series of washed losses,
             -- check if there are other openings they could be applied to.
             (doc, _, fr, fhs) =
                 (\f -> foldl' f (pr, 1, [], c^.newList)
                                (c^.fromElement)) $ \(d, n, r, hs) e ->
                     let i  = wash True hs e
-                        r' = r ++ i^.fromElement
+                        r' = r -- ++ i^.fromElement
                                ++ i^.fromList
                                ++ maybeToList (i^.newElement)
                         h' = i^.newList
@@ -293,7 +301,9 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
                        , h' )
 
             res = fr ++ maybeToList (c^.newElement)
-            evs = c^.fromList ++ fhs ++ res
+            evs = fhs ++ fr ++ case c^.newElement of
+                Just e | e^.plLoss == 0 -> [e]
+                _ -> []
 
         put evs
 
@@ -328,7 +338,7 @@ wash inverted hs pl =
         & fromList %~ catMaybes
         & newList  %~ catMaybes
   where
-    aligned   h x = uncurry splits (alignPL h x) & dest._Splits %~ Just
+    aligned   h x = uncurry splits (alignPL h x) & src._Splits %~ Just
     unaligned h x = nothingApplied @() (Just h) x
 
     f Nothing _ = error "Unexpected"
@@ -336,29 +346,32 @@ wash inverted hs pl =
         | not (h^.plLot.Ledger.instrument == Ledger.Equity &&
              x^.plLot.Ledger.instrument == Ledger.Equity &&
              (h^.plLot) `pairedCommodityLots` (x^.plLot)) =
-              -- trace ("h.1 = " ++ showLotAndPL h) $
-              -- trace ("x.1 = " ++ showLotAndPL x) $
+              trace ("h.1 = " ++ showLotAndPL h) $
+              trace ("x.1 = " ++ showLotAndPL x) $
               unaligned h x
 
         | if inverted then opening else closing =
-              -- trace ("h.2 = " ++ showLotAndPL h) $
-              -- trace ("x.2 = " ++ showLotAndPL x) $
+              trace ("h.2 = " ++ showLotAndPL h) $
+              trace ("x.2 = " ++ showLotAndPL x) $
               aligned h x
 
         | if inverted then closing else opening =
-              -- trace ("h.3 = " ++ showLotAndPL h) $
-              -- trace ("x.3 = " ++ showLotAndPL x) $
+              trace ("h.3 = " ++ showLotAndPL h) $
+              trace ("x.3 = " ++ showLotAndPL x) $
               let res = aligned h x
                   tr  = liftA2 transferLoss in
               case (if inverted then flip else id)
-                       tr (res^?dest._SplitUsed._Just)
-                          (res^?src._SplitUsed) of
+                       tr (res^?src._SplitUsed._Just)
+                          (res^?dest._SplitUsed) of
                   Just (if inverted then swap else id -> (ud, us)) ->
-                      res & dest._SplitUsed._Just .~ ud
-                          & src._SplitUsed        .~ us
+                      res & src._SplitUsed._Just .~ ud
+                          & dest._SplitUsed        .~ us
                   Nothing -> res
 
-        | otherwise = unaligned h x
+        | otherwise =
+              trace ("h.4 = " ++ showLotAndPL h) $
+              trace ("x.4 = " ++ showLotAndPL x) $
+              unaligned h x
       where
         closing = h^.plLoss == 0 && x^.plLoss >  0
         opening = h^.plLoss >  0 && x^.plLoss == 0

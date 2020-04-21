@@ -29,7 +29,7 @@ pl q x y = coerce $
 
 testGainsKeeper :: TestTree
 testGainsKeeper = testGroup "gainsKeeper"
-    [ testCase "12@@300 `applyLots` -10@@500" $
+    [ testCase "closeLot 1" $
       q12c300 `closeLot` qn10c500
           @?= Applied
                 (pl (-10) q12c300 qn10c500)
@@ -37,7 +37,7 @@ testGainsKeeper = testGroup "gainsKeeper"
                       (2@@(2 * (300/12))))
                 (All qn10c500)
 
-    , testCase "10@@500 `closeLot` -12@@300" $
+    , testCase "closeLot 2" $
       q10c500 `closeLot` qn12c300
           @?= Applied
                 (pl (-10) qn10c500 q12c300)
@@ -45,7 +45,7 @@ testGainsKeeper = testGroup "gainsKeeper"
                 (Some ((-10)@@(10 * (300/12)))
                       ((-2)@@(2 * (300/12))))
 
-    , testCase "12@@500 `closeLot` -10@@300" $
+    , testCase "closeLot 3" $
       q12c500 `closeLot` qn10c300
           @?= Applied
                 (pl (-10) q12c500 qn10c300)
@@ -53,7 +53,7 @@ testGainsKeeper = testGroup "gainsKeeper"
                       (2@@(2 * (500/12))))
                 (All qn10c300)
 
-    , testCase "10@@300 `closeLot` -12@@500" $
+    , testCase "closeLot 4" $
       q10c300 `closeLot` qn12c500
           @?= Applied
                 (pl (-10) qn10c300 q12c500)
@@ -61,7 +61,7 @@ testGainsKeeper = testGroup "gainsKeeper"
                 (Some ((-10)@@(10 * (500/12)))
                       ((-2)@@83.33333333333333))
 
-    , testCase "-10@@300 `closeLot` 12@@500" $
+    , testCase "closeLot 5" $
       qn10c300 `closeLot` q12c500
           @?= Applied
                 (pl 10 qn10c300 q12c500)
@@ -69,7 +69,7 @@ testGainsKeeper = testGroup "gainsKeeper"
                 (Some (10@@(10 * (500/12)))
                       (2@@(2 * (500/12))))
 
-    , testCase "-10@@500 `closeLot` 12@@300" $
+    , testCase "closeLot 6" $
       qn10c500 `closeLot` q12c300
           @?= Applied
                 (pl 10 qn10c500 q12c300)

@@ -48,29 +48,28 @@ testWashSaleRule = testGroup "washSaleRule"
 
     , testCase "open, open, sell at loss <30" $
       flip evalStateT newGainsKeeperState $ do
-          let aapl0215o1 = 12@@300 ## "2020-02-15" $$$ 0.00
+          let aapl0215o1  =    12@@300 ## "2020-02-15" $$$   0.00
                   & plLot.refs .~ [ openRef & refId .~ 1 ]
-              aapl0215o2 = 10@@310 ## "2020-02-16" $$$ 0.00
+              aapl0215o2  =    10@@310 ## "2020-02-16" $$$   0.00
                   & plLot.refs .~ [ openRef & refId .~ 2 ]
               aapl0215c1a = (-12)@@290 ## "2020-02-17" $$$ 120.00
-                  & plKind     .~ LossShort
-                  & plLot.refs .~ [ openRef & refId .~ 1 ]
-              aapl0215c2a = (-10)@@241.6667 ## "2020-02-17" $$$ 0.00
-                  & plKind     .~ LossShort
-                  & plLot.refs .~ [ openRef & refId .~ 1 ]
-              aapl0215c2w = 10@@410 ## "2020-02-16" $$$ (-100.00)
-                  & plKind     .~ WashLoss
-                  & plLot.refs .~
-                      [ openRef & refId .~ 2
-                      , Ref (WashSaleRule 100.00) 1 Nothing ]
-              aapl0215c1b = (-2)@@48.3333 ## "2020-02-17" $$$ 20.00
                   & plKind     .~ LossShort
                   & plLot.refs .~ [ openRef & refId .~ 1 ]
 
           wash "AAPL" [ aapl0215o1  ] @?== [ aapl0215o1 ]
           wash "AAPL" [ aapl0215o2  ] @?== [ aapl0215o2 ]
-          wash "AAPL" [ aapl0215c1a ] @?== [ aapl0215c2a, aapl0215c2w
-                                           , aapl0215c1b ]
+          wash "AAPL" [ aapl0215c1a ] @?==
+              [ (-12)@@290      ## "2020-02-17" $$$    20.00
+                    & plKind     .~ LossShort
+                    & plLot.refs .~ [ openRef & refId .~ 1 ]
+              , (-10)@@310      ## "2020-02-16" $$$     0.00
+                    & plKind     .~ LossShort
+                    & plLot.refs .~ [ openRef & refId .~ 2 ]
+              ,    10@@410      ## "2020-02-16" $$$ (-100.00)
+                    & plKind     .~ WashLoss
+                    & plLot.refs .~
+                        [ openRef & refId .~ 2
+                        , Ref (WashSaleRule 100.00) 1 Nothing ] ]
 
     -- , testCase "open, sell at loss >30, open <30" $ do
     -- , testCase "open, sell at loss <30, open >30" $ do

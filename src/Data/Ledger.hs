@@ -217,7 +217,8 @@ data LotAndPL k t = LotAndPL
 makeLenses ''LotAndPL
 
 _Lot :: Prism' (LotAndPL k t) (CommodityLot k t)
-_Lot = prism' (LotAndPL BreakEven Nothing 0) (Just . _plLot)
+_Lot = prism' (\l -> LotAndPL BreakEven (l^.purchaseDate) 0 l)
+              (Just . _plLot)
 
 -- instance Show (LotAndPL k t) where
 showLotAndPL :: LotAndPL k t -> String
