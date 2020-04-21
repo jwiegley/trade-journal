@@ -15,16 +15,13 @@ module ThinkOrSwim.Types where
 
 import           Control.Applicative ((<|>))
 import           Control.Lens
-import           Data.Amount
 import           Data.Foldable (foldl')
 import           Data.Ledger as Ledger
 import           Data.Map (Map)
 import qualified Data.Map as M
-import           Data.Maybe (fromMaybe)
 import           Data.Split
 import           Data.Text (Text)
 import           Data.Time
-import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
@@ -41,41 +38,7 @@ transactionRef t = Ref OpeningOrder (t^.xactId) (Just t)
 type CalculatedPL =
     Considered (LotAndPL API.TransactionSubType API.Transaction)
                (CommodityLot API.TransactionSubType API.Transaction)
-
-data TransactionEvent k t = TransactionEvent
-    { _gainOrLoss :: Maybe (Amount 2)
-    , _eventDate  :: Day
-    , _eventLot   :: CommodityLot k t
-    }
-    deriving (Eq, Ord)
-
-makeClassy ''TransactionEvent
-
-instance Show (TransactionEvent k t) where
-    show TransactionEvent {..} =
-        show _gainOrLoss
-            ++ " // " ++ iso8601Show _eventDate
-            ++ " // " ++ showCommodityLot _eventLot
-
-eventToPL :: TransactionEvent k t -> LotAndPL k t
-eventToPL ev = LotAndPL
-    { _plKind = case ev^.gainOrLoss of
-                    Nothing -> BreakEven
-                    -- jww (2020-04-17): Need to factor in time here to
-                    -- determine what the gain/loss period should be.
-                    Just x | x < 0     -> GainShort
-                           | x > 0     -> LossShort
-                           | otherwise -> BreakEven
-    , _plLoss = fromMaybe 0 (ev^.gainOrLoss)
-    , _plLot  = ev^.eventLot
-    }
-
-isDateOrdered :: [TransactionEvent k t] -> Bool
-isDateOrdered [] = True
-isDateOrdered [_] = True
-isDateOrdered (x:y:xs)
-    | x^.eventDate <= y^.eventDate = isDateOrdered (y:xs)
-    | otherwise = False
+               (CommodityLot API.TransactionSubType API.Transaction)
 
 lotDate :: CommodityLot API.TransactionSubType API.Transaction -> Maybe Day
 lotDate l = l^.purchaseDate
@@ -87,16 +50,6 @@ daysApart x yd = do
     xd <- lotDate x
     pure $ xd `diffDays` yd
 
-eventFromPL :: Maybe Day -> LotAndPL API.TransactionSubType API.Transaction
-            -> TransactionEvent API.TransactionSubType API.Transaction
-eventFromPL md LotAndPL {..} = TransactionEvent
-    { _gainOrLoss = if _plLoss /= 0 then Just _plLoss else Nothing
-    , _eventDate  =
-          fromMaybe (error $ "Missing date: " ++ show _plLot)
-                    (md <|> lotDate _plLot)
-    , _eventLot   = _plLot
-    }
-
 renderList :: (a -> Doc) -> [a] -> Doc
 renderList _ [] = brackets empty
 renderList f ts =
@@ -107,11 +60,11 @@ renderList f ts =
 
 data GainsKeeperState k t = GainsKeeperState
     { _openTransactions :: Map Text [CommodityLot k t]
-    , _positionEvents   :: Map Text [TransactionEvent k t]
+    , _positionEvents   :: Map Text [LotAndPL k t]
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''GainsKeeperState
+makeLenses ''GainsKeeperState
 
 newGainsKeeperState :: GainsKeeperState k t
 newGainsKeeperState = GainsKeeperState

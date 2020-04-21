@@ -26,7 +26,7 @@ data Scenario = Scenario
     }
     deriving (Eq, Show)
 
-makeClassy ''Scenario
+makeLenses ''Scenario
 
 newScenario :: Scenario
 newScenario = Scenario

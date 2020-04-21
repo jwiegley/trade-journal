@@ -56,7 +56,7 @@ data Ref t = Ref
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Ref
+makeLenses ''Ref
 
 data Instrument
     = Equity
@@ -81,7 +81,7 @@ data CommodityLot k t = CommodityLot
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''CommodityLot
+makeLenses ''CommodityLot
 
 instance (Eq k, Show k) => Semigroup (CommodityLot k t) where
     x <> y = CommodityLot
@@ -208,15 +208,16 @@ makePrisms ''PL
 
 data LotAndPL k t = LotAndPL
     { _plKind :: PL
+    , _plDay  :: Maybe Day
     , _plLoss :: Amount 2           -- positive is loss, else gain or wash
     , _plLot  :: CommodityLot k t
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''LotAndPL
+makeLenses ''LotAndPL
 
 _Lot :: Prism' (LotAndPL k t) (CommodityLot k t)
-_Lot = prism' (LotAndPL BreakEven 0) (Just . _plLot)
+_Lot = prism' (LotAndPL BreakEven Nothing 0) (Just . _plLot)
 
 -- instance Show (LotAndPL k t) where
 showLotAndPL :: LotAndPL k t -> String
@@ -227,16 +228,20 @@ showLotAndPL x = show (x^.plKind)
 ($$$) :: CommodityLot k t -> Amount 2 -> LotAndPL k t
 l $$$ a = LotAndPL (if | a < 0     -> GainShort
                        | a > 0     -> LossShort
-                       | otherwise -> BreakEven) a l
+                       | otherwise -> BreakEven) (l^.purchaseDate) a l
 
-alignLotAndPL :: CommodityLot k t -> LotAndPL k t
-              -> (Split (CommodityLot k t), Split (LotAndPL k t))
-alignLotAndPL x y =
-    (l, r & unsafePartsOf _Splits
-         %~ fmap (uncurry (LotAndPL (y^.plKind)))
-          . spreadAmounts (^.quantity) (y^.plLoss))
+alignPL :: LotAndPL k t -> LotAndPL k t
+        -> (Split (LotAndPL k t), Split (LotAndPL k t))
+alignPL x y =
+    ( l & unsafePartsOf _Splits
+       %~ fmap (uncurry (LotAndPL (x^.plKind) (x^.plDay)))
+        . spreadAmounts (^.quantity) (x^.plLoss)
+    , r & unsafePartsOf _Splits
+       %~ fmap (uncurry (LotAndPL (y^.plKind) (y^.plDay)))
+        . spreadAmounts (^.quantity) (y^.plLoss)
+    )
   where
-    (l, r) = x `alignLots` (y^.plLot)
+    (l, r) = (x^.plLot) `alignLots` (y^.plLot)
 
 perShareCost :: CommodityLot k t -> Maybe (Amount 6)
 perShareCost CommodityLot {..} =
@@ -301,7 +306,7 @@ data Posting k t = Posting
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Posting
+makeLenses ''Posting
 
 newPosting :: Account -> Bool -> PostingAmount k t -> Posting k t
 newPosting a b m = Posting
@@ -323,7 +328,7 @@ data Transaction k o t = Transaction
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Transaction
+makeLenses ''Transaction
 
 -- | Check the transaction to ensure that it fully balances. The result is an
 --   error string, if an error is detected.

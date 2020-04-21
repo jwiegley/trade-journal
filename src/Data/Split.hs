@@ -51,32 +51,37 @@ isFullTransfer :: (Maybe a, Split t) -> Bool
 isFullTransfer (Nothing, All _) = True
 isFullTransfer _ = False
 
-data Applied v a = Applied
+data Applied v a b = Applied
     { _value :: v
     , _dest  :: Split a
-    , _src   :: Split a
+    , _src   :: Split b
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Applied
+makeLenses ''Applied
 
-nothingApplied :: Default v => a -> a -> Applied v a
+nothingApplied :: Default v => a -> b -> Applied v a b
 nothingApplied x y = Applied def (None x) (None y)
 
-data Considered b a = Considered
-    { _fromList    :: [b]
-    , _newList     :: [a]
-    , _fromElement :: Maybe a
+splits :: Default v => Split a -> Split b -> Applied v a b
+splits = Applied def
+
+data Considered a b c = Considered
+    { _fromList    :: [a]
+    , _newList     :: [b]
+    , _fromElement :: [c]
+    , _newElement  :: Maybe c
     }
     deriving (Eq, Show)
 
-makeClassy ''Considered
+makeLenses ''Considered
 
-newConsidered :: Considered b a
+newConsidered :: Considered a b c
 newConsidered = Considered
     { _fromList    = []
     , _newList     = []
-    , _fromElement = Nothing
+    , _fromElement = []
+    , _newElement  = Nothing
     }
 
 -- Given a list, and an element, determine the following three data:
@@ -84,20 +89,22 @@ newConsidered = Considered
 -- - A revised version of the input list, based on that element
 -- - Elements derived from the input list that become new outputs
 -- - The fragments of the original element
-consider :: (a -> a -> Applied v a) -> (v -> a -> b) -> [a] -> a
-         -> Considered b a
+consider :: (b -> c -> Applied v b c) -> (c -> v -> b -> a) -> [b] -> c
+         -> Considered a b c
 consider f mk lst el =
     result & fromList    %~ reverse
            & newList     %~ reverse
-           & fromElement .~ remaining
+           & fromElement %~ reverse
+           & newElement  .~ remaining
   where
     (remaining, result) = foldl' go (Just el, newConsidered) lst
 
     go (Nothing, c) x = (Nothing, c & newList %~ (x:))
     go (Just z,  c) x =
         ( _src^?_SplitKept
-        , c & fromList    %~ maybe id ((:) . mk _value) (_dest^?_SplitUsed)
+        , c & fromList    %~ maybe id ((:) . mk z _value) (_dest^?_SplitUsed)
             & newList     %~ maybe id (:) (_dest^?_SplitKept)
+            & fromElement %~ maybe id (:) (_src^?_SplitUsed)
         )
       where
         Applied {..} = f x z

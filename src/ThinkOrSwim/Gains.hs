@@ -21,6 +21,7 @@ import Data.Coerce
 import Data.Ledger as Ledger
 import Data.Split
 import Data.Text (Text, unpack)
+import Data.Time
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -47,7 +48,7 @@ gainsKeeper mnet t n = do
         l     = setEvent (coerce cst)
         pl    = calculatePL hist l
         pls   = pl^..fromList.traverse.to (False,)
-             ++ pl^..fromElement.traverse.to (review _Lot).to (True,)
+             ++ pl^..newElement.traverse.to (review _Lot).to (True,)
         fees' = t^.fees_.regFee + t^.fees_.otherCharges + t^.fees_.commission
         pls'  = pls & partsOf (each._2) %~ handleFees fees'
 
@@ -62,32 +63,35 @@ gainsKeeper mnet t n = do
             Nothing -> res'
             Just net ->
                 let slip = - (net + sumLotAndPL res')
-                in res' ++ [ LotAndPL Rounding slip newCommodityLot
+                in res' ++ [ LotAndPL Rounding Nothing slip newCommodityLot
                            | slip /= 0 ]
 
-    when (sym == "") $
+    when (sym == "NFLX") $
         traceCurrentState sym mnet l pls pls' hist hist' doc res' res''
 
     pure res''
   where
     sym = symbolName t
 
-    setEvent cst = newCommodityLot
-        & Ledger.instrument .~ case t^?instrument_._Just.assetType of
-              Just API.Equity           -> Ledger.Equity
-              Just MutualFund           -> Ledger.Equity
-              Just (OptionAsset _)      -> Ledger.Option
-              Just (FixedIncomeAsset _) -> Ledger.Bond
-              Just (CashEquivalentAsset
-                    CashMoneyMarket)    -> Ledger.MoneyMarket
-              Nothing                   -> error "Unexpected"
-        & Ledger.kind     .~ t^.transactionInfo_.transactionSubType
-        & Ledger.symbol   .~ symbolName t
-        & Ledger.quantity .~
-              coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
-        & Ledger.cost  ?~ cst
-        & Ledger.price    .~ coerce (t^.item.API.price)
-        & Ledger.refs     .~ [ transactionRef t ]
+    setEvent cst = newCommodityLot @API.TransactionSubType
+        & Ledger.instrument   .~ instr
+        & Ledger.kind         .~ t^.transactionInfo_.transactionSubType
+        & Ledger.quantity     .~ quant
+        & Ledger.symbol       .~ symbolName t
+        & Ledger.cost         ?~ cst
+        & Ledger.purchaseDate ?~ utctDay (t^.xactDate)
+        & Ledger.refs         .~ [ transactionRef t ]
+        & Ledger.price        .~ coerce (t^.item.API.price)
+      where
+        quant = coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
+        instr = case t^?instrument_._Just.assetType of
+            Just API.Equity           -> Ledger.Equity
+            Just MutualFund           -> Ledger.Equity
+            Just (OptionAsset _)      -> Ledger.Option
+            Just (FixedIncomeAsset _) -> Ledger.Bond
+            Just (CashEquivalentAsset
+                  CashMoneyMarket)    -> Ledger.MoneyMarket
+            Nothing                   -> error "Unexpected"
 
 traceCurrentState
     :: Text
@@ -118,9 +122,9 @@ traceCurrentState sym mnet l pls pls' hist hist' doc res' res'' = do
 calculatePL :: [CommodityLot API.TransactionSubType API.Transaction]
             -> CommodityLot API.TransactionSubType API.Transaction
             -> CalculatedPL
-calculatePL = consider closeLot f
+calculatePL = consider closeLot mk
   where
-    f pl = LotAndPL knd pl
+    mk c pl = LotAndPL knd (c^.purchaseDate) pl
       where
         knd | pl > 0    = LossShort
             | pl < 0    = GainShort
@@ -135,6 +139,7 @@ calculatePL = consider closeLot f
 closeLot :: CommodityLot API.TransactionSubType API.Transaction
          -> CommodityLot API.TransactionSubType API.Transaction
          -> Applied (Amount 2)
+                   (CommodityLot API.TransactionSubType API.Transaction)
                    (CommodityLot API.TransactionSubType API.Transaction)
 closeLot x y | not (pairedCommodityLots x y) = nothingApplied x y
 
@@ -168,7 +173,7 @@ closeLot x y = Applied {..}
 -- it directly to the basis cost, rather than spread it across the multiple
 -- transactions.
 handleFees :: Amount 2 -> [LotAndPL k t] -> [LotAndPL k t]
-handleFees fee [l@(LotAndPL _ 0 x)] =
+handleFees fee [l@(LotAndPL _ _ 0 x)] =
     [ l & plLot.Ledger.cost.mapped +~ coerce (sign x fee) ]
 
 handleFees fee ls = go <$> spreadAmounts (^.plLot.quantity) fee ls

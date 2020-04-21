@@ -41,7 +41,7 @@ data FixedIncome = FixedIncome
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''FixedIncome
+makeLenses ''FixedIncome
 
 data PutCall
     = Put
@@ -66,13 +66,13 @@ data Option = Option
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Option
+makeLenses ''Option
 
 data CashEquivalent
     = CashMoneyMarket
     deriving (Eq, Ord, Show, Enum, Bounded)
 
-makeClassy ''CashEquivalent
+makeLenses ''CashEquivalent
 
 instance FromJSON CashEquivalent where
   parseJSON = withText "cashEquivalent" $ \text ->
@@ -105,7 +105,7 @@ data Instrument = Instrument
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Instrument
+makeLenses ''Instrument
 
 instance FromJSON Instrument where
   parseJSON = withObject "instrument" $ \obj -> do
@@ -188,7 +188,7 @@ data TransactionItem = TransactionItem
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''TransactionItem
+makeLenses ''TransactionItem
 
 instance FromJSON TransactionItem where
   parseJSON = withObject "transactionItem" $ \obj -> do
@@ -218,7 +218,7 @@ data Fees = Fees
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Fees
+makeLenses ''Fees
 
 instance Semigroup Fees where
     x <> y = Fees
@@ -444,7 +444,7 @@ data TransactionInfo t = TransactionInfo
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''TransactionInfo
+makeLenses ''TransactionInfo
 
 data Transaction = Transaction
     { _transactionInfo_              :: TransactionInfo Transaction
@@ -465,7 +465,7 @@ data Transaction = Transaction
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Transaction
+makeLenses ''Transaction
 
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
@@ -508,7 +508,7 @@ data Order = Order
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''Order
+makeLenses ''Order
 
 type CUSIPMap       = Map Text Instrument
 type OrderId        = Text
@@ -523,7 +523,7 @@ data TransactionHistory = TransactionHistory
     }
     deriving (Eq, Ord, Show)
 
-makeClassy ''TransactionHistory
+makeLenses ''TransactionHistory
 
 newTransactionHistory :: TransactionHistory
 newTransactionHistory = TransactionHistory
