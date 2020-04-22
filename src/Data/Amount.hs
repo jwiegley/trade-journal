@@ -26,6 +26,7 @@ module Data.Amount
     , mpfr_RNDA
     , mpfr_RNDF
     , mpfr_RNDNA
+    , sign
     ) where
 
 import           Control.Monad
@@ -199,3 +200,6 @@ spreadAmounts f n input = go True input
     go b (x:xs) = (sum', x) : go False xs
       where
         sum' = sump x + if b then diff else 0
+
+sign :: (Num a, Ord a, Num b) => a -> b -> b
+sign n = (if n < 0 then negate else id) . abs

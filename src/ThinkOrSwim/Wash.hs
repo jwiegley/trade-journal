@@ -185,25 +185,61 @@ Sell Put (Writer) then Close at a Loss
 
 -}
 
-module ThinkOrSwim.Wash (washSaleRule) where
+module ThinkOrSwim.Wash (Transactional(..), washSaleRule) where
 
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Data.Amount
-import Data.Coerce
 import Data.Foldable
-import Data.Ledger as Ledger
 import Data.Maybe (catMaybes, maybeToList)
 import Data.Split
-import Data.Text (Text)
 import Data.Time
 import Data.Tuple (swap)
--- import Debug.Trace
+import Debug.Trace
 import Prelude hiding (Float, Double, (<>))
-import Text.PrettyPrint
-import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import ThinkOrSwim.Types
+import Text.PrettyPrint as P
+
+class Transactional t where
+    quantity :: Lens' t (Amount 4)
+    cost     :: Lens' t (Amount 4)
+    price    :: Lens' t (Amount 4)
+    day      :: Lens' t Day
+    loss     :: Lens' t (Amount 2)
+
+    -- Given a loss-bearing transaction, wash the loss by transferring it to
+    -- the cost basis of the second transaction. The result is the updated
+    -- version of both transactions, the first with loss removed, the second
+    -- with wash loss applied.
+    washLoss :: t -> t -> (t, t)
+
+    -- If this opening transaction has a wash loss applied, unwash it so it
+    -- can be recorded in the history of events that may affect the
+    -- disposition of future losses.
+    unwash :: t -> t
+
+    -- True if this transaction is merely a transfer in from previous books.
+    isTransferIn :: t -> Bool
+
+    -- True if this pair are opening and closing transactions, or closing and
+    -- opening.
+    arePaired :: t -> t -> Bool
+
+    -- True if the second transaction represents an instrument materially
+    -- equivalent to the first.
+    areEquivalent :: t -> t -> Bool
+
+    align :: t -> t -> (Split t, Split t)
+
+    showPretty :: t -> String
+
+renderList :: (a -> Doc) -> [a] -> Doc
+renderList _ [] = brackets P.empty
+renderList f ts =
+    fst (foldl' go (P.empty, True) ts) <> space <> rbrack
+  where
+    go (_, True) x    = (lbrack <> space <> f x, False)
+    go (acc, False) x = (acc $$ comma <> space <> f x, False)
 
 -- Given a history of closing and opening transactions (where the opening
 -- transactions are identified as having a loss of 0.0), determine the washed
@@ -254,37 +290,32 @@ import ThinkOrSwim.Types
 -- whether an applicable losing transaction was made within the last 30 days,
 -- and if so, adjust the cost basis and remove the losing historical
 -- transaction since wash sales are only applied once.
-washSaleRule
-    :: Text
-    -> LotAndPL API.TransactionSubType API.Transaction
-      -- ^ The boolean value is True if is an opening transaction.
-    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            [LotAndPL API.TransactionSubType API.Transaction]
-washSaleRule underlying l = zoom (positionEvents.at underlying.non []) $ do
+washSaleRule :: Transactional a => a -> State [a] [a]
+washSaleRule l = do
     events <- get
 
-    let pr' = text "pl: " <> text (showLotAndPL l)
-           $$ text "ev: " <> renderList (text . showLotAndPL) events
+    let pr' = text "pl: " <> text (showPretty l)
+           $$ text "ev: " <> renderList (text . showPretty) events
 
         rend d (n :: Int) r eb ea = d
            $$ text "e" <> text (show n) <> ": "
-                  <> renderList (text . showLotAndPL) eb
+                  <> renderList (text . showPretty) eb
            $$ text "E" <> text (show n) <> ": "
-                  <> renderList (text . showLotAndPL) ea
+                  <> renderList (text . showPretty) ea
            $$ text "-" <> text (show n) <> "> "
-                  <> renderList (text . showLotAndPL) r
+                  <> renderList (text . showPretty) r
 
         c = wash False events l
 
         pr = pr'
             $$ text "c^.fromList    "
-                <> renderList (text . showLotAndPL) (c^.fromList)
+                <> renderList (text . showPretty) (c^.fromList)
             $$ text "c^.newList     "
-                <> renderList (text . showLotAndPL) (c^.newList)
+                <> renderList (text . showPretty) (c^.newList)
             $$ text "c^.fromElement "
-                <> renderList (text . showLotAndPL) (c^.fromElement)
+                <> renderList (text . showPretty) (c^.fromElement)
             $$ text "c^.newElement  "
-                <> text (show (fmap showLotAndPL (c^.newElement)))
+                <> text (show (fmap showPretty (c^.newElement)))
 
         -- If the result of calling 'wash' is a series of washed losses,
         -- check if there are other openings they could be applied to.
@@ -303,68 +334,42 @@ washSaleRule underlying l = zoom (positionEvents.at underlying.non []) $ do
 
         res = fr ++ maybeToList (c^.newElement)
         evs = fhs ++ fr
-            ++ c^..newElement.each.filtered (\e -> e^.plLoss == 0)
+            ++ c^..newElement.each.filtered (\e -> e^.loss == 0)
 
     -- Do not store wash losses in the transaction history.
-    put $ evs & each.filtered (\e -> e^.plKind == WashLoss) %~ \e ->
-        e & plKind .~ BreakEven
-          & plLoss .~ 0
+    put $ evs & traverse %~ unwash
 
-    renderM $ rend doc 0 res events evs
+    traceM $ render $ rend doc 0 res events evs
 
     pure res
 
-transferLoss
-    :: LotAndPL TransactionSubType API.Transaction
-    -> LotAndPL TransactionSubType API.Transaction
-    -> ( LotAndPL TransactionSubType API.Transaction
-      , LotAndPL TransactionSubType API.Transaction )
-transferLoss x y
-    | abs (x^.plLot.quantity) == abs (y^.plLot.quantity) =
-    ( x & plLoss .~ 0
-    , y & plKind .~ WashLoss
-        & plLoss .~ - (x^.plLoss)
-        & plLot.Ledger.cost._Just +~ coerce (x^.plLoss)
-        & plLot.refs <>~ [ Ref (WashSaleRule (coerce (x^.plLoss)))
-                               (x^?!plLot.refs._head.refId)
-                               (x^?!plLot.refs._head.refOrig) ]
-    )
-transferLoss x y = (x, y)
-
 -- Assumes 'pl' is received in temporal order.
-wash :: Bool
-     -> [LotAndPL TransactionSubType API.Transaction]
-     -> LotAndPL TransactionSubType API.Transaction
-     -> Considered (LotAndPL TransactionSubType API.Transaction)
-                  (LotAndPL TransactionSubType API.Transaction)
-                  (LotAndPL TransactionSubType API.Transaction)
+wash :: Transactional a => Bool -> [a] -> a -> Considered a a a
 wash inverted hs pl =
     consider f mk (Just <$> filter (within 30 pl) hs) pl
         & fromList %~ catMaybes
         & newList  %~ catMaybes
   where
-    aligned   h x = uncurry splits (alignPL h x) & src._Splits %~ Just
+    aligned   h x = uncurry splits (align h x) & src._Splits %~ Just
     unaligned h x = nothingApplied @() (Just h) x
 
     f Nothing _ = error "Unexpected"
     f (Just h) x
-        | not (h^.plLot.Ledger.instrument == Ledger.Equity &&
-             x^.plLot.Ledger.instrument == Ledger.Equity &&
-             (h^.plLot) `pairedCommodityLots` (x^.plLot)) =
-              render_ (text ("h.1 = " ++ showLotAndPL h)) $
-              render_ (text ("x.1 = " ++ showLotAndPL x)) $
+        | not (areEquivalent h x) =
+              trace ("h.1 = " ++ showPretty h) $
+              trace ("x.1 = " ++ showPretty x) $
               unaligned h x
 
         | if inverted then opening else closing =
-              render_ (text ("h.2 = " ++ showLotAndPL h)) $
-              render_ (text ("x.2 = " ++ showLotAndPL x)) $
+              trace ("h.2 = " ++ showPretty h) $
+              trace ("x.2 = " ++ showPretty x) $
               aligned h x
 
         | if inverted then closing else opening =
-              render_ (text ("h.3 = " ++ showLotAndPL h)) $
-              render_ (text ("x.3 = " ++ showLotAndPL x)) $
+              trace ("h.3 = " ++ showPretty h) $
+              trace ("x.3 = " ++ showPretty x) $
               let res = aligned h x
-                  tr  = liftA2 transferLoss in
+                  tr  = liftA2 washLoss in
               case (if inverted then flip else id)
                        tr (res^?src._SplitUsed._Just)
                           (res^?dest._SplitUsed) of
@@ -374,15 +379,13 @@ wash inverted hs pl =
                   Nothing -> res
 
         | otherwise =
-              render_ (text ("h.4 = " ++ showLotAndPL h)) $
-              render_ (text ("x.4 = " ++ showLotAndPL x)) $
+              trace ("h.4 = " ++ showPretty h) $
+              trace ("x.4 = " ++ showPretty x) $
               unaligned h x
       where
-        closing = h^.plLoss == 0 && x^.plLoss >  0
-        opening = h^.plLoss >  0 && x^.plLoss == 0
+        closing = h^.loss == 0 && x^.loss >  0
+        opening = h^.loss >  0 && x^.loss == 0
 
     mk _ _ = id
 
-    within n (view plDay -> Just x) (view plDay -> Just y) =
-        abs (x `diffDays` y) <= n
-    within _ _ _ = False
+    within n x y = abs ((x^.day) `diffDays` (y^.day)) <= n

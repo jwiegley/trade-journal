@@ -32,16 +32,8 @@ import qualified Debug.Trace as Trace
 renderM :: Applicative f => Doc -> f ()
 renderM = Trace.traceM . render
 
-render_ :: Doc -> a -> a
-render_ = Trace.trace . render
-
 transactionRef :: API.Transaction -> Ref API.Transaction
 transactionRef t = Ref OpeningOrder (t^.xactId) (Just t)
-
-type CalculatedPL =
-    Considered (LotAndPL API.TransactionSubType API.Transaction)
-               (CommodityLot API.TransactionSubType API.Transaction)
-               (CommodityLot API.TransactionSubType API.Transaction)
 
 lotDate :: CommodityLot API.TransactionSubType API.Transaction -> Maybe Day
 lotDate l = l^.purchaseDate

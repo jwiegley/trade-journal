@@ -20,6 +20,7 @@ import           Test.Tasty.HUnit
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Convert
 import           ThinkOrSwim.Gains
+import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Types
 
 pl :: Amount 4 -> CommodityLot k t -> CommodityLot k t -> Amount 2
@@ -116,17 +117,17 @@ testGainsKeeper = testGroup "gainsKeeper"
               Nothing
 
     , testCase "handleFees opening position" $
-      handleFees @API.TransactionSubType @API.Transaction
+      handleFees @(LotAndPL API.TransactionSubType API.Transaction)
           0.81 [ 100 @@ 1000.00 $$$ 0.0 ]
           @?= [ 100 @@ 1000.81 $$$ 0.0 ]
 
     , testCase "handleFees closing single position" $
-      handleFees @API.TransactionSubType @API.Transaction
+      handleFees @(LotAndPL API.TransactionSubType API.Transaction)
           0.81 [ (-100) @@ 1000.81 $$$ 199.19 ]
           @?= [ (-100) @@ 1000.81 $$$ 200.00 ]
 
     , testCase "handleFees closing multiple positions 1" $
-      handleFees @API.TransactionSubType @API.Transaction
+      handleFees @(LotAndPL API.TransactionSubType API.Transaction)
           0.81 [ (-100) @@ 1000.81 $$$ (-100.00)
                , (-100) @@ 1000.81 $$$ (-100.00)
                ]
@@ -135,7 +136,7 @@ testGainsKeeper = testGroup "gainsKeeper"
               ]
 
     , testCase "handleFees closing multiple positions 2" $
-      handleFees @API.TransactionSubType @API.Transaction
+      handleFees @(LotAndPL API.TransactionSubType API.Transaction)
           0.83 [ (-10.00) @@ 19740.50 $$$ (-100.00)
                , (-10.00) @@ 19707.90 $$$ (-100.00)
                ]
@@ -144,7 +145,7 @@ testGainsKeeper = testGroup "gainsKeeper"
               ]
 
     , testCase "handleFees closing multiple positions 3" $
-      handleFees @API.TransactionSubType @API.Transaction
+      handleFees @(LotAndPL API.TransactionSubType API.Transaction)
           0.47 [ (-689.00) @@ 11864.3044 $$$ (-34.87)
                , (-300.00) @@ 5165.97 $$$ (-15.09)
                ]
@@ -279,6 +280,8 @@ testGainsKeeper = testGroup "gainsKeeper"
 -}
     ]
   where
+    q12c300, qn12c300, q10c500, qn10c500, q12c500, qn12c500, q10c300, qn10c300
+        :: CommodityLot API.TransactionSubType API.Transaction
     q12c300  =    12 @@ 300
     qn12c300 = (-12) @@ 300
     q10c500  =    10 @@ 500

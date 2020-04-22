@@ -22,13 +22,14 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Text.Show.Pretty
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API hiding (cost)
+import ThinkOrSwim.Gains
 import ThinkOrSwim.Types
 import ThinkOrSwim.Wash
 
 testWashSaleRule :: TestTree
 testWashSaleRule = testGroup "washSaleRule"
     [ testCase "open" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
           wash "AAPL" aapl0215 @?==
               ( [ aapl0215 ]
@@ -36,7 +37,7 @@ testWashSaleRule = testGroup "washSaleRule"
               )
 
     , testCase "open, open <30" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
               aapl0216 = 12@@300 ## "2020-02-16" $$$ 0.00
           wash "AAPL" aapl0215
@@ -47,7 +48,7 @@ testWashSaleRule = testGroup "washSaleRule"
               )
 
     , testCase "open, open >30" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
               aapl0416 = 12@@300 ## "2020-04-16" $$$ 0.00
           wash "AAPL" aapl0215
@@ -57,7 +58,7 @@ testWashSaleRule = testGroup "washSaleRule"
               )
 
     , testCase "open, sell at loss <30" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215 =    12@@300 ## "2020-02-15" $$$    0.00
               aapl0216 = (-12)@@200 ## "2020-02-16" $$$ 1200.00
           wash "AAPL" aapl0215
@@ -67,7 +68,7 @@ testWashSaleRule = testGroup "washSaleRule"
               )
 
     , testCase "open, sell at gain" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215 =    12@@300 ## "2020-02-15" $$$      0.00
               aapl0216 = (-12)@@400 ## "2020-02-16" $$$ (-1200.00)
           wash "AAPL" aapl0215
@@ -77,7 +78,7 @@ testWashSaleRule = testGroup "washSaleRule"
               )
 
     , testCase "open, sell at loss >30" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215 =    12@@300 ## "2020-02-15" $$$    0.00
               aapl0416 = (-12)@@200 ## "2020-04-16" $$$ 1200.00
           wash "AAPL" aapl0215
@@ -87,7 +88,7 @@ testWashSaleRule = testGroup "washSaleRule"
               )
 
     , testCase "open, sell at loss <30, open again <30" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215o =    12@@300 ## "2020-02-15" $$$     0.00
                   & plLot.refs .~ [ openRef & refId .~ 1 ]
               aapl0216c = (-12)@@290 ## "2020-02-16" $$$   120.00
@@ -122,7 +123,7 @@ testWashSaleRule = testGroup "washSaleRule"
 
 {-
     , testCase "open, open, sell at loss <30" $
-      flip evalStateT newGainsKeeperState $ do
+      flip evalStateT [] $ do
           let aapl0215o1  =    12@@300 ## "2020-02-15" $$$   0.00
                   & plLot.refs .~ [ openRef & refId .~ 1 ]
               aapl0216o2  =    10@@310 ## "2020-02-16" $$$   0.00
@@ -189,10 +190,10 @@ action @?== result = do
 
 wash :: Text
      -> LotAndPL API.TransactionSubType API.Transaction
-     -> StateT (GainsKeeperState API.TransactionSubType API.Transaction)
+     -> StateT [LotAndPL API.TransactionSubType API.Transaction]
            IO ( [LotAndPL API.TransactionSubType API.Transaction]
               , [LotAndPL API.TransactionSubType API.Transaction] )
 wash sym pls = hoist (pure . runIdentity) $ do
-    res <- washSaleRule sym pls
-    events <- use (positionEvents.at sym)
-    pure (fromMaybe [] events, res)
+    res <- washSaleRule pls
+    events <- get
+    pure (events, res)

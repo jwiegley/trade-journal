@@ -39,6 +39,7 @@ library:
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
     - ThinkOrSwim.Gains
+    - ThinkOrSwim.Transaction
     - ThinkOrSwim.Types
     - ThinkOrSwim.Wash
 

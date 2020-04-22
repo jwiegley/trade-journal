@@ -114,12 +114,12 @@ instance (Eq k, Show k) => Semigroup (CommodityLot k t) where
         }
       where
         q = x^.quantity + y^.quantity
-        c = liftA2 (+) (sign x <$> x^.cost)
-                       (sign y <$> y^.cost)
+        c = liftA2 (+) (sign (x^.quantity) <$> x^.cost)
+                       (sign (y^.quantity) <$> y^.cost)
 
 lotPrice :: CommodityLot k t -> Maybe (Amount 4)
 lotPrice l = case l^.instrument of
-    Equity  -> sign l <$> l^.price
+    Equity  -> sign (l^.quantity) <$> l^.price
         <|> (/ l^.quantity) <$> l^.cost
     Option -> Nothing            -- jww (2020-04-16): NYI
     _      -> Nothing            -- jww (2020-04-16): NYI
@@ -142,15 +142,15 @@ alignLots x y
     | abs xq == abs yq  = ( All  x, All  y )
     | abs xq <  abs yq  =
         ( All x
-        , Some (y & quantity .~ sign y xq
+        , Some (y & quantity .~ sign yq xq
                   & cost     ?~ abs xq * yps)
-               (y & quantity .~ sign y diff
+               (y & quantity .~ sign yq diff
                   & cost     ?~ diff * yps)
         )
     | otherwise =
-        ( Some (x & quantity .~ sign x yq
+        ( Some (x & quantity .~ sign xq yq
                   & cost     ?~ abs yq * xps)
-               (x & quantity .~ sign x diff
+               (x & quantity .~ sign xq diff
                   & cost     ?~ diff * xps)
         , All y
         )
@@ -162,9 +162,6 @@ alignLots x y
     xps   = xcst / abs xq
     yps   = ycst / abs yq
     diff  = abs (abs xq - abs yq)
-
-sign :: Num a => CommodityLot k t -> a -> a
-sign l = (if l^.quantity < 0 then negate else id) . abs
 
 newCommodityLot :: Default k => CommodityLot k t
 newCommodityLot = CommodityLot
@@ -255,7 +252,7 @@ sumLotAndPL :: [LotAndPL k t] -> Amount 2
 sumLotAndPL = foldl' go 0
   where
     norm      = normalizeAmount mpfr_RNDNA
-    cst l     = sign l (fromMaybe 0 (l^.cost))
+    cst l     = sign (l^.quantity) (fromMaybe 0 (l^.cost))
     go acc pl = acc + norm (coerce (cst (pl^.plLot))) + norm (pl^.plLoss)
 
 data PostingAmount k t
