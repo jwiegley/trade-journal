@@ -30,7 +30,7 @@ testWashSaleRule = testGroup "washSaleRule"
     [ testCase "open" $
       flip evalStateT newGainsKeeperState $ do
           let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
-          wash "AAPL" [ aapl0215 ] @?==
+          wash "AAPL" aapl0215 @?==
               ( [ aapl0215 ]
               , [ aapl0215 ]
               )
@@ -39,8 +39,8 @@ testWashSaleRule = testGroup "washSaleRule"
       flip evalStateT newGainsKeeperState $ do
           let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
               aapl0216 = 12@@300 ## "2020-02-16" $$$ 0.00
-          wash "AAPL" [ aapl0215 ]
-          wash "AAPL" [ aapl0216 ] @?==
+          wash "AAPL" aapl0215
+          wash "AAPL" aapl0216 @?==
               ( [ aapl0215
                 , aapl0216 ]
               , [ aapl0216 ]
@@ -50,8 +50,8 @@ testWashSaleRule = testGroup "washSaleRule"
       flip evalStateT newGainsKeeperState $ do
           let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
               aapl0416 = 12@@300 ## "2020-04-16" $$$ 0.00
-          wash "AAPL" [ aapl0215 ]
-          wash "AAPL" [ aapl0416 ] @?==
+          wash "AAPL" aapl0215
+          wash "AAPL" aapl0416 @?==
               ( [ aapl0416 ]
               , [ aapl0416 ]
               )
@@ -60,8 +60,8 @@ testWashSaleRule = testGroup "washSaleRule"
       flip evalStateT newGainsKeeperState $ do
           let aapl0215 =    12@@300 ## "2020-02-15" $$$    0.00
               aapl0216 = (-12)@@200 ## "2020-02-16" $$$ 1200.00
-          wash "AAPL" [ aapl0215 ]
-          wash "AAPL" [ aapl0216 ] @?==
+          wash "AAPL" aapl0215
+          wash "AAPL" aapl0216 @?==
               ( [ aapl0216 ]
               , [ aapl0216 ]
               )
@@ -70,8 +70,8 @@ testWashSaleRule = testGroup "washSaleRule"
       flip evalStateT newGainsKeeperState $ do
           let aapl0215 =    12@@300 ## "2020-02-15" $$$      0.00
               aapl0216 = (-12)@@400 ## "2020-02-16" $$$ (-1200.00)
-          wash "AAPL" [ aapl0215 ]
-          wash "AAPL" [ aapl0216 ] @?==
+          wash "AAPL" aapl0215
+          wash "AAPL" aapl0216 @?==
               ( [ aapl0215 ]
               , [ aapl0216 ]
               )
@@ -80,8 +80,8 @@ testWashSaleRule = testGroup "washSaleRule"
       flip evalStateT newGainsKeeperState $ do
           let aapl0215 =    12@@300 ## "2020-02-15" $$$    0.00
               aapl0416 = (-12)@@200 ## "2020-04-16" $$$ 1200.00
-          wash "AAPL" [ aapl0215 ]
-          wash "AAPL" [ aapl0416 ] @?==
+          wash "AAPL" aapl0215
+          wash "AAPL" aapl0416 @?==
               ( [ ]
               , [ aapl0416 ]
               )
@@ -96,16 +96,16 @@ testWashSaleRule = testGroup "washSaleRule"
               aapl0217o =    12@@300 ## "2020-02-17" $$$     0.00
                   & plLot.refs .~ [ openRef & refId .~ 3 ]
 
-          wash "AAPL" [ aapl0215o ] @?==
+          wash "AAPL" aapl0215o @?==
               ( [ aapl0215o ]
               , [ aapl0215o ]
               )
-          wash "AAPL" [ aapl0216c ] @?==
+          wash "AAPL" aapl0216c @?==
               ( [ aapl0216c ]
               , [ aapl0216c ]
               )
           wash "AAPL"
-              [ aapl0217o ]
+              aapl0217o
               @?==
               ( [ 12@@420 ## "2020-02-17" $$$ 0.00
                       & plLot.refs .~
@@ -188,11 +188,11 @@ action @?== result = do
     lift $ assertEqual' "" result res
 
 wash :: Text
-     -> [LotAndPL API.TransactionSubType API.Transaction]
+     -> LotAndPL API.TransactionSubType API.Transaction
      -> StateT (GainsKeeperState API.TransactionSubType API.Transaction)
            IO ( [LotAndPL API.TransactionSubType API.Transaction]
               , [LotAndPL API.TransactionSubType API.Transaction] )
 wash sym pls = hoist (pure . runIdentity) $ do
-    res <- washSaleRule sym ((True,) <$> pls)
+    res <- washSaleRule sym pls
     events <- use (positionEvents.at sym)
-    pure (fromMaybe [] events, map snd res)
+    pure (fromMaybe [] events, res)

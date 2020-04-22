@@ -199,6 +199,7 @@ import Data.Split
 import Data.Text (Text)
 import Data.Time
 import Data.Tuple (swap)
+-- import Debug.Trace
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -255,64 +256,63 @@ import ThinkOrSwim.Types
 -- transaction since wash sales are only applied once.
 washSaleRule
     :: Text
-    -> [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
+    -> LotAndPL API.TransactionSubType API.Transaction
       -- ^ The boolean value is True if is an opening transaction.
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            [(Bool, LotAndPL API.TransactionSubType API.Transaction)]
-washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
-    fmap concat $ forM ls $ \(b, l) -> do
-        events <- get
+            [LotAndPL API.TransactionSubType API.Transaction]
+washSaleRule underlying l = zoom (positionEvents.at underlying.non []) $ do
+    events <- get
 
-        let pr' = text "pl: " <> text (showLotAndPL l)
-               $$ text "ev: " <> renderList (text . showLotAndPL) events
+    let pr' = text "pl: " <> text (showLotAndPL l)
+           $$ text "ev: " <> renderList (text . showLotAndPL) events
 
-            rend d (n :: Int) r eb ea = d
-               $$ text "e" <> text (show n) <> ": "
-                      <> renderList (text . showLotAndPL) eb
-               $$ text "E" <> text (show n) <> ": "
-                      <> renderList (text . showLotAndPL) ea
-               $$ text "-" <> text (show n) <> "> "
-                      <> renderList (text . showLotAndPL) r
+        rend d (n :: Int) r eb ea = d
+           $$ text "e" <> text (show n) <> ": "
+                  <> renderList (text . showLotAndPL) eb
+           $$ text "E" <> text (show n) <> ": "
+                  <> renderList (text . showLotAndPL) ea
+           $$ text "-" <> text (show n) <> "> "
+                  <> renderList (text . showLotAndPL) r
 
-            c = wash False events l
+        c = wash False events l
 
-            pr = pr'
-                $$ text "c^.fromList    "
-                    <> renderList (text . showLotAndPL) (c^.fromList)
-                $$ text "c^.newList     "
-                    <> renderList (text . showLotAndPL) (c^.newList)
-                $$ text "c^.fromElement "
-                    <> renderList (text . showLotAndPL) (c^.fromElement)
-                $$ text "c^.newElement  "
-                    <> text (show (fmap showLotAndPL (c^.newElement)))
+        pr = pr'
+            $$ text "c^.fromList    "
+                <> renderList (text . showLotAndPL) (c^.fromList)
+            $$ text "c^.newList     "
+                <> renderList (text . showLotAndPL) (c^.newList)
+            $$ text "c^.fromElement "
+                <> renderList (text . showLotAndPL) (c^.fromElement)
+            $$ text "c^.newElement  "
+                <> text (show (fmap showLotAndPL (c^.newElement)))
 
-            -- If the result of calling 'wash' is a series of washed losses,
-            -- check if there are other openings they could be applied to.
-            (doc, _, fr, fhs) =
-                (\f -> foldl' f (pr, 1, [], c^.newList)
-                               (c^.fromElement)) $ \(d, n, r, hs) e ->
-                    let i  = wash True hs e
-                        r' = r -- ++ i^.fromElement
-                               ++ i^.fromList
-                               ++ maybeToList (i^.newElement)
-                        h' = i^.newList
-                    in ( rend d n r' hs h'
-                       , succ n
-                       , r'
-                       , h' )
+        -- If the result of calling 'wash' is a series of washed losses,
+        -- check if there are other openings they could be applied to.
+        (doc, _, fr, fhs) =
+            (\f -> foldl' f (pr, 1, [], c^.newList)
+                           (c^.fromElement)) $ \(d, n, r, hs) e ->
+                let i  = wash True hs e
+                    r' = r -- ++ i^.fromElement
+                           ++ i^.fromList
+                           ++ maybeToList (i^.newElement)
+                    h' = i^.newList
+                in ( rend d n r' hs h'
+                   , succ n
+                   , r'
+                   , h' )
 
-            res = fr ++ maybeToList (c^.newElement)
-            evs = fhs ++ fr
-                ++ c^..newElement.each.filtered (\e -> e^.plLoss == 0)
+        res = fr ++ maybeToList (c^.newElement)
+        evs = fhs ++ fr
+            ++ c^..newElement.each.filtered (\e -> e^.plLoss == 0)
 
-        -- Do not store wash losses in the transaction history.
-        put $ evs & each.filtered (\e -> e^.plKind == WashLoss) %~ \e ->
-            e & plKind .~ BreakEven
-              & plLoss .~ 0
+    -- Do not store wash losses in the transaction history.
+    put $ evs & each.filtered (\e -> e^.plKind == WashLoss) %~ \e ->
+        e & plKind .~ BreakEven
+          & plLoss .~ 0
 
-        renderM $ rend doc 0 res events evs
+    renderM $ rend doc 0 res events evs
 
-        pure $ (b,) <$> res
+    pure res
 
 transferLoss
     :: LotAndPL TransactionSubType API.Transaction

@@ -57,7 +57,8 @@ gainsKeeper mnet t n = do
     -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash sale
     -- rule on purchase of a call contract after an equity loss.
     res <- if l^.Ledger.instrument == Ledger.Equity
-          then washSaleRule (t^.baseSymbol) pls'
+          then fmap concat $ forM pls' $ \(b, x) ->
+              fmap (b,) <$> washSaleRule (t^.baseSymbol) x
           else pure pls'
 
     let hist' = pl^.newList ++ res^..traverse.filtered fst._2.plLot
