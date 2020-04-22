@@ -92,13 +92,9 @@ testWashSaleRule = testGroup "washSaleRule"
                   & plLot.refs .~ [ openRef & refId .~ 1 ]
               aapl0216c = (-12)@@290 ## "2020-02-16" $$$   120.00
                   & plKind     .~ LossShort
-                  & plLot.refs .~ [ openRef & refId .~ 2 ]
-              aapl0215w =    12@@420 ## "2020-02-15" $$$ (-120.00)
-                  & plKind      .~ WashLoss
-                  & plLot.refs  .~
-                      [ openRef & refId .~ 3
-                      , Ref (WashSaleRule 120.00) 1 Nothing
-                      ]
+                  & plLot.refs .~ [ openRef & refId .~ 1 ]
+              aapl0217o =    12@@300 ## "2020-02-17" $$$     0.00
+                  & plLot.refs .~ [ openRef & refId .~ 3 ]
 
           wash "AAPL" [ aapl0215o ] @?==
               ( [ aapl0215o ]
@@ -108,13 +104,20 @@ testWashSaleRule = testGroup "washSaleRule"
               ( [ aapl0216c ]
               , [ aapl0216c ]
               )
-          wash "AAPL" [ aapl0215o ] @?==
-              ( [ aapl0215w
-                      & plKind     .~ BreakEven
-                      & plLoss     .~ 0
-                      & plLot.refs .~ [ openRef & refId .~ 3 ]
+          wash "AAPL"
+              [ aapl0217o ]
+              @?==
+              ( [ 12@@420 ## "2020-02-17" $$$ 0.00
+                      & plLot.refs .~
+                          [ openRef & refId .~ 3
+                          , Ref (WashSaleRule 120.00) 1 Nothing ]
                 ]
-              , [ aapl0215w ]
+              , [ 12@@420 ## "2020-02-17" $$$ (-120.00)
+                      & plKind      .~ WashLoss
+                      & plLot.refs  .~
+                          [ openRef & refId .~ 3
+                          , Ref (WashSaleRule 120.00) 1 Nothing ]
+                ]
               )
 
 {-
@@ -182,7 +185,7 @@ assertEqual' preface expected actual =
 (@?==) :: (Show a, Eq a) => StateT s IO a -> a -> StateT s IO ()
 action @?== result = do
     res <- action
-    lift $ assertEqual' "" res result
+    lift $ assertEqual' "" result res
 
 wash :: Text
      -> [LotAndPL API.TransactionSubType API.Transaction]

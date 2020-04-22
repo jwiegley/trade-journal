@@ -277,10 +277,14 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
             c = wash False events l
 
             pr = pr'
-                $$ text "c^.fromList    " <> renderList (text . showLotAndPL) (c^.fromList)
-                $$ text "c^.newList     " <> renderList (text . showLotAndPL) (c^.newList)
-                $$ text "c^.fromElement " <> renderList (text . showLotAndPL) (c^.fromElement)
-                $$ text "c^.newElement  " <> text (show (fmap showLotAndPL (c^.newElement)))
+                $$ text "c^.fromList    "
+                    <> renderList (text . showLotAndPL) (c^.fromList)
+                $$ text "c^.newList     "
+                    <> renderList (text . showLotAndPL) (c^.newList)
+                $$ text "c^.fromElement "
+                    <> renderList (text . showLotAndPL) (c^.fromElement)
+                $$ text "c^.newElement  "
+                    <> text (show (fmap showLotAndPL (c^.newElement)))
 
             -- If the result of calling 'wash' is a series of washed losses,
             -- check if there are other openings they could be applied to.
@@ -298,11 +302,13 @@ washSaleRule underlying ls = zoom (positionEvents.at underlying.non []) $
                        , h' )
 
             res = fr ++ maybeToList (c^.newElement)
-            evs = fhs ++ fr ++ case c^.newElement of
-                Just e | e^.plLoss == 0 -> [e]
-                _ -> []
+            evs = fhs ++ fr
+                ++ c^..newElement.each.filtered (\e -> e^.plLoss == 0)
 
-        put evs
+        -- Do not store wash losses in the transaction history.
+        put $ evs & each.filtered (\e -> e^.plKind == WashLoss) %~ \e ->
+            e & plKind .~ BreakEven
+              & plLoss .~ 0
 
         renderM $ rend doc 0 res events evs
 
@@ -364,7 +370,7 @@ wash inverted hs pl =
                           (res^?dest._SplitUsed) of
                   Just (if inverted then swap else id -> (ud, us)) ->
                       res & src._SplitUsed._Just .~ ud
-                          & dest._SplitUsed        .~ us
+                          & dest._SplitUsed .~ us
                   Nothing -> res
 
         | otherwise =
