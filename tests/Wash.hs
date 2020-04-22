@@ -12,13 +12,15 @@
 module Wash (testWashSaleRule) where
 
 import Control.Lens
+import Control.Monad
 import Control.Monad.Morph
 import Control.Monad.Trans.State
 import Data.Ledger
-import Data.Maybe (fromJust)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Test.Tasty
 import Test.Tasty.HUnit
+import Text.Show.Pretty
 import ThinkOrSwim.API.TransactionHistory.GetTransactions as API hiding (cost)
 import ThinkOrSwim.Types
 import ThinkOrSwim.Wash
@@ -39,46 +41,64 @@ testWashSaleRule = testGroup "washSaleRule"
               aapl0216 = 12@@300 ## "2020-02-16" $$$ 0.00
           wash "AAPL" [ aapl0215 ]
           wash "AAPL" [ aapl0216 ] @?==
-              ( [ aapl0216 ]
-              , [ aapl0215
+              ( [ aapl0215
                 , aapl0216 ]
+              , [ aapl0216 ]
               )
 
     , testCase "open, open >30" $
       flip evalStateT newGainsKeeperState $ do
           let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
-          wash "AAPL" [ aapl0215 ] @?==
-              ( [ ]
-              , [ ]
+              aapl0416 = 12@@300 ## "2020-04-16" $$$ 0.00
+          wash "AAPL" [ aapl0215 ]
+          wash "AAPL" [ aapl0416 ] @?==
+              ( [ aapl0416 ]
+              , [ aapl0416 ]
               )
 
     , testCase "open, sell at loss <30" $
       flip evalStateT newGainsKeeperState $ do
-          let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
-          wash "AAPL" [ aapl0215 ] @?==
-              ( [ ]
-              , [ ]
+          let aapl0215 =    12@@300 ## "2020-02-15" $$$    0.00
+              aapl0216 = (-12)@@200 ## "2020-02-16" $$$ 1200.00
+          wash "AAPL" [ aapl0215 ]
+          wash "AAPL" [ aapl0216 ] @?==
+              ( [ aapl0216 ]
+              , [ aapl0216 ]
+              )
+
+    , testCase "open, sell at gain" $
+      flip evalStateT newGainsKeeperState $ do
+          let aapl0215 =    12@@300 ## "2020-02-15" $$$      0.00
+              aapl0216 = (-12)@@400 ## "2020-02-16" $$$ (-1200.00)
+          wash "AAPL" [ aapl0215 ]
+          wash "AAPL" [ aapl0216 ] @?==
+              ( [ aapl0215 ]
+              , [ aapl0216 ]
               )
 
     , testCase "open, sell at loss >30" $
       flip evalStateT newGainsKeeperState $ do
-          let aapl0215 = 12@@300 ## "2020-02-15" $$$ 0.00
-          wash "AAPL" [ aapl0215 ] @?==
+          let aapl0215 =    12@@300 ## "2020-02-15" $$$    0.00
+              aapl0416 = (-12)@@200 ## "2020-04-16" $$$ 1200.00
+          wash "AAPL" [ aapl0215 ]
+          wash "AAPL" [ aapl0416 ] @?==
               ( [ ]
-              , [ ]
+              , [ aapl0416 ]
               )
 
     , testCase "open, sell at loss <30, open again <30" $
       flip evalStateT newGainsKeeperState $ do
           let aapl0215o =    12@@300 ## "2020-02-15" $$$     0.00
-                  & plLot.refs .~ [ openRef ]
+                  & plLot.refs .~ [ openRef & refId .~ 1 ]
               aapl0216c = (-12)@@290 ## "2020-02-16" $$$   120.00
                   & plKind     .~ LossShort
-                  & plLot.refs .~ [ openRef ]
+                  & plLot.refs .~ [ openRef & refId .~ 2 ]
               aapl0215w =    12@@420 ## "2020-02-15" $$$ (-120.00)
-                  & plKind     .~ WashLoss
-                  & plLot.refs .~
-                      [ openRef, Ref (WashSaleRule 120.00) 1 Nothing ]
+                  & plKind      .~ WashLoss
+                  & plLot.refs  .~
+                      [ openRef & refId .~ 3
+                      , Ref (WashSaleRule 120.00) 1 Nothing
+                      ]
 
           wash "AAPL" [ aapl0215o ] @?==
               ( [ aapl0215o ]
@@ -89,10 +109,15 @@ testWashSaleRule = testGroup "washSaleRule"
               , [ aapl0216c ]
               )
           wash "AAPL" [ aapl0215o ] @?==
-              ( [ aapl0215w ]
+              ( [ aapl0215w
+                      & plKind     .~ BreakEven
+                      & plLoss     .~ 0
+                      & plLot.refs .~ [ openRef & refId .~ 3 ]
+                ]
               , [ aapl0215w ]
               )
 
+{-
     , testCase "open, open, sell at loss <30" $
       flip evalStateT newGainsKeeperState $ do
           let aapl0215o1  =    12@@300 ## "2020-02-15" $$$   0.00
@@ -137,15 +162,27 @@ testWashSaleRule = testGroup "washSaleRule"
                           [ openRef & refId .~ 2
                           , Ref (WashSaleRule 100.00) 1 Nothing ] ]
               )
+-}
     ]
 
 openRef :: Ref API.Transaction
 openRef = Ref OpeningOrder 1 Nothing
 
+assertEqual'
+  :: (Eq a, Show a, HasCallStack)
+  => String -- ^ The message prefix
+  -> a      -- ^ The expected value
+  -> a      -- ^ The actual value
+  -> Assertion
+assertEqual' preface expected actual =
+  unless (actual == expected) (assertFailure msg)
+ where msg = (if null preface then "" else preface ++ "\n") ++
+             "expected: " ++ ppShow expected ++ "\n but got: " ++ ppShow actual
+
 (@?==) :: (Show a, Eq a) => StateT s IO a -> a -> StateT s IO ()
 action @?== result = do
     res <- action
-    lift $ res @?= result
+    lift $ assertEqual' "" res result
 
 wash :: Text
      -> [LotAndPL API.TransactionSubType API.Transaction]
@@ -155,4 +192,4 @@ wash :: Text
 wash sym pls = hoist (pure . runIdentity) $ do
     res <- washSaleRule sym ((True,) <$> pls)
     events <- use (positionEvents.at sym)
-    pure (fromJust events, map snd res)
+    pure (fromMaybe [] events, map snd res)

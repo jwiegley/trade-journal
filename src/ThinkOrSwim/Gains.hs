@@ -44,19 +44,19 @@ gainsKeeper mnet t n = do
     -- short sale. If there are existing lots for this symbol, then if the
     -- current transaction would add to or deduct from those positions, then
     -- it closes as much of those previous positions as quantities dictate.
-    let cst   = abs (t^.item.API.cost)
-        l     = setEvent (coerce cst)
-        pl    = calculatePL hist l
-        pls   = pl^..fromList.traverse.to (False,)
-             ++ pl^..newElement.traverse.to (review _Lot).to (True,)
-        fees' = t^.fees_.regFee
-              + t^.fees_.otherCharges
-              + t^.fees_.commission
-        pls'  = pls & partsOf (each._2) %~ handleFees fees'
+    let cst  = abs (t^.item.API.cost)
+        l    = setEvent (coerce cst)
+        pl   = calculatePL hist l
+        pls  = pl^..fromList.traverse.to (False,)
+            ++ pl^..newElement.traverse.to (review _Lot).to (True,)
+        fees = t^.fees_.regFee
+             + t^.fees_.otherCharges
+             + t^.fees_.commission
+        pls' = pls & partsOf (each._2) %~ handleFees fees
 
-    res <- -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash sale
-          -- rule on purchase of a call contract after an equity loss.
-          if l^.Ledger.instrument == Ledger.Equity
+    -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash sale
+    -- rule on purchase of a call contract after an equity loss.
+    res <- if l^.Ledger.instrument == Ledger.Equity
           then washSaleRule (t^.baseSymbol) pls'
           else pure pls'
 
