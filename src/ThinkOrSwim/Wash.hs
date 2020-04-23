@@ -192,10 +192,9 @@ import Control.Lens
 import Control.Monad.State
 import Data.Amount
 import Data.Foldable
-import Data.Maybe (catMaybes, maybeToList)
+import Data.Maybe (maybeToList)
 import Data.Split
 import Data.Time
-import Data.Tuple (swap)
 import Debug.Trace
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
@@ -305,7 +304,17 @@ washSaleRule l = do
            $$ text "-" <> text (show n) <> "> "
                   <> renderList (text . showPretty) r
 
-        c = wash False events l
+        -- Loss is transferring either from a past loss to a new opening
+        -- transaction, or from a current loss to a previous opening.
+        handleLoss r =
+            case liftA2 washLoss (r^?src._SplitUsed)
+                                 (r^?dest._SplitUsed) of
+                Just (ud, us) ->
+                    r & src._SplitUsed .~ ud
+                      & dest._SplitUsed .~ us
+                Nothing -> r
+
+        c = matchEvents events l handleLoss
 
         pr = pr'
             $$ text "c^.fromList    "
@@ -323,7 +332,7 @@ washSaleRule l = do
         (doc, _, fr, fhs) =
             (\f -> foldl' f (pr, 1, [], c^.newList)
                            (c^.fromElement)) $ \(d, n, r, hs) e ->
-                let i  = wash True hs e
+                let i  = matchEvents hs e handleLoss
                     r' = r -- ++ i^.fromElement
                            ++ i^.fromList
                            ++ maybeToList (i^.newElement)
@@ -361,51 +370,35 @@ washSaleRule l = do
 --      and remove (1). The repriced (2) is left in the history because future
 --      losses may apply to it.
 
-wash :: Transactional a => Bool -> [a] -> a -> Considered a a a
-wash repricing hs pl =
-    consider f mk (Just <$> filter (within 30 pl) hs) pl
-        & fromList %~ catMaybes
-        & newList  %~ catMaybes
+-- Given a list of transactional elements, and some candidate, find all parts
+-- of elements in the first list that "match up" with the candidate. The
+-- function 'k' offers an opportunity to modify the parts used and not used in
+-- the source and destination at each step.
+--
+-- Example: [10, 20, 30, 40], 50
+-- Result: Considered
+--     _fromList    = [10, 20, 20]
+--     _newList     =         [10, 40]
+--     _fromElement = [50]
+--     _newElement  = Nothing
+--
+-- Example: [10, 20, 30, 40], 200
+-- Result: Considered
+--     _fromList    = [10, 20, 30, 40]
+--     _newList     = []
+--     _fromElement =     [100]
+--     _newElement  = Just 100
+matchEvents :: Transactional a
+            => [a] -> a -> (Applied () a a -> Applied () a a)
+            -> Considered a a a
+matchEvents hs pl k = consider f mk (filter (within 30 pl) hs) pl
   where
-    aligned   h x = uncurry splits (align h x) & src._Splits %~ Just
-    unaligned h x = nothingApplied @() (Just h) x
+    mk _ ()      = id
+    aligned h x  = uncurry splits (align h x)
+    within n x y = abs ((x^.day) `diffDays` (y^.day)) <= n
 
-    f Nothing _ = error "Unexpected"
-    f (Just h) x
-        | not (areEquivalent h x) =
-              trace ("h.1 = " ++ showPretty h) $
-              trace ("x.1 = " ++ showPretty x) $
-              unaligned h x
-
-        | not repricing && closing =
-              trace ("h.2 = " ++ showPretty h) $
-              trace ("x.2 = " ++ showPretty x) $
-              aligned h x
-
-        -- Loss is transferring either from a past loss to a new opening
-        -- transaction (repricing == False), or from a current loss to a
-        -- previous opening (repricing == True).
-        | if repricing then closing else opening =
-              trace ("h.3 = " ++ showPretty h) $
-              trace ("x.3 = " ++ showPretty x) $
-              let res = aligned h x
-                  tr  = liftA2 washLoss in
-              case (if repricing then flip else id)
-                       tr (res^?src._SplitUsed._Just)
-                          (res^?dest._SplitUsed) of
-                  Just (if repricing then swap else id -> (ud, us)) ->
-                      res & src._SplitUsed._Just .~ ud
-                          & dest._SplitUsed .~ us
-                  Nothing -> res
-
-        | otherwise =
-              trace ("h.4 = " ++ showPretty h) $
-              trace ("x.4 = " ++ showPretty x) $
-              unaligned h x
+    f h x | areEquivalent h x && (opening || closing) = k (aligned h x)
+          | otherwise = nothingApplied @() h x
       where
         closing = h^.loss == 0 && x^.loss >  0
         opening = h^.loss >  0 && x^.loss == 0
-
-    mk _ _ = id
-
-    within n x y = abs ((x^.day) `diffDays` (y^.day)) <= n
