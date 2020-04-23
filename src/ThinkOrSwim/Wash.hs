@@ -317,8 +317,9 @@ washSaleRule l = do
             $$ text "c^.newElement  "
                 <> text (show (fmap showPretty (c^.newElement)))
 
-        -- If the result of calling 'wash' is a series of washed losses,
-        -- check if there are other openings they could be applied to.
+        -- If the result of calling 'wash' is a series of losses to which the
+        -- wash sale rule applies, check if there are other openings they can
+        -- be applied to.
         (doc, _, fr, fhs) =
             (\f -> foldl' f (pr, 1, [], c^.newList)
                            (c^.fromElement)) $ \(d, n, r, hs) e ->
@@ -332,9 +333,9 @@ washSaleRule l = do
                    , r'
                    , h' )
 
+        -- res = c^.fromElement ++ maybeToList (c^.newElement) ++ fr
         res = fr ++ maybeToList (c^.newElement)
-        evs = fhs ++ fr
-            ++ c^..newElement.each.filtered (\e -> e^.loss == 0)
+        evs = fhs ++ fr ++ c^..newElement.each.filtered (\e -> e^.loss == 0)
 
     -- Do not store wash losses in the transaction history.
     put $ evs & traverse %~ unwash
@@ -343,9 +344,25 @@ washSaleRule l = do
 
     pure res
 
--- Assumes 'pl' is received in temporal order.
+-- Assumes 'pl' is received in temporal order. For this reason, we remove all
+-- entries older than 30 days from the list before beginning.
+--
+-- If 'pl' is an opening transaction:
+--
+--   a. No past losses apply, add it to the history.
+--   b. A past loss (1) applies, reprice the open and remove (1).
+--
+-- If 'pl' is a closing transaction:
+--
+--   a. No past openings apply, ignore it.
+--   b. A past opening (1) applies, add it to the history and remove (1).
+--   c. A past opening (1) applies, and there is another past opening (2) to
+--      which the loss applies. Therefore, generate a sale/repurchase of (2),
+--      and remove (1). The repriced (2) is left in the history because future
+--      losses may apply to it.
+
 wash :: Transactional a => Bool -> [a] -> a -> Considered a a a
-wash inverted hs pl =
+wash repricing hs pl =
     consider f mk (Just <$> filter (within 30 pl) hs) pl
         & fromList %~ catMaybes
         & newList  %~ catMaybes
@@ -360,20 +377,23 @@ wash inverted hs pl =
               trace ("x.1 = " ++ showPretty x) $
               unaligned h x
 
-        | if inverted then opening else closing =
+        | not repricing && closing =
               trace ("h.2 = " ++ showPretty h) $
               trace ("x.2 = " ++ showPretty x) $
               aligned h x
 
-        | if inverted then closing else opening =
+        -- Loss is transferring either from a past loss to a new opening
+        -- transaction (repricing == False), or from a current loss to a
+        -- previous opening (repricing == True).
+        | if repricing then closing else opening =
               trace ("h.3 = " ++ showPretty h) $
               trace ("x.3 = " ++ showPretty x) $
               let res = aligned h x
                   tr  = liftA2 washLoss in
-              case (if inverted then flip else id)
+              case (if repricing then flip else id)
                        tr (res^?src._SplitUsed._Just)
                           (res^?dest._SplitUsed) of
-                  Just (if inverted then swap else id -> (ud, us)) ->
+                  Just (if repricing then swap else id -> (ud, us)) ->
                       res & src._SplitUsed._Just .~ ud
                           & dest._SplitUsed .~ us
                   Nothing -> res
