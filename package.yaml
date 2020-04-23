@@ -34,6 +34,7 @@ library:
   exposed-modules:
     - Data.Amount
     - Data.Ledger
+    - Data.Ledger.Render
     - Data.Split
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions

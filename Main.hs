@@ -16,6 +16,7 @@ import           Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import           Data.Data (Data)
 import           Data.Ledger as Ledger
+import           Data.Ledger.Render as Ledger
 import           Data.Text as T
 import           Data.Text.Encoding as T
 import           Data.Text.IO as T
