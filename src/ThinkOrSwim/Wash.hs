@@ -185,7 +185,7 @@ Sell Put (Writer) then Close at a Loss
 
 -}
 
-module ThinkOrSwim.Wash (Transactional(..), washSaleRule) where
+module ThinkOrSwim.Wash (washSaleRule) where
 
 import Control.Applicative
 import Control.Lens
@@ -198,39 +198,7 @@ import Data.Time
 import Debug.Trace
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
-
-class Transactional t where
-    quantity :: Lens' t (Amount 4)
-    cost     :: Lens' t (Amount 4)
-    price    :: Lens' t (Amount 4)
-    day      :: Lens' t Day
-    loss     :: Lens' t (Amount 2)
-
-    -- Given a loss-bearing transaction, wash the loss by transferring it to
-    -- the cost basis of the second transaction. The result is the updated
-    -- version of both transactions, the first with loss removed, the second
-    -- with wash loss applied.
-    washLoss :: t -> t -> (t, t)
-
-    -- If this opening transaction has a wash loss applied, unwash it so it
-    -- can be recorded in the history of events that may affect the
-    -- disposition of future losses.
-    unwash :: t -> t
-
-    -- True if this transaction is merely a transfer in from previous books.
-    isTransferIn :: t -> Bool
-
-    -- True if this pair are opening and closing transactions, or closing and
-    -- opening.
-    arePaired :: t -> t -> Bool
-
-    -- True if the second transaction represents an instrument materially
-    -- equivalent to the first.
-    areEquivalent :: t -> t -> Bool
-
-    align :: t -> t -> (Split t, Split t)
-
-    showPretty :: t -> String
+import ThinkOrSwim.Transaction
 
 renderList :: (a -> Doc) -> [a] -> Doc
 renderList _ [] = brackets P.empty
@@ -402,3 +370,5 @@ matchEvents hs pl k = consider f mk (filter (within 30 pl) hs) pl
       where
         closing = h^.loss == 0 && x^.loss >  0
         opening = h^.loss >  0 && x^.loss == 0
+
+

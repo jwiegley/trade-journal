@@ -40,6 +40,7 @@ library:
     - ThinkOrSwim.Convert
     - ThinkOrSwim.Gains
     - ThinkOrSwim.Transaction
+    - ThinkOrSwim.Transaction.Instances
     - ThinkOrSwim.Types
     - ThinkOrSwim.Wash
 

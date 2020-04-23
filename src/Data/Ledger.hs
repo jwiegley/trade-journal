@@ -124,45 +124,6 @@ lotPrice l = case l^.instrument of
     Option -> Nothing            -- jww (2020-04-16): NYI
     _      -> Nothing            -- jww (2020-04-16): NYI
 
-lotCost :: CommodityLot k t -> Amount 4
-lotCost l = fromMaybe 0.0 (l^.cost <|> ((l^.quantity) *) <$> lotPrice l)
-
-showSplit :: Split (CommodityLot k t) -> String
-showSplit (None k)   = "None (" ++ showCommodityLot k ++ ")"
-showSplit (All u)    = "All (" ++ showCommodityLot u ++ ")"
-showSplit (Some u k) =
-    "Some (" ++ showCommodityLot u ++ ") (" ++ showCommodityLot k ++ ")"
-
-alignLots :: CommodityLot k t -> CommodityLot k t
-          -> (Split (CommodityLot k t), Split (CommodityLot k t))
-alignLots x y
-    | xq == 0 && yq == 0 = ( None x, None y )
-    | xq == 0           = ( None x, All  y )
-    | yq == 0           = ( All  x, None y )
-    | abs xq == abs yq  = ( All  x, All  y )
-    | abs xq <  abs yq  =
-        ( All x
-        , Some (y & quantity .~ sign yq xq
-                  & cost     ?~ abs xq * yps)
-               (y & quantity .~ sign yq diff
-                  & cost     ?~ diff * yps)
-        )
-    | otherwise =
-        ( Some (x & quantity .~ sign xq yq
-                  & cost     ?~ abs yq * xps)
-               (x & quantity .~ sign xq diff
-                  & cost     ?~ diff * xps)
-        , All y
-        )
-  where
-    xq    = x^.quantity
-    yq    = y^.quantity
-    xcst  = lotCost x
-    ycst  = lotCost y
-    xps   = xcst / abs xq
-    yps   = ycst / abs yq
-    diff  = abs (abs xq - abs yq)
-
 newCommodityLot :: Default k => CommodityLot k t
 newCommodityLot = CommodityLot
     { _instrument   = Equity
@@ -174,22 +135,6 @@ newCommodityLot = CommodityLot
     , _refs         = []
     , _price        = Nothing
     }
-
-(@@) :: Default k => Amount 4 -> Amount 4 -> CommodityLot k t
-q @@ c = newCommodityLot & quantity .~ q & cost ?~ c
-
-(##) :: CommodityLot k t -> Text -> CommodityLot k t
-l ## d = l & purchaseDate .~ iso8601ParseM (T.unpack d)
-
-showCommodityLot :: CommodityLot k t -> String
-showCommodityLot CommodityLot {..} =
-    show _quantity
-        ++ case _cost of
-               Nothing -> ""
-               Just xs -> " @@ " ++ show xs
-        ++ case _purchaseDate of
-               Nothing -> ""
-               Just d  -> " ## " ++ iso8601Show d
 
 data PL
     = BreakEven
@@ -213,47 +158,17 @@ data LotAndPL k t = LotAndPL
 
 makeLenses ''LotAndPL
 
+mkLotAndPL :: CommodityLot k t -> Amount 2 -> CommodityLot k t
+           -> LotAndPL k t
+mkLotAndPL c pl = LotAndPL knd (c^.purchaseDate) pl
+      where
+        knd | pl > 0    = LossShort
+            | pl < 0    = GainShort
+            | otherwise = BreakEven
+
 _Lot :: Prism' (LotAndPL k t) (CommodityLot k t)
 _Lot = prism' (\l -> LotAndPL BreakEven (l^.purchaseDate) 0 l)
               (Just . _plLot)
-
--- instance Show (LotAndPL k t) where
-showLotAndPL :: LotAndPL k t -> String
-showLotAndPL x = show (x^.plKind)
-    ++ " " ++ showCommodityLot (x^.plLot)
-    ++ " $$$ "  ++ show (x^.plLoss)
-
-($$$) :: CommodityLot k t -> Amount 2 -> LotAndPL k t
-l $$$ a = LotAndPL (if | a < 0     -> GainShort
-                       | a > 0     -> LossShort
-                       | otherwise -> BreakEven) (l^.purchaseDate) a l
-
-alignPL :: LotAndPL k t -> LotAndPL k t
-        -> (Split (LotAndPL k t), Split (LotAndPL k t))
-alignPL x y =
-    ( l & unsafePartsOf _Splits
-       %~ fmap (uncurry (LotAndPL (x^.plKind) (x^.plDay)))
-        . spreadAmounts (^.quantity) (x^.plLoss)
-    , r & unsafePartsOf _Splits
-       %~ fmap (uncurry (LotAndPL (y^.plKind) (y^.plDay)))
-        . spreadAmounts (^.quantity) (y^.plLoss)
-    )
-  where
-    (l, r) = (x^.plLot) `alignLots` (y^.plLot)
-
-perShareCost :: CommodityLot k t -> Maybe (Amount 6)
-perShareCost CommodityLot {..} =
-    fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)
-
--- The idea of this function is to replicate what Ledger will calculate the
--- sum to be, so that if there's any discrepancy we can add a rounding
--- adjustment to pass the balancing check.
-sumLotAndPL :: [LotAndPL k t] -> Amount 2
-sumLotAndPL = foldl' go 0
-  where
-    norm      = normalizeAmount mpfr_RNDNA
-    cst l     = sign (l^.quantity) (fromMaybe 0 (l^.cost))
-    go acc pl = acc + norm (coerce (cst (pl^.plLot))) + norm (pl^.plLoss)
 
 data PostingAmount k t
     = NoAmount
@@ -361,6 +276,9 @@ renderPostingAmount (CommodityAmount l@(CommodityLot {..})) = map T.pack
                xs -> (T.pack . printf " (%s)" . renderRefs) xs)
           (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
     ]
+  where
+    perShareCost CommodityLot {..} =
+        fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)
 
 renderAccount :: Account -> Text
 renderAccount = \case
