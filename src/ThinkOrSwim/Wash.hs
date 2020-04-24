@@ -201,7 +201,7 @@ import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
 
--- import Debug.Trace
+import Debug.Trace
 
 -- This function assumes 'l' is received in temporal order. For this reason,
 -- we remove all entries older than 30 days from the list before beginning.
@@ -245,11 +245,11 @@ washSaleRule l
               (y, ys, zs, nl) <- (\f -> foldlM f (l, [], [], c^.newList) xs) $
                   \(y, ys, zs, nl) x -> do
                       let d = matchEvents nl x id
-                          (w, reverse -> fl) = foldl' transferLoss (y, [])
-                              (spreadAmounts (^.quantity)
-                                 (sum (d^..fromElement.traverse.loss))
-                                 (d^.fromList))
-                      pure ( w
+                          (_, fl) =
+                              unzip $ map
+                                  (\(i, j) -> (i & loss .~ 0, washLoss i j))
+                                  (zip (d^.fromElement) (d^.fromList))
+                      pure ( y & loss -~ sum (d^..fromElement.traverse.loss)
                            , ys ++ (d^.fromList & each.quantity %~ negate)
                            , zs ++ fl
                            , d^.newList ++ maybeToList (d^.newElement)
@@ -259,12 +259,6 @@ washSaleRule l
 
     | otherwise = pure [l]
   where
-    transferLoss (z, ys) (n, y) =
-        ( z & loss +~ - n
-        , (y & cost +~ coerce n
-             & loss +~ - n) : ys
-        )
-
     wash = zipped (src._SplitUsed) (dest._SplitUsed)
         %~ \(x, y) -> (x, washLoss x y)
 
