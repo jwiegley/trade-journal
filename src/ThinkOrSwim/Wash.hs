@@ -249,7 +249,7 @@ washSaleRule l
                               unzip $ map
                                   (\(i, j) -> (i & loss .~ 0, washLoss i j))
                                   (zip (d^.fromElement) (d^.fromList))
-                      pure ( y & loss -~ sum (d^..fromElement.traverse.loss)
+                      pure ( y
                            , ys ++ (d^.fromList & each.quantity %~ negate)
                            , zs ++ fl
                            , d^.newList ++ maybeToList (d^.newElement)

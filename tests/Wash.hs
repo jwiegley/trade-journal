@@ -99,7 +99,7 @@ testWashSaleRule = testGroup "washSaleRule"
                 , (-2)@@48.3333 ## "2020-02-18" $$ 20.00
                 ]
 
-              , [ aapl0218c & loss .~ 20.00
+              , [ aapl0218c
 
                 , aapl0216o & loss .~ 0.00
                             & quantity %~ negate
