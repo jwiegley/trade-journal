@@ -52,17 +52,15 @@ instance Transactional
     day      = plDay.non (ModifiedJulianDay 0)
     loss     = plLoss
 
-    washLoss x y
-        | abs (x^.plLot.Ledger.quantity) ==
-          abs (y^.plLot.Ledger.quantity) =
+    washLoss x y | abs (x^.plLot.Ledger.quantity) ==
+                   abs (y^.plLot.Ledger.quantity) =
         y & plKind .~ WashLoss
           & plLoss .~ - (x^.plLoss)
           & plLot.Ledger.cost._Just +~ coerce (x^.plLoss)
           & plLot.refs <>~
                 [ Ref (WashSaleRule (coerce (x^.plLoss)))
                       (x^?!plLot.refs._head.refId)
-                      (x^?!plLot.refs._head.refOrig)
-                ]
+                      (x^?!plLot.refs._head.refOrig) ]
     washLoss _ y = y
 
     clearLoss x | x^.plKind == WashLoss =
