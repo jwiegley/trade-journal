@@ -29,25 +29,29 @@ import           Text.PrettyPrint as PP
 import           Text.Show.Pretty
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Gains
+import           ThinkOrSwim.Options (Options)
 import           ThinkOrSwim.Types
 
 convertTransactions
-    :: GainsKeeperState API.TransactionSubType API.Transaction
+    :: Options
+    -> GainsKeeperState API.TransactionSubType API.Transaction
     -> TransactionHistory
     -> [Ledger.Transaction API.TransactionSubType API.Order API.Transaction]
-convertTransactions st hist = (`evalState` st) $
-    Prelude.mapM (convertTransaction (hist^.ordersMap)) (hist^.settlementList)
+convertTransactions opts st hist = (`evalState` st) $
+    Prelude.mapM (convertTransaction opts (hist^.ordersMap))
+                 (hist^.settlementList)
 
 getOrder :: OrdersMap -> Either API.Transaction API.OrderId -> API.Order
 getOrder _ (Left t)    = orderFromTransaction t
 getOrder m (Right oid) = m^?!ix oid
 
 convertTransaction
-    :: OrdersMap
+    :: Options
+    -> OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
             (Ledger.Transaction API.TransactionSubType API.Order API.Transaction)
-convertTransaction m (sd, getOrder m -> o) = do
+convertTransaction opts m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
         _code          = o^.orderId
@@ -57,9 +61,10 @@ convertTransaction m (sd, getOrder m -> o) = do
                     & at "Symbol" .~ case underlying of "" -> Nothing; s -> Just s
         _provenance    = o
     _postings <- Prelude.concat <$>
-        mapM (convertPostings (T.pack (show (o^.orderAccountId))))
+        mapM (convertPostings opts (T.pack (show (o^.orderAccountId))))
              (o^.transactions)
-    fixupTransaction Ledger.Transaction {..}
+    -- fixupTransaction Ledger.Transaction {..}
+    pure Ledger.Transaction {..}
   where
     underlying
         | Prelude.all (== Prelude.head xs) (Prelude.tail xs) = Prelude.head xs
@@ -98,8 +103,7 @@ fixupTransaction t = do
                                 , CapitalGainLong
                                 , CapitalLossShort
                                 , CapitalLossLong
-                                , CapitalWashLoss
-                                ]
+                                , CapitalWashLoss ]
                 then do
                     _1 .= p^?!Ledger.amount._DollarAmount
                     pure []
@@ -111,25 +115,26 @@ fixupTransaction t = do
                         _2 ?= (p, p')
                         pure []
                     _ -> pure [p]
+
     forM_ mpp $ \(p, p') ->
         openTransactions.at (p^?!Ledger.amount._CommodityAmount.Ledger.symbol)
             %= fmap (Prelude.map (\x -> if p^?!Ledger.amount._CommodityAmount == x
                                        then p'^?!Ledger.amount._CommodityAmount
                                        else x))
+
     pure $ t & postings .~ Prelude.reverse res
 
 convertPostings
-    :: Text
+    :: Options
+    -> Text
     -> API.Transaction
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
             [Ledger.Posting API.TransactionSubType API.Transaction]
-convertPostings _ t
+convertPostings _ _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings actId t = posts <$> case t^.item.API.amount of
-    Just n  -> gainsKeeper maybeNet t n
-    Nothing -> pure []
+convertPostings opts actId t = posts <$>
+    maybe (pure []) (gainsKeeper opts maybeNet t) (t^.item.API.amount)
   where
-    post = newPosting
     posts cs
         = [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
           | t^.fees_.regFee /= 0 ]
@@ -160,6 +165,8 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
                 Nothing -> not fromEquity ]
        ++ [ post OpeningBalances False NoAmount
           | isNothing (t^.item.API.amount) || fromEquity ]
+      where
+        post = newPosting
 
     meta m = m
         & at "XType"       ?~ T.pack (show subtyp)
@@ -191,7 +198,7 @@ convertPostings actId t = posts <$> case t^.item.API.amount of
     cashXact   = subtyp `elem` [ CashAlternativesPurchase
                           , CashAlternativesRedemption ]
 
-    cashPost = post (Cash actId) False $
+    cashPost = newPosting (Cash actId) False $
         if t^.netAmount == 0
         then NoAmount
         else DollarAmount (t^.netAmount)

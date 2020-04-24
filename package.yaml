@@ -13,6 +13,7 @@ dependencies:
   - data-default
   - lens
   - mtl
+  - optparse-applicative
   - pretty
   - pretty-show
   - profunctors
@@ -40,6 +41,7 @@ library:
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
     - ThinkOrSwim.Gains
+    - ThinkOrSwim.Options
     - ThinkOrSwim.Transaction
     - ThinkOrSwim.Transaction.Instances
     - ThinkOrSwim.Types
@@ -65,4 +67,3 @@ executables:
       - thinkorswim
       - http-client
       - http-client-tls
-      - optparse-applicative

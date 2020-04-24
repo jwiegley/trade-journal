@@ -703,16 +703,6 @@ pairAssignments (x:y:xs)
   where
     assignmentId = "OA" <> T.pack (show (x^.transactionInfo_.transactionId))
 
-    info = show (x^.type_)
-        ++ " "
-        ++ show (x^.xactSubType)
-        ++ " "
-        ++ show (x^.baseSymbol)
-        ++ " & "
-        ++ show (y^.type_)
-        ++ " " ++ show (y^.xactSubType)
-        ++ " " ++ show (y^.baseSymbol)
-
 contractList :: (a -> a -> Maybe a) -> [a] -> [a]
 contractList _ [] = []
 contractList _ [x] = [x]

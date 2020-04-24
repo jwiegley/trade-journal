@@ -7,14 +7,12 @@
 
 module Main where
 
-import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Aeson
 import           Data.Amount
 import           Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
-import           Data.Data (Data)
 import           Data.Ledger as Ledger
 import           Data.Ledger.Render as Ledger
 import           Data.Text as T
@@ -22,75 +20,15 @@ import           Data.Text.Encoding as T
 import           Data.Text.IO as T
 import           Data.Time
 import           Data.Time.Format.ISO8601
-import           Data.Typeable (Typeable)
 import           GHC.Generics
 import           Network.HTTP.Client
 import           Network.HTTP.Client.TLS
-import           Options.Applicative
 import           Servant.Client
 import           ThinkOrSwim.API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Convert
+import           ThinkOrSwim.Options as Opts
 import           ThinkOrSwim.Types
-
-version :: String
-version = "0.0.1"
-
-copyright :: String
-copyright = "2020"
-
-thinkorswimSummary :: String
-thinkorswimSummary =
-    "thinkorswim " ++ version ++ ", (C) " ++ copyright ++ " John Wiegley"
-
-data Options = Options
-    { dryRun    :: Bool
-    , verbose   :: Bool
-    , startDate :: Maybe String
-    , endDate   :: Maybe String
-    , account   :: String
-    , accessKey :: Maybe String
-    , jsonData  :: Maybe FilePath
-    , equity    :: Maybe FilePath
-    }
-    deriving (Data, Typeable, Show, Eq)
-
-thinkorswimOpts :: Parser Main.Options
-thinkorswimOpts = Main.Options
-    <$> switch
-        (   short 'n'
-         <> long "dry-run"
-         <> help "Don't take any actions")
-    <*> switch
-        (   short 'v'
-         <> long "verbose"
-         <> help "Report progress verbosely")
-    <*> optional (strOption
-        (   long "start-date"
-         <> help "download transactions starting from this date, YYYY-mm-dd format"))
-    <*> optional (strOption
-        (   long "end-date"
-         <> help "download transactions up to this date, YYYY-mm-dd format"))
-    <*> strOption
-        (   long "account"
-         <> help "account number to download for")
-    <*> optional (strOption
-        (   long "access-key"
-         <> help "Use a specific ssh command"))
-    <*> optional (strOption
-        (   long "json-data"
-         <> help "JSON file containing already downloaded data"))
-    <*> optional (strOption
-        (   long "equity"
-         <> help "CSV file containing details on existing equity"))
-
-optionsDefinition :: ParserInfo Main.Options
-optionsDefinition = info
-    (helper <*> thinkorswimOpts)
-    (fullDesc <> progDesc "" <> header thinkorswimSummary)
-
-getOptions :: IO Main.Options
-getOptions = execParser optionsDefinition
 
 data Holding = Holding
     { symbol :: Text
@@ -118,7 +56,7 @@ main = do
             Nothing   -> error "Neither --access-key nor --json-data provided"
             Just file -> readTransactions file
         Just key ->
-            downloadTransactions (T.pack (Main.account opts)) (T.pack key)
+            downloadTransactions (T.pack (Opts.account opts)) (T.pack key)
                 =<< createManager
 
     let addLots xs = Prelude.map (& quantity %~ negate) xs ++ xs
@@ -139,7 +77,7 @@ main = do
 
     Prelude.putStrLn "; -*- ledger -*-"
     Prelude.putStrLn ""
-    forM_ (convertTransactions priceData th) $ \t -> do
+    forM_ (convertTransactions opts priceData th) $ \t -> do
         forM_ (renderTransaction t)
             T.putStrLn
         T.putStrLn ""

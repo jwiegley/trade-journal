@@ -29,46 +29,53 @@ import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (cost, price)
+import           ThinkOrSwim.Options (Options)
+import qualified ThinkOrSwim.Options as Opts
 import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Transaction.Instances ()
 import           ThinkOrSwim.Types
 import           ThinkOrSwim.Wash
 
-import Debug.Trace
-
--- The function seeks to replicate the logic used by GainsKeeper to determine
--- what impact a given transaction, based on existing positions, should have
--- on an account.
+-- The function seeks to replicate logic used by GainsKeeper to calculate the
+-- capital gains for a transaction based on a history of past transactions.
 gainsKeeper
-    :: Maybe (Amount 2)
+    :: Options
+    -> Maybe (Amount 2)
     -> API.Transaction
     -> Amount 6
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
             [LotAndPL API.TransactionSubType API.Transaction]
-gainsKeeper mnet t n = do
+gainsKeeper opts _ t n
+    | not (Opts.capitalGains opts) =
+      -- pure [ let pl = _Lot # createLot t n
+      --        in pl & cost +~ coerce (sign (pl^.quantity) (transactionFees t)) ]
+      do let l = createLot t n
+             res = [ let pl = _Lot # l
+                     in pl & cost +~ coerce (sign (pl^.quantity) (transactionFees t)) ]
+         when (symbolName t == "NFLX") $
+             traceCurrentState (symbolName t) Nothing l [] [] [] [] res
+         pure res
+
+gainsKeeper opts mnet t n = do
     hist <- use (openTransactions.at sym.non [])
 
     -- If there are no existing lots, then this is either a purchase or a
     -- short sale. If there are existing lots for this symbol, then if the
     -- current transaction would add to or deduct from those positions, then
     -- it closes as much of those previous positions as quantities dictate.
-    let l    = setEvent (coerce (abs (t^.item.API.cost)))
+    let l    = createLot t n
         pl   = consider closeLot mkLotAndPL hist l
         pls  = pl^..fromList.traverse.to (False,)
             ++ pl^..newElement.traverse.to (review _Lot).to (True,)
-        fees = t^.fees_.regFee
-             + t^.fees_.otherCharges
-             + t^.fees_.commission
-        pls' = pls & partsOf (each._2) %~ handleFees fees
+        pls' = pls & partsOf (each._2) %~ handleFees (transactionFees t)
 
     res <- zoom (positionEvents.at (t^.baseSymbol).non []) $
-        if l^.instrument == Ledger.Equity
+        -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
+        -- sale rule on purchase of a call contract after an equity loss.
+        if Opts.washSaleRule opts && l^.instrument == Ledger.Equity
         then pls' & traverse._2 %%~ washSaleRule
                  <&> \xs -> [ (a, b) | (a, bs) <- xs, b <- bs ]
-        else
-            -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
-            -- sale rule on purchase of a call contract after an equity loss.
-            pure pls'
+        else pure pls'
 
     let hist' = pl^.newList ++ res^..traverse.filtered fst._2.plLot
 
@@ -82,33 +89,41 @@ gainsKeeper mnet t n = do
                 in res' ++ [ LotAndPL Rounding Nothing slip newCommodityLot
                            | slip /= 0 && abs slip < 0.02 ]
 
-    when (sym == "BAC") $
+    when (sym == "NFLX") $
         traceCurrentState sym mnet l pls pls' hist hist' res''
 
     pure res''
   where
     sym = symbolName t
 
-    setEvent cst = newCommodityLot @API.TransactionSubType
-        & instrument      .~ instr
-        & kind            .~ t^.transactionInfo_.transactionSubType
-        & Ledger.quantity .~ quant
-        & Ledger.symbol   .~ symbolName t
-        & Ledger.cost     ?~ cst
-        & purchaseDate    ?~ utctDay (t^.xactDate)
-        & refs            .~ [ transactionRef t ]
-        & Ledger.price    .~ fmap coerce (t^.item.API.price)
-      where
-        quant = coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
+transactionFees :: API.Transaction-> Amount 2
+transactionFees t
+    = t^.fees_.regFee
+    + t^.fees_.otherCharges
+    + t^.fees_.commission
 
-        instr = case t^?instrument_._Just.assetType of
-            Just API.Equity           -> Ledger.Equity
-            Just MutualFund           -> Ledger.Equity
-            Just (OptionAsset _)      -> Ledger.Option
-            Just (FixedIncomeAsset _) -> Ledger.Bond
-            Just (CashEquivalentAsset
-                  CashMoneyMarket)    -> Ledger.MoneyMarket
-            Nothing                   -> error "Unexpected"
+createLot :: API.Transaction -> Amount 6
+          -> CommodityLot API.TransactionSubType API.Transaction
+createLot t n = newCommodityLot @API.TransactionSubType
+    & instrument      .~ instr
+    & kind            .~ t^.transactionInfo_.transactionSubType
+    & Ledger.quantity .~ quant
+    & Ledger.symbol   .~ symbolName t
+    & Ledger.cost     ?~ coerce (abs (t^.item.API.cost))
+    & purchaseDate    ?~ utctDay (t^.xactDate)
+    & refs            .~ [ transactionRef t ]
+    & Ledger.price    .~ fmap coerce (t^.item.API.price)
+  where
+    quant = coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
+
+    instr = case t^?instrument_._Just.assetType of
+        Just API.Equity           -> Ledger.Equity
+        Just MutualFund           -> Ledger.Equity
+        Just (OptionAsset _)      -> Ledger.Option
+        Just (FixedIncomeAsset _) -> Ledger.Bond
+        Just (CashEquivalentAsset
+              CashMoneyMarket)    -> Ledger.MoneyMarket
+        Nothing                   -> error "Unexpected"
 
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
 -- a sell to close; a buy to close for the reverse. If both have the same
@@ -145,8 +160,9 @@ closeLot x y
 -- transactions.
 handleFees :: Transactional a => Amount 2 -> [a] -> [a]
 handleFees fee [l] | l^.loss == 0 =
-    [ l & cost +~ coerce (if l^.quantity < 0 then -fee else fee) ]
-handleFees fee ls = applyTo loss <$> spreadAmounts (^.quantity) fee ls
+    [ l & cost +~ coerce (sign (l^.quantity) fee) ]
+handleFees fee ls =
+    applyTo loss <$> spreadAmounts (^.quantity) fee ls
 
 traceCurrentState
     :: Text
