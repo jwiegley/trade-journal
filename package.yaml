@@ -40,6 +40,7 @@ library:
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
+    - ThinkOrSwim.Fixup
     - ThinkOrSwim.Gains
     - ThinkOrSwim.Options
     - ThinkOrSwim.Transaction

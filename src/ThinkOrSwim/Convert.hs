@@ -1,23 +1,16 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module ThinkOrSwim.Convert (convertTransactions, fixupTransaction) where
+module ThinkOrSwim.Convert (convertTransactions) where
 
 import           Control.Applicative
-import           Control.Arrow ((***))
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
-import           Data.Coerce
-import           Data.Ledger as Ledger
+import           Data.Ledger as L
 import qualified Data.Map as M
 import           Data.Maybe (isNothing, fromMaybe)
 import           Data.Text as T
@@ -25,9 +18,8 @@ import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double, (<>))
-import           Text.PrettyPrint as PP
-import           Text.Show.Pretty
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           ThinkOrSwim.Fixup
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Options (Options)
 import           ThinkOrSwim.Types
@@ -36,7 +28,7 @@ convertTransactions
     :: Options
     -> GainsKeeperState API.TransactionSubType API.Transaction
     -> TransactionHistory
-    -> [Ledger.Transaction API.TransactionSubType API.Order API.Transaction]
+    -> [L.Transaction API.TransactionSubType API.Order API.Transaction]
 convertTransactions opts st hist = (`evalState` st) $
     Prelude.mapM (convertTransaction opts (hist^.ordersMap))
                  (hist^.settlementList)
@@ -50,7 +42,7 @@ convertTransaction
     -> OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            (Ledger.Transaction API.TransactionSubType API.Order API.Transaction)
+            (L.Transaction API.TransactionSubType API.Order API.Transaction)
 convertTransaction opts m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
@@ -63,8 +55,7 @@ convertTransaction opts m (sd, getOrder m -> o) = do
     _postings <- Prelude.concat <$>
         mapM (convertPostings opts (T.pack (show (o^.orderAccountId))))
              (o^.transactions)
-    -- fixupTransaction Ledger.Transaction {..}
-    pure Ledger.Transaction {..}
+    fixupTransaction L.Transaction {..}
   where
     underlying
         | Prelude.all (== Prelude.head xs) (Prelude.tail xs) = Prelude.head xs
@@ -73,74 +64,23 @@ convertTransaction opts m (sd, getOrder m -> o) = do
         where
             xs = Prelude.map (^.baseSymbol) (o^.transactions)
 
-fixupTransaction
-    :: Show o => Ledger.Transaction API.TransactionSubType o API.Transaction
-    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            (Ledger.Transaction API.TransactionSubType o API.Transaction)
-fixupTransaction t | not xactOA = do
-    -- traceM $ "Not fixing up "
-    --     ++ ppShow ((t^.postings)
-    --                & traverse.Ledger.amount._CommodityAmount.refs .~ [])
-    pure t
-  where
-    xactOA = Prelude.any optionA (t^.postings)
-           && Prelude.any equityA (t^.postings)
-
-    hasOA = has (Ledger.amount._CommodityAmount.kind._OptionAssignment)
-
-    optionA p = hasOA p &&
-        has (Ledger.amount._CommodityAmount.Ledger.instrument._Option) p
-    equityA p = hasOA p &&
-        has (Ledger.amount._CommodityAmount.Ledger.instrument.Ledger._Equity) p
-
-fixupTransaction t = do
-    renderM $ PP.text "Fixing up " <> PP.text (ppShow (t^.postings))
-    let (res, mpp) =
-            Prelude.concat *** snd $
-            (`runState` (0 :: Amount 2, Nothing)) $
-            forM (Prelude.reverse (t^.postings)) $ \p ->
-                if p^.account `elem` [ CapitalGainShort
-                                , CapitalGainLong
-                                , CapitalLossShort
-                                , CapitalLossLong
-                                , CapitalWashLoss ]
-                then do
-                    _1 .= p^?!Ledger.amount._DollarAmount
-                    pure []
-                else case p^.account of
-                    Equities _ -> do
-                        amt <- use _1
-                        let p' = p & Ledger.amount._CommodityAmount.Ledger.cost
-                                  %~ fmap (+ coerce amt)
-                        _2 ?= (p, p')
-                        pure []
-                    _ -> pure [p]
-
-    forM_ mpp $ \(p, p') ->
-        openTransactions.at (p^?!Ledger.amount._CommodityAmount.Ledger.symbol)
-            %= fmap (Prelude.map (\x -> if p^?!Ledger.amount._CommodityAmount == x
-                                       then p'^?!Ledger.amount._CommodityAmount
-                                       else x))
-
-    pure $ t & postings .~ Prelude.reverse res
-
 convertPostings
     :: Options
     -> Text
     -> API.Transaction
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            [Ledger.Posting API.TransactionSubType API.Transaction]
+            [L.Posting API.TransactionSubType API.Transaction]
 convertPostings _ _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings opts actId t = posts <$>
     maybe (pure []) (gainsKeeper opts maybeNet t) (t^.item.API.amount)
   where
     posts cs
-        = [ post Ledger.Fees True (DollarAmount (t^.fees_.regFee))
+        = [ post L.Fees True (DollarAmount (t^.fees_.regFee))
           | t^.fees_.regFee /= 0 ]
-       ++ [ post Ledger.Charges True (DollarAmount (t^.fees_.otherCharges))
+       ++ [ post L.Charges True (DollarAmount (t^.fees_.otherCharges))
           | t^.fees_.otherCharges /= 0 ]
-       ++ [ post Ledger.Commissions True (DollarAmount (t^.fees_.commission))
+       ++ [ post L.Commissions True (DollarAmount (t^.fees_.commission))
           | t^.fees_.commission /= 0 ]
 
        ++ (flip Prelude.concatMap cs $ \pl ->

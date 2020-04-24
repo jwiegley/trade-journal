@@ -20,7 +20,7 @@ import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
 import           Data.Coerce
-import qualified Data.Ledger as Ledger
+import qualified Data.Ledger as L
 import           Data.Ledger hiding (quantity, amount, cost, price)
 import           Data.Split
 import           Data.Text (Text, unpack)
@@ -47,14 +47,8 @@ gainsKeeper
             [LotAndPL API.TransactionSubType API.Transaction]
 gainsKeeper opts _ t n
     | not (Opts.capitalGains opts) =
-      -- pure [ let pl = _Lot # createLot t n
-      --        in pl & cost +~ coerce (sign (pl^.quantity) (transactionFees t)) ]
-      do let l = createLot t n
-             res = [ let pl = _Lot # l
-                     in pl & cost +~ coerce (sign (pl^.quantity) (transactionFees t)) ]
-         when (symbolName t == "NFLX") $
-             traceCurrentState (symbolName t) Nothing l [] [] [] [] res
-         pure res
+      pure [ let pl = _Lot # createLot t n
+             in pl & cost +~ coerce (sign (pl^.quantity) (transactionFees t)) ]
 
 gainsKeeper opts mnet t n = do
     hist <- use (openTransactions.at sym.non [])
@@ -65,14 +59,16 @@ gainsKeeper opts mnet t n = do
     -- it closes as much of those previous positions as quantities dictate.
     let l    = createLot t n
         pl   = consider closeLot mkLotAndPL hist l
-        pls  = pl^..fromList.traverse.to (False,)
+        f x  = x & plLot.kind    .~ t^.xactSubType
+                 & plLot.L.price .~ fmap coerce (t^.item.API.price)
+        pls  = pl^..fromList.traverse.to f.to (False,)
             ++ pl^..newElement.traverse.to (review _Lot).to (True,)
         pls' = pls & partsOf (each._2) %~ handleFees (transactionFees t)
 
     res <- zoom (positionEvents.at (t^.baseSymbol).non []) $
         -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
         -- sale rule on purchase of a call contract after an equity loss.
-        if Opts.washSaleRule opts && l^.instrument == Ledger.Equity
+        if Opts.washSaleRule opts && l^.instrument == L.Equity
         then pls' & traverse._2 %%~ washSaleRule
                  <&> \xs -> [ (a, b) | (a, bs) <- xs, b <- bs ]
         else pure pls'
@@ -89,7 +85,7 @@ gainsKeeper opts mnet t n = do
                 in res' ++ [ LotAndPL Rounding Nothing slip newCommodityLot
                            | slip /= 0 && abs slip < 0.02 ]
 
-    when (sym == "NFLX") $
+    when (sym == "") $
         traceCurrentState sym mnet l pls pls' hist hist' res''
 
     pure res''
@@ -106,23 +102,23 @@ createLot :: API.Transaction -> Amount 6
           -> CommodityLot API.TransactionSubType API.Transaction
 createLot t n = newCommodityLot @API.TransactionSubType
     & instrument      .~ instr
-    & kind            .~ t^.transactionInfo_.transactionSubType
-    & Ledger.quantity .~ quant
-    & Ledger.symbol   .~ symbolName t
-    & Ledger.cost     ?~ coerce (abs (t^.item.API.cost))
+    & kind            .~ t^.xactSubType
+    & L.quantity .~ quant
+    & L.symbol   .~ symbolName t
+    & L.cost     ?~ coerce (abs (t^.item.API.cost))
     & purchaseDate    ?~ utctDay (t^.xactDate)
     & refs            .~ [ transactionRef t ]
-    & Ledger.price    .~ fmap coerce (t^.item.API.price)
+    & L.price    .~ fmap coerce (t^.item.API.price)
   where
     quant = coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
 
     instr = case t^?instrument_._Just.assetType of
-        Just API.Equity           -> Ledger.Equity
-        Just MutualFund           -> Ledger.Equity
-        Just (OptionAsset _)      -> Ledger.Option
-        Just (FixedIncomeAsset _) -> Ledger.Bond
+        Just API.Equity           -> L.Equity
+        Just MutualFund           -> L.Equity
+        Just (OptionAsset _)      -> L.Option
+        Just (FixedIncomeAsset _) -> L.Bond
         Just (CashEquivalentAsset
-              CashMoneyMarket)    -> Ledger.MoneyMarket
+              CashMoneyMarket)    -> L.MoneyMarket
         Nothing                   -> error "Unexpected"
 
 -- Given some lot x, apply lot y. If x is positive, and y is negative, this is
@@ -132,9 +128,8 @@ createLot t n = newCommodityLot @API.TransactionSubType
 -- return the part of 'x' that remains to be further deducted from, and how
 -- much was consumed, and similarly for 'y'.
 closeLot :: Transactional a => a -> a -> Applied (Amount 2) a a
-closeLot x y
-    | not (arePaired x y) = nothingApplied x y
-    | otherwise         = Applied {..}
+closeLot x y | not (arePaired x y) = nothingApplied x y
+             | otherwise         = Applied {..}
   where
     (src', _dest) = x `alignLots` y
 
