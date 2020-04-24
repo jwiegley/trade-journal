@@ -80,7 +80,7 @@ gainsKeeper mnet t n = do
             Just net ->
                 let slip = - (net + sumTransactions res')
                 in res' ++ [ LotAndPL Rounding Nothing slip newCommodityLot
-                           | slip /= 0 ]
+                           | slip /= 0 && abs slip < 0.02 ]
 
     when (sym == "BAC") $
         traceCurrentState sym mnet l pls pls' hist hist' res''
