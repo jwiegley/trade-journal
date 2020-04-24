@@ -190,8 +190,6 @@ module ThinkOrSwim.Wash (washSaleRule) where
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
-import Data.Amount
-import Data.Coerce
 import Data.Foldable
 import Data.Maybe (maybeToList)
 import Data.Split
@@ -201,26 +199,30 @@ import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
 
-import Debug.Trace
-
 -- This function assumes 'l' is received in temporal order. For this reason,
 -- we remove all entries older than 30 days from the list before beginning.
 --
 -- If 'l' is an opening transaction:
 --
 --   a. No past losses apply, add it to the history, return it.
---   b. A past loss (1) applies, reprice the open, remove (1), add the
+--   b. A past loss (1) applies. Reprice the open, remove (1), add the
 --      repriced transaction to the history and return it.
 --
 -- If 'l' is a closing transaction:
 --
 --   a. No past openings apply, just return it.
---   b. A past opening (1) applies, add it to the history, remove (1), and
+--   b. A past opening (1) applies. Add it to the history, remove (1), and
 --      return the transaction.
 --   c. A past opening (1) applies and there is another past opening (2) to
 --      which the loss applies. Remove (1) and (2), generate a sale/repurchase
 --      of (2), remove (1). Add the repriced (2) back to the history and
 --      return the input transaction with its loss removed along with (2).
+--
+-- Please see the tests for more comprehensive examples. The principal
+-- scenarios that require a wash sale adjustment are:
+--
+-- - open, close <30(o), open <30(c)
+-- - open, open <30(c), close <30(o)
 
 washSaleRule :: Transactional a => a -> State [a] [a]
 washSaleRule l
@@ -240,20 +242,8 @@ washSaleRule l
           [] -> do
               id .= c^.newList
               pure [l]
-
           xs -> do
-              (y, ys, zs, nl) <- (\f -> foldlM f (l, [], [], c^.newList) xs) $
-                  \(y, ys, zs, nl) x -> do
-                      let d = matchEvents nl x id
-                          (_, fl) =
-                              unzip $ map
-                                  (\(i, j) -> (i & loss .~ 0, washLoss i j))
-                                  (zip (d^.fromElement) (d^.fromList))
-                      pure ( y
-                           , ys ++ (d^.fromList & each.quantity %~ negate)
-                           , zs ++ fl
-                           , d^.newList ++ maybeToList (d^.newElement)
-                           )
+              let (y, ys, zs, nl) = foldl' retroact (l, [], [], c^.newList) xs
               id .= map clearLoss zs ++ nl
               pure (y:intermix ys zs)
 
@@ -268,6 +258,17 @@ washSaleRule l
     intermix (x:xs) (y:ys) = x:y:intermix xs ys
     intermix xs ys = error $ "intermix called with uneven lengths: "
         ++ showPrettyList xs ++ " and " ++ showPrettyList ys
+
+    retroact (y', ys', zs', nl') x =
+        let d  = matchEvents nl' x id
+            fl = snd $ unzip $ map
+                (\(i, j) -> (i & loss .~ 0, washLoss i j))
+                (zip (d^.fromElement) (d^.fromList))
+        in ( y'
+           , ys' ++ d^.fromList & each.quantity %~ negate
+           , zs' ++ fl
+           , d^.newList ++ maybeToList (d^.newElement)
+           )
 
 -- Given a list of transactional elements, and some candidate, find all parts
 -- of elements in the first list that "match up" with the candidate. The
