@@ -78,25 +78,38 @@ testWashSaleRule = testGroup "washSaleRule"
     , testCase "open, open, sell at loss <30" $
       flip evalStateT [] $ do
           let aapl0215o =    12@@300 ## "2020-02-15" $$   0.00
-              aapl0216o =    10@@310 ## "2020-02-16" $$   0.00
-              aapl0217c = (-12)@@290 ## "2020-02-17" $$ 120.00
+              aapl0216o =     5@@155 ## "2020-02-16" $$   0.00
+              aapl0217o =     5@@155 ## "2020-02-17" $$   0.00
+              aapl0218c = (-12)@@290 ## "2020-02-18" $$ 120.00
 
           wash aapl0215o @?== ( [ aapl0215o ]
                               , [ aapl0215o ] )
           wash aapl0216o @?== ( [ aapl0215o
                                 , aapl0216o ]
                               , [ aapl0216o ] )
-          wash aapl0217c @?==
+          wash aapl0217o @?== ( [ aapl0215o
+                                , aapl0216o
+                                , aapl0217o ]
+                              , [ aapl0217o ] )
+          wash aapl0218c @?==
               ( [ aapl0216o & loss .~ 0
-                            & cost .~ 410.00
-                , (-2)@@48.3333 ## "2020-02-17" $$ 20.00
+                            & cost .~ 205.00
+                , aapl0217o & loss .~ 0
+                            & cost .~ 205.00
+                , (-2)@@48.3333 ## "2020-02-18" $$ 20.00
                 ]
 
-              , [ aapl0217c
+              , [ aapl0218c & loss .~ 20.00
+
                 , aapl0216o & loss .~ 0.00
                             & quantity %~ negate
-                , aapl0216o & loss .~ (-100.00)
-                            & cost .~ 410
+                , aapl0216o & loss .~ (-50.00)
+                            & cost .~ 205
+
+                , aapl0217o & loss .~ 0.00
+                            & quantity %~ negate
+                , aapl0217o & loss .~ (-50.00)
+                            & cost .~ 205
                 ]
               )
     ]

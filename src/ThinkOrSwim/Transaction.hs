@@ -1,9 +1,12 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes #-}
 
 module ThinkOrSwim.Transaction
     ( Transactional(..)
     , alignLots
     , sumTransactions
+    , renderConsidered
+    , applyTo
     ) where
 
 import Control.Lens
@@ -12,7 +15,9 @@ import Data.Coerce
 import Data.List (foldl')
 import Data.Split
 import Data.Time
-import Prelude hiding (Float, Double)
+import Data.Utils (renderList)
+import Prelude hiding (Float, Double, (<>))
+import Text.PrettyPrint
 
 class Transactional t where
     quantity :: Lens' t (Amount 4)
@@ -25,12 +30,12 @@ class Transactional t where
     -- the cost basis of the second transaction. The result is the updated
     -- version of both transactions, the first with loss removed, the second
     -- with wash loss applied.
-    washLoss :: t -> t -> (t, t)
+    washLoss :: t -> t -> t
 
     -- If this opening transaction has a wash loss applied, unwash it so it
     -- can be recorded in the history of events that may affect the
     -- disposition of future losses.
-    unwash :: t -> t
+    clearLoss :: t -> t
 
     -- True if this transaction is merely a transfer in from previous books.
     isTransferIn :: t -> Bool
@@ -43,8 +48,6 @@ class Transactional t where
     -- equivalent to the first.
     areEquivalent :: t -> t -> Bool
 
-    align :: t -> t -> (Split t, Split t)
-
     showPretty :: t -> String
 
 alignLots :: Transactional a => a -> a -> (Split a, Split a)
@@ -56,25 +59,32 @@ alignLots x y
     | abs xq <  abs yq  =
         ( All x
         , Some (y & quantity .~ sign yq xq
-                  & cost     .~ abs xq * yps)
+                  & cost     .~ abs xq * ycps
+                  & loss     .~ coerce (abs xq) * ylps)
                (y & quantity .~ sign yq diff
-                  & cost     .~ diff * yps)
+                  & cost     .~ diff * ycps
+                  & loss     .~ coerce diff * ylps)
         )
     | otherwise =
         ( Some (x & quantity .~ sign xq yq
-                  & cost     .~ abs yq * xps)
+                  & cost     .~ abs yq * xcps
+                  & loss     .~ coerce (abs yq) * xlps)
                (x & quantity .~ sign xq diff
-                  & cost     .~ diff * xps)
+                  & cost     .~ diff * xcps
+                  & loss     .~ coerce diff * xlps)
         , All y
         )
   where
-    xq    = x^.quantity
-    yq    = y^.quantity
-    xcst  = x^.cost
-    ycst  = y^.cost
-    xps   = xcst / abs xq
-    yps   = ycst / abs yq
-    diff  = abs (abs xq - abs yq)
+    xq   = x^.quantity
+    yq   = y^.quantity
+    xcps = x^.cost / abs xq
+    ycps = y^.cost / abs yq
+    xlps = x^.loss / coerce (abs xq)
+    ylps = y^.loss / coerce (abs yq)
+    diff = abs (abs xq - abs yq)
+
+applyTo :: Transactional a => Traversal' a (Amount n) -> (Amount m, a) -> a
+applyTo l (n, x) = x & l +~ coerce n
 
 -- The idea of this function is to replicate what Ledger will calculate the
 -- sum to be, so that if there's any discrepancy we can add a rounding
@@ -85,3 +95,14 @@ sumTransactions = foldl' go 0
     norm      = normalizeAmount mpfr_RNDNA
     cst l     = sign (l^.quantity) (l^.cost)
     go acc pl = acc + norm (coerce (cst pl)) + norm (pl^.loss)
+
+renderConsidered :: Transactional a => Considered a a a -> Doc
+renderConsidered c =
+        text "c^.fromList    "
+        <> renderList (text . showPretty) (c^.fromList)
+    $$ text "c^.newList     "
+        <> renderList (text . showPretty) (c^.newList)
+    $$ text "c^.fromElement "
+        <> renderList (text . showPretty) (c^.fromElement)
+    $$ text "c^.newElement  "
+        <> text (show (fmap showPretty (c^.newElement)))

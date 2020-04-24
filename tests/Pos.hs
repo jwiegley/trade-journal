@@ -61,15 +61,12 @@ instance Transactional Equity where
     day       = dy
     loss      = lss
 
-    washLoss x y
-        | abs (x^.quantity) ==
-          abs (y^.quantity) =
-        ( x & loss .~ 0
-        , y & loss .~ - (x^.loss)
-            & cst +~ coerce (x^.loss)
-        )
-    washLoss x y = (x, y)
-    unwash = loss .~ 0
+    washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
+        y & loss .~ - (x^.loss)
+          & cst +~ coerce (x^.loss)
+    washLoss _ y = y
+
+    clearLoss = loss .~ 0
 
     isTransferIn _ = False
 
@@ -77,7 +74,6 @@ instance Transactional Equity where
                   || (x^.quantity > 0 && y^.quantity < 0)
     areEquivalent _ _ = True
 
-    align = alignLots
     showPretty = show
 
 assertEqual'

@@ -191,152 +191,89 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Data.Amount
+import Data.Coerce
 import Data.Foldable
 import Data.Maybe (maybeToList)
 import Data.Split
 import Data.Time
-import Debug.Trace
+import Data.Utils
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
 
-renderList :: (a -> Doc) -> [a] -> Doc
-renderList _ [] = brackets P.empty
-renderList f ts =
-    fst (foldl' go (P.empty, True) ts) <> space <> rbrack
-  where
-    go (_, True) x    = (lbrack <> space <> f x, False)
-    go (acc, False) x = (acc $$ comma <> space <> f x, False)
+-- import Debug.Trace
 
--- Given a history of closing and opening transactions (where the opening
--- transactions are identified as having a loss of 0.0), determine the washed
--- losses that should apply to either these are some pending set of opening
--- transactions in the GainsKeeperState, and the parts of those transactions
--- they apply to, possibly splitting up lots to record the tally. The state
--- and/or input value is then modified to reflect these adjustments.
+-- This function assumes 'l' is received in temporal order. For this reason,
+-- we remove all entries older than 30 days from the list before beginning.
 --
--- Possible outcomes of calling this function:
+-- If 'l' is an opening transaction:
 --
--- 1. There are no wash sales, opening transactions are recorded to check for
---    future losses against them.
+--   a. No past losses apply, add it to the history, return it.
+--   b. A past loss (1) applies, reprice the open, remove (1), add the
+--      repriced transaction to the history and return it.
 --
--- 2. Input contains opening transactions to which wash sales apply. Each is
---    split into N shares, and matched with shares of past applicable losses.
---    These past shares are removed from the history, and the cost basis
---    adjusted transactions plus any others are returned.
+-- If 'l' is a closing transaction:
 --
--- 3. Input contains closing transactions with losses, for which the wash sale
---    rule applies. These are added to the history of such losses and returned
---    in the output.
---
--- 4. A combination of 2 and 3, in which case 3 is added to the history, and
---    then the algorithm applies similarly to 2, except that the shares from 3
---    are also returned after having their losses adjusted.
---
--- Said another way, the inputs are as follows:
---
---   State: OPEN, RECENT  (open positions, and xacts within last 61 days)
---   Input: XACTS=CL+OP   (closing and opening xacts being processed)
---
--- - OPEN is ignored by this function.
--- - RECENT may be added to, changed or subtracted from. Transactions may
---   be split into multiple to account for transferred losses.
--- - CL may be split and/or changed to reduce losses.
--- - CL with losses (or their fractioned parts) may be added to RECENT.
--- - Transactions in OP may be split and/or changed to increase cost basis.
---
--- If called for a close that is not a loss, ignore.
---
--- If closing at a loss, and the corresponding open was <= 30 days ago, check
--- if a purchase of the same or equivalent security happened within the last
--- 30 days. If so, transfer the loss to that opening and record any remaining
--- loss; otherwise record the whole loss so it may be applied to future
--- openings within 30 days from the loss.
---
--- We're opening a transaction to which the wash sale rule may apply. Check
--- whether an applicable losing transaction was made within the last 30 days,
--- and if so, adjust the cost basis and remove the losing historical
--- transaction since wash sales are only applied once.
+--   a. No past openings apply, just return it.
+--   b. A past opening (1) applies, add it to the history, remove (1), and
+--      return the transaction.
+--   c. A past opening (1) applies and there is another past opening (2) to
+--      which the loss applies. Remove (1) and (2), generate a sale/repurchase
+--      of (2), remove (1). Add the repriced (2) back to the history and
+--      return the input transaction with its loss removed along with (2).
+
 washSaleRule :: Transactional a => a -> State [a] [a]
-washSaleRule l = do
-    events <- get
+washSaleRule l
+    | l^.loss == 0 = do
 
-    let pr' = text "pl: " <> text (showPretty l)
-           $$ text "ev: " <> renderList (text . showPretty) events
+      events <- use id
+      let c   = matchEvents events l wash
+          res = c^.fromElement ++ maybeToList (c^.newElement)
+      id .= c^.newList ++ map clearLoss res
+      pure res
 
-        rend d (n :: Int) r eb ea = d
-           $$ text "e" <> text (show n) <> ": "
-                  <> renderList (text . showPretty) eb
-           $$ text "E" <> text (show n) <> ": "
-                  <> renderList (text . showPretty) ea
-           $$ text "-" <> text (show n) <> "> "
-                  <> renderList (text . showPretty) r
+    | l^.loss > 0 = do
 
-        -- Loss is transferring either from a past loss to a new opening
-        -- transaction, or from a current loss to a previous opening.
-        handleLoss r =
-            case liftA2 washLoss (r^?src._SplitUsed)
-                                 (r^?dest._SplitUsed) of
-                Just (ud, us) ->
-                    r & src._SplitUsed .~ ud
-                      & dest._SplitUsed .~ us
-                Nothing -> r
+      events <- use id
+      let c = matchEvents events l id
+      case c^.fromElement of
+          [] -> do
+              id .= c^.newList
+              pure [l]
 
-        c = matchEvents events l handleLoss
+          xs -> do
+              (y, ys, zs, nl) <- (\f -> foldlM f (l, [], [], c^.newList) xs) $
+                  \(y, ys, zs, nl) x -> do
+                      let d = matchEvents nl x id
+                          (w, reverse -> fl) = foldl' transferLoss (y, [])
+                              (spreadAmounts (^.quantity)
+                                 (sum (d^..fromElement.traverse.loss))
+                                 (d^.fromList))
+                      pure ( w
+                           , ys ++ (d^.fromList & each.quantity %~ negate)
+                           , zs ++ fl
+                           , d^.newList ++ maybeToList (d^.newElement)
+                           )
+              id .= map clearLoss zs ++ nl
+              pure (y:intermix ys zs)
 
-        pr = pr'
-            $$ text "c^.fromList    "
-                <> renderList (text . showPretty) (c^.fromList)
-            $$ text "c^.newList     "
-                <> renderList (text . showPretty) (c^.newList)
-            $$ text "c^.fromElement "
-                <> renderList (text . showPretty) (c^.fromElement)
-            $$ text "c^.newElement  "
-                <> text (show (fmap showPretty (c^.newElement)))
+    | otherwise = pure [l]
+  where
+    transferLoss (z, ys) (n, y) =
+        ( z & loss +~ - n
+        , (y & cost +~ coerce n
+             & loss +~ - n) : ys
+        )
 
-        -- If the result of calling 'wash' is a series of losses to which the
-        -- wash sale rule applies, check if there are other openings they can
-        -- be applied to.
-        (doc, _, fr, fhs) =
-            (\f -> foldl' f (pr, 1, [], c^.newList)
-                           (c^.fromElement)) $ \(d, n, r, hs) e ->
-                let i  = matchEvents hs e handleLoss
-                    r' = r -- ++ i^.fromElement
-                           ++ i^.fromList
-                           ++ maybeToList (i^.newElement)
-                    h' = i^.newList
-                in ( rend d n r' hs h'
-                   , succ n
-                   , r'
-                   , h' )
+    wash = zipped (src._SplitUsed) (dest._SplitUsed)
+        %~ \(x, y) -> (x, washLoss x y)
 
-        -- res = c^.fromElement ++ maybeToList (c^.newElement) ++ fr
-        res = fr ++ maybeToList (c^.newElement)
-        evs = fhs ++ fr ++ c^..newElement.each.filtered (\e -> e^.loss == 0)
+    showPrettyList = show . renderList (text . showPretty)
 
-    -- Do not store wash losses in the transaction history.
-    put $ evs & traverse %~ unwash
-
-    traceM $ render $ rend doc 0 res events evs
-
-    pure res
-
--- Assumes 'pl' is received in temporal order. For this reason, we remove all
--- entries older than 30 days from the list before beginning.
---
--- If 'pl' is an opening transaction:
---
---   a. No past losses apply, add it to the history.
---   b. A past loss (1) applies, reprice the open and remove (1).
---
--- If 'pl' is a closing transaction:
---
---   a. No past openings apply, ignore it.
---   b. A past opening (1) applies, add it to the history and remove (1).
---   c. A past opening (1) applies, and there is another past opening (2) to
---      which the loss applies. Therefore, generate a sale/repurchase of (2),
---      and remove (1). The repriced (2) is left in the history because future
---      losses may apply to it.
+    intermix [] [] = []
+    intermix (x:xs) (y:ys) = x:y:intermix xs ys
+    intermix xs ys = error $ "intermix called with uneven lengths: "
+        ++ showPrettyList xs ++ " and " ++ showPrettyList ys
 
 -- Given a list of transactional elements, and some candidate, find all parts
 -- of elements in the first list that "match up" with the candidate. The
@@ -356,16 +293,17 @@ washSaleRule l = do
 --     _newList     = []
 --     _fromElement =     [100]
 --     _newElement  = Just 100
+
 matchEvents :: Transactional a
             => [a] -> a -> (Applied () a a -> Applied () a a)
             -> Considered a a a
-matchEvents hs pl k = consider f mk (filter (within 30 pl) hs) pl
+matchEvents hs pl k =
+    consider f (\_ () -> id) (filter (within 30 pl) hs) pl
   where
-    mk _ ()      = id
-    aligned h x  = uncurry splits (align h x)
     within n x y = abs ((x^.day) `diffDays` (y^.day)) <= n
 
-    f h x | areEquivalent h x && (opening || closing) = k (aligned h x)
+    f h x | areEquivalent h x && (opening || closing) =
+                k (uncurry splits (alignLots h x))
           | otherwise = nothingApplied @() h x
       where
         closing = h^.loss == 0 && x^.loss >  0

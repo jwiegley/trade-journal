@@ -52,8 +52,7 @@ gainsKeeper mnet t n = do
     -- short sale. If there are existing lots for this symbol, then if the
     -- current transaction would add to or deduct from those positions, then
     -- it closes as much of those previous positions as quantities dictate.
-    let cst  = abs (t^.item.API.cost)
-        l    = setEvent (coerce cst)
+    let l    = setEvent (coerce (abs (t^.item.API.cost)))
         pl   = consider closeLot mkLotAndPL hist l
         pls  = pl^..fromList.traverse.to (False,)
             ++ pl^..newElement.traverse.to (review _Lot).to (True,)
@@ -65,7 +64,7 @@ gainsKeeper mnet t n = do
     res <- zoom (positionEvents.at (t^.baseSymbol).non []) $
         if l^.instrument == Ledger.Equity
         then pls' & traverse._2 %%~ washSaleRule
-                 <&> concatMap sequenceA
+                 <&> \xs -> [ (a, b) | (a, bs) <- xs, b <- bs ]
         else
             -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
             -- sale rule on purchase of a call contract after an equity loss.
@@ -122,7 +121,7 @@ closeLot x y
     | not (arePaired x y) = nothingApplied x y
     | otherwise         = Applied {..}
   where
-    (src', _dest) = x `align` y
+    (src', _dest) = x `alignLots` y
 
     _src = src' & _SplitUsed.quantity %~ negate
                 & _SplitUsed.price    .~ y^.price
@@ -147,8 +146,7 @@ closeLot x y
 handleFees :: Transactional a => Amount 2 -> [a] -> [a]
 handleFees fee [l] | l^.loss == 0 =
     [ l & cost +~ coerce (if l^.quantity < 0 then -fee else fee) ]
-handleFees fee ls =
-    (\(f, l) -> l & loss +~ f) <$> spreadAmounts (^.quantity) fee ls
+handleFees fee ls = applyTo loss <$> spreadAmounts (^.quantity) fee ls
 
 traceCurrentState
     :: Text
