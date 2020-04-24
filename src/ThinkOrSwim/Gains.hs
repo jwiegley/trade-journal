@@ -97,7 +97,7 @@ gainsKeeper mnet t n = do
         & Ledger.cost     ?~ cst
         & purchaseDate    ?~ utctDay (t^.xactDate)
         & refs            .~ [ transactionRef t ]
-        & Ledger.price    .~ coerce (t^.item.API.price)
+        & Ledger.price    .~ fmap coerce (t^.item.API.price)
       where
         quant = coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
 
@@ -124,7 +124,7 @@ closeLot x y
     (src', _dest) = x `alignLots` y
 
     _src = src' & _SplitUsed.quantity %~ negate
-                & _SplitUsed.price    .~ y^.price
+                & _SplitUsed.price    .~ x^.price
 
     _value :: Amount 2
     _value | isTransferIn y = 0
