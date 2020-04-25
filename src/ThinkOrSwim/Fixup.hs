@@ -13,8 +13,8 @@ import           ThinkOrSwim.Types
 
 -- If a transaction represents an options assignment, where the closing of a
 -- short option has resulted in a forced purchase or sale, factor the premium
--- from the option sale into either cost basis of the purchased shares, or the
--- capital gain/loss of the sold shares. But take into account the fact that
+-- from the option sale into either the cost basis of the purchased shares, or
+-- capital gain/loss of the sold shares -- taking into account the fact that
 -- multiple lots of call option contracts may be closing, which may result in
 -- the sale of multiple lots of equity.
 
