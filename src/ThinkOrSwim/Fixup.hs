@@ -31,11 +31,11 @@ fixupTransaction t | not xactOA = pure t
            && anyOf equityLots hasOA t
 
 fixupTransaction t =
-    t & optionLots.plLoss .~ 0
-      & optionLots.plKind .~ BreakEven
+    t & optionLots.plLoss   .~ 0
+      & optionLots.plKind   .~ BreakEven
       & partsOf equityLots %%~ mapM f . spreadAmounts (^.quantity) value
   where
-    value = sumOf (optionLots.plLot.cost) t
+    value = sumOf (optionLots.cost) t
 
     f (n, pl) = do
         let pl' = pl & cost -~ sign (pl^.quantity) n
