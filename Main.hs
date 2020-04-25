@@ -77,7 +77,7 @@ main = do
                              <>= addLots [lot]
 
     Prelude.putStrLn "; -*- ledger -*-\n"
-    forM_ (convertTransactions opts priceData th) $ \t -> do
+    forM_ (convertOrders opts priceData th) $ \t -> do
         forM_ (renderTransaction t)
             T.putStrLn
         T.putStrLn ""

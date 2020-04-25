@@ -66,6 +66,7 @@ data CommodityLot k t = CommodityLot
     , _kind         :: k
     , _quantity     :: Amount 4
     , _symbol       :: Text
+    , _underlying   :: Text
     , _cost         :: Maybe (Amount 4)
     , _purchaseDate :: Maybe Day
     , _refs         :: [Ref t]
@@ -88,6 +89,7 @@ newCommodityLot = CommodityLot
     , _kind         = def
     , _quantity     = 0.0
     , _symbol       = "???"
+    , _underlying   = "???"
     , _cost         = Nothing
     , _purchaseDate = Nothing
     , _refs         = []

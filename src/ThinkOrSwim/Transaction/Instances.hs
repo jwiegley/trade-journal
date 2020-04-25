@@ -19,8 +19,12 @@ import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Types
 
-instance Transactional
-    (CommodityLot API.TransactionSubType API.Transaction) where
+type APIGainsKeeperState =
+    GainsKeeperState API.TransactionSubType API.Transaction
+
+type APICommodityLot = CommodityLot API.TransactionSubType API.Transaction
+
+instance Transactional APICommodityLot where
     symbol    = L.symbol
     quantity  = L.quantity
     cost      = L.cost.non 0
@@ -45,8 +49,9 @@ instance Transactional
                    Nothing -> ""
                    Just d  -> " ## " ++ iso8601Show d
 
-instance Transactional
-    (LotAndPL API.TransactionSubType API.Transaction) where
+type APILotAndPL = LotAndPL API.TransactionSubType API.Transaction
+
+instance Transactional APILotAndPL where
     symbol   = plLot.symbol
     quantity = plLot.quantity
     cost     = plLot.cost
