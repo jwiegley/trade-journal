@@ -12,7 +12,7 @@ import           Control.Monad.State
 import           Data.Amount
 import           Data.Ledger as L
 import qualified Data.Map as M
-import           Data.Maybe (isNothing, fromMaybe)
+import           Data.Maybe (isNothing)
 import           Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
@@ -28,7 +28,8 @@ convertTransactions
     :: Options
     -> GainsKeeperState API.TransactionSubType API.Transaction
     -> TransactionHistory
-    -> [L.Transaction API.TransactionSubType API.Order API.Transaction]
+    -> [L.Transaction API.TransactionSubType API.Order
+                     API.Transaction L.LotAndPL]
 convertTransactions opts st hist = (`evalState` st) $
     Prelude.mapM (convertTransaction opts (hist^.ordersMap))
                  (hist^.settlementList)
@@ -42,7 +43,8 @@ convertTransaction
     -> OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            (L.Transaction API.TransactionSubType API.Order API.Transaction)
+            (L.Transaction API.TransactionSubType API.Order
+                           API.Transaction L.LotAndPL)
 convertTransaction opts m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
@@ -69,7 +71,7 @@ convertPostings
     -> Text
     -> API.Transaction
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            [L.Posting API.TransactionSubType API.Transaction]
+            [L.Posting API.TransactionSubType API.Transaction L.LotAndPL]
 convertPostings _ _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings opts actId t = posts <$>
@@ -84,17 +86,13 @@ convertPostings opts actId t = posts <$>
           | t^.fees_.commission /= 0 ]
 
        ++ (flip Prelude.concatMap cs $ \pl ->
-               [ post (fromMaybe (error $ "No account for " ++ show pl)
-                                 (plAccount (pl^.plKind)))
-                      False (DollarAmount (pl^.plLoss))
-               | pl^.plLoss /= 0 ]
-            ++ [ post act False (CommodityAmount (pl^.plLot))
-                     & postMetadata %~ meta
-                     & postMetadata.at "Effect" %~
-                           (<|> Just (if pl^.plLoss == 0
-                                      then "Opening"
-                                      else "Closing"))
-               | pl^.plKind /= Rounding ])
+            [ post act False (CommodityAmount pl)
+                  & postMetadata %~ meta
+                  & postMetadata.at "Effect" %~
+                        (<|> Just (if pl^.plLoss == 0
+                                   then "Opening"
+                                   else "Closing"))
+            | pl^.plKind /= Rounding ])
 
        ++ [ case t^.item.API.price of
                 Just _              -> cashPost

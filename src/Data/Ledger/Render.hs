@@ -18,15 +18,16 @@ import           Control.Monad
 import           Data.Amount
 import           Data.Char (isAlpha)
 import           Data.Coerce
+import           Data.Ledger
 import           Data.Map (Map)
 import qualified Data.Map as M
-import           Data.Maybe (maybeToList)
+import           Data.Maybe (fromMaybe, maybeToList)
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           Data.Ledger
 import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double)
 import           Text.Printf
+import           Text.Show.Pretty
 
 renderRefs :: [Ref t] -> Text
 renderRefs = T.intercalate "," . map go
@@ -39,23 +40,24 @@ renderRefs = T.intercalate "," . map go
         OpeningOrder   -> "" <> T.pack (show (r^.refId))
         ExistingEquity -> "Equity"
 
-renderPostingAmount :: PostingAmount k t -> [Text]
+renderPostingAmount :: PostingAmount k t LotAndPL -> [Text]
 renderPostingAmount NoAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
-renderPostingAmount (CommodityAmount l@(CommodityLot {..})) = map T.pack
-    [ renderAmount _quantity
-    , printf "%s%s%s%s%s"
-          (if T.all isAlpha _symbol
-           then _symbol
-           else "\"" <> _symbol <> "\"")
-          (maybe "" (T.pack . printf " {$%s}" . thousands . abs)
-                    (perShareCost l))
-          (maybe "" (T.pack . printf " [%s]" . iso8601Show) _purchaseDate)
-          (case _refs of
-               [] -> ""
-               xs -> (T.pack . printf " (%s)" . renderRefs) xs)
-          (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
-    ]
+renderPostingAmount (CommodityAmount (LotAndPL _ _ _ l@(CommodityLot {..})))
+    = map T.pack
+          [ renderAmount _quantity
+          , printf "%s%s%s%s%s"
+              (if T.all isAlpha _symbol
+               then _symbol
+               else "\"" <> _symbol <> "\"")
+              (maybe "" (T.pack . printf " {$%s}" . thousands . abs)
+                        (perShareCost l))
+              (maybe "" (T.pack . printf " [%s]" . iso8601Show) _purchaseDate)
+              (case _refs of
+                   [] -> ""
+                   xs -> (T.pack . printf " (%s)" . renderRefs) xs)
+              (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
+          ]
   where
     perShareCost CommodityLot {..} =
         fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)
@@ -81,7 +83,7 @@ renderAccount = \case
     RoundingError        -> "Expenses:TD:Rounding"
     OpeningBalances      -> "Equity:TD:Opening Balances"
 
-renderPosting :: Posting k t -> [Text]
+renderPosting :: Posting k t LotAndPL -> [Text]
 renderPosting Posting {..} =
     [ T.pack $ printf "    %-32s%16s%s"
         (if _isVirtual then "(" <> act <> ")" else act)
@@ -98,7 +100,7 @@ renderMetadata = Prelude.map go . M.assocs
   where
     go (k, v) = "    ; " <> k <> ": " <> v
 
-renderTransaction :: Transaction k o t -> [Text]
+renderTransaction :: (Show k, Show t) => Transaction k o t LotAndPL -> [Text]
 renderTransaction xact
     = [ T.concat
           $  [ T.pack (iso8601Show (xact^.actualDate)) ]
@@ -106,4 +108,16 @@ renderTransaction xact
           ++ [ " * (", xact^.code, ") ", xact^.payee ]
       ]
    ++ renderMetadata (xact^.xactMetadata)
-   ++ concatMap renderPosting (xact^.postings)
+   ++ concatMap doPost (xact^.postings)
+  where
+    doPost p = capital ++ renderPosting p
+      where
+        capital = case p^?amount._CommodityAmount of
+            Just pl | pl^.plLoss /= 0 ->
+                renderPosting
+                    (newPosting
+                     (fromMaybe
+                         (error $ "No account for " ++ ppShow pl)
+                         (plAccount (pl^.plKind)))
+                     False (DollarAmount (pl^.plLoss)))
+            _ -> []

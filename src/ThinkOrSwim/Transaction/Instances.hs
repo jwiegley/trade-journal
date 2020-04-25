@@ -10,8 +10,8 @@ module ThinkOrSwim.Transaction.Instances where
 import           Control.Lens
 import           Data.Amount
 import           Data.Coerce
-import           Data.Ledger hiding (quantity, cost, price)
-import qualified Data.Ledger as Ledger
+import           Data.Ledger hiding (symbol, quantity, cost, price)
+import qualified Data.Ledger as L
 import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double, (<>))
@@ -21,19 +21,20 @@ import           ThinkOrSwim.Types
 
 instance Transactional
     (CommodityLot API.TransactionSubType API.Transaction) where
-    quantity   = Ledger.quantity
-    cost       = Ledger.cost.non 0
-    price      = Ledger.price.non 0
-    day        = purchaseDate.non (ModifiedJulianDay 0)
-    loss f     = (<$ f 0)
-    washLoss   = const id
-    clearLoss  = id
+    symbol    = L.symbol
+    quantity  = L.quantity
+    cost      = L.cost.non 0
+    price     = L.price.non 0
+    day       = purchaseDate.non (ModifiedJulianDay 0)
+    loss f    = (<$ f 0)
+    washLoss  = const id
+    clearLoss = id
 
     isTransferIn x = x^.kind == API.TransferOfSecurityOrOptionIn
 
     arePaired = pairedCommodityLots
-    areEquivalent x y = x^.instrument == Ledger.Equity &&
-                        y^.instrument == Ledger.Equity
+    areEquivalent x y = x^.instrument == L.Equity &&
+                        y^.instrument == L.Equity
 
     showPretty CommodityLot {..} =
         show _quantity
@@ -46,17 +47,18 @@ instance Transactional
 
 instance Transactional
     (LotAndPL API.TransactionSubType API.Transaction) where
+    symbol   = plLot.symbol
     quantity = plLot.quantity
     cost     = plLot.cost
     price    = plLot.price
     day      = plDay.non (ModifiedJulianDay 0)
     loss     = plLoss
 
-    washLoss x y | abs (x^.plLot.Ledger.quantity) ==
-                   abs (y^.plLot.Ledger.quantity) =
+    washLoss x y | abs (x^.plLot.L.quantity) ==
+                   abs (y^.plLot.L.quantity) =
         y & plKind .~ WashLoss
           & plLoss .~ - (x^.plLoss)
-          & plLot.Ledger.cost._Just +~ coerce (x^.plLoss)
+          & plLot.L.cost._Just +~ coerce (x^.plLoss)
           & plLot.refs <>~
                 [ Ref (WashSaleRule (coerce (x^.plLoss)))
                       (x^?!plLot.refs._head.refId)

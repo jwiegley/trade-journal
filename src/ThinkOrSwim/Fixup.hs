@@ -7,9 +7,6 @@ import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
-import           Data.Coerce
-import           Data.Ledger (account, postings, _CommodityAmount, kind,
-                              Account(..))
 import qualified Data.Ledger as L
 import           Prelude hiding (Float, Double, (<>))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -18,52 +15,27 @@ import           ThinkOrSwim.Transaction.Instances ()
 import           ThinkOrSwim.Types
 
 fixupTransaction
-    :: L.Transaction API.TransactionSubType API.Order API.Transaction
+    :: L.Transaction API.TransactionSubType API.Order
+                    API.Transaction L.LotAndPL
     -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            (L.Transaction API.TransactionSubType API.Order API.Transaction)
+            (L.Transaction API.TransactionSubType API.Order
+                           API.Transaction L.LotAndPL)
 fixupTransaction t | not xactOA = pure t
   where
-    xactOA = Prelude.any optionA (t^.postings)
-           && Prelude.any equityA (t^.postings)
+    hasOA  = has (L.plLot.L.kind.API._OptionAssignment)
+    xactOA = anyOf L.optionLots hasOA t
+           && anyOf L.equityLots hasOA t
 
-    hasOA = has (L.amount._CommodityAmount.kind.API._OptionAssignment)
-
-    optionA p = hasOA p &&
-        has (L.amount._CommodityAmount.L.instrument.L._Option) p
-    equityA p = hasOA p &&
-        has (L.amount._CommodityAmount.L.instrument.L._Equity) p
-
-fixupTransaction t = t & postings %%~ fmap fst . foldM go ([], 0) . reverse
+fixupTransaction t =
+    t & L.optionLots.L.plLoss .~ 0
+      & L.optionLots.L.plKind .~ L.BreakEven
+      & partsOf L.equityLots %%~ mapM f . spreadAmounts (^.quantity) value
   where
-    go (ps, cst) p
-        | p^.account `elem` [ CapitalGainShort, CapitalGainLong
-                       , CapitalLossShort, CapitalLossLong
-                       , CapitalWashLoss ] =
-          pure (ps, p^?!L.amount.L._DollarAmount)
+    value = sumOf (L.optionLots.L.plLot.cost) t
 
-        | L.Equities _ <- p^.account = do
-          let l = p^?!L.amount._CommodityAmount
-          if l^.quantity > 0
-              then do
-                  let l' = l & L.cost.mapped +~ coerce cst
-                      p' = p & L.amount._CommodityAmount .~ l'
-                  zoom (openTransactions.at (l^.L.symbol)) $
-                      _Just.traverse %= \x -> if x == l then l' else x
-                  pure (p':ps, 0)
-              else do
-                  -- jww (2020-04-24): Might be long-term gains.
-                  let p' = L.newPosting
-                          (if cst > 0
-                           then CapitalLossShort
-                           else CapitalGainShort)
-                          False (L.DollarAmount (coerce (calcGain l) + cst + fees))
-                  pure (p':p:ps, 0)
-
-        | otherwise = pure (p:ps, cst)
-
-    calcGain l = l^.cost + l^.quantity * l^.price
-
-    fees = sum $
-        t ^.. postings.traverse
-            . filtered ((`elem` [ Fees, Charges, Commissions ]) . view account)
-            . L.amount.L._DollarAmount
+    f (n, pl) = do
+        let pl' = pl & cost -~ sign (pl^.quantity) n
+        zoom (openTransactions.at (pl^.symbol)) $
+            _Just.traverse %= \x ->
+                if x == pl^.L.plLot then pl'^.L.plLot else x
+        pure pl'

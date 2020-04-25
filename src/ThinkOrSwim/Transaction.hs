@@ -14,17 +14,19 @@ import Data.Amount
 import Data.Coerce
 import Data.List (foldl')
 import Data.Split
+import Data.Text (Text)
 import Data.Time
 import Data.Utils (renderList)
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint
 
 class Transactional t where
-    quantity :: Lens' t (Amount 4)
-    cost     :: Lens' t (Amount 4)
-    price    :: Lens' t (Amount 4)
-    day      :: Lens' t Day
-    loss     :: Lens' t (Amount 2)
+    symbol     :: Lens' t Text
+    quantity   :: Lens' t (Amount 4)
+    cost       :: Lens' t (Amount 4)
+    price      :: Lens' t (Amount 4)
+    day        :: Lens' t Day
+    loss       :: Lens' t (Amount 2)
 
     -- Given a loss-bearing transaction, wash the loss by transferring it to
     -- the cost basis of the second transaction. The result is the updated

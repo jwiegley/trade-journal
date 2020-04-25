@@ -8,6 +8,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Data.Ledger where
@@ -15,6 +16,7 @@ module Data.Ledger where
 import           Control.Applicative
 import           Control.Lens
 import           Data.Amount
+import           Data.Coerce
 import           Data.Default
 import           Data.Int
 import           Data.Map (Map)
@@ -126,10 +128,10 @@ mkLotAndPL c pl = LotAndPL knd (c^.purchaseDate) pl
 _Lot :: Prism' (LotAndPL k t) (CommodityLot k t)
 _Lot = prism' (\l -> mkLotAndPL l 0 l) (Just . _plLot)
 
-data PostingAmount k t
+data PostingAmount k t (lot :: * -> * -> *)
     = NoAmount
     | DollarAmount (Amount 2)
-    | CommodityAmount (CommodityLot k t)
+    | CommodityAmount (lot k t)
     deriving (Eq, Ord, Show)
 
 makePrisms ''PostingAmount
@@ -166,18 +168,18 @@ plAccount LossLong  = Just CapitalLossLong
 plAccount WashLoss  = Just CapitalWashLoss
 plAccount Rounding  = Just RoundingError
 
-data Posting k t = Posting
+data Posting k t (lot :: * -> * -> *) = Posting
     { _account      :: Account
     , _isVirtual    :: Bool
     , _isBalancing  :: Bool
-    , _amount       :: PostingAmount k t
+    , _amount       :: PostingAmount k t lot
     , _postMetadata :: Map Text Text
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''Posting
 
-newPosting :: Account -> Bool -> PostingAmount k t -> Posting k t
+newPosting :: Account -> Bool -> PostingAmount k t lot -> Posting k t lot
 newPosting a b m = Posting
     { _account      = a
     , _isVirtual    = b
@@ -186,15 +188,31 @@ newPosting a b m = Posting
     , _postMetadata = M.empty
     }
 
-data Transaction k o t = Transaction
+data Transaction k o t (lot :: * -> * -> *) = Transaction
     { _actualDate    :: Day
     , _effectiveDate :: Maybe Day
     , _code          :: Text
     , _payee         :: Text
-    , _postings      :: [Posting k t]
+    , _postings      :: [Posting k t lot]
     , _xactMetadata  :: Map Text Text
     , _provenance    :: o
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''Transaction
+
+optionLots :: Traversal' (Transaction k o t LotAndPL) (LotAndPL k t)
+optionLots
+    = postings
+    . traverse
+    . amount
+    . _CommodityAmount
+    . filtered (has (plLot.instrument._Option))
+
+equityLots :: Traversal' (Transaction k o t LotAndPL) (LotAndPL k t)
+equityLots
+    = postings
+    . traverse
+    . amount
+    . _CommodityAmount
+    . filtered (has (plLot.instrument._Equity))
