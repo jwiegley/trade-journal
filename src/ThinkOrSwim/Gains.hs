@@ -25,6 +25,7 @@ import qualified Data.Ledger as L
 import           Data.Ledger hiding (symbol, quantity, amount, cost, price)
 import           Data.Split
 import           Data.Text (Text, unpack)
+import           Data.Utils
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
 import           ThinkOrSwim.Options (Options)

@@ -217,3 +217,17 @@ equityLots
     . amount
     . _CommodityAmount
     . filtered (has (plLot.instrument._Equity))
+
+data GainsKeeperState k t = GainsKeeperState
+    { _openTransactions :: Map Text [CommodityLot k t]
+    , _positionEvents   :: Map Text [LotAndPL k t]
+    }
+    deriving (Eq, Ord, Show)
+
+makeLenses ''GainsKeeperState
+
+newGainsKeeperState :: GainsKeeperState k t
+newGainsKeeperState = GainsKeeperState
+    { _openTransactions = M.empty
+    , _positionEvents   = M.empty
+    }
