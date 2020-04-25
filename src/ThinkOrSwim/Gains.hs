@@ -52,22 +52,22 @@ gainsKeeper opts fees mnet l = do
     -- short sale. If there are existing lots for this symbol, then if the
     -- current transaction would add to or deduct from those positions, then
     -- it closes as much of those previous positions as quantities dictate.
-    let pl   = consider closeLot mkLotAndPL hist l
+    let c    = consider closeLot mkLotAndPL hist l
         f x  = x & plLot.kind .~ l^.kind
                  & plLot.L.price %~ (fmap coerce (l^.L.price) <|>)
-        pls  = pl^..fromList.traverse.to f.to (False,)
-            ++ pl^..newElement.traverse.to (review _Lot).to (True,)
+        pls  = c^..fromList.each.to f.to (False,)
+            ++ c^..newElement.each.to (review _Lot).to (True,)
         pls' = pls & partsOf (each._2) %~ handleFees fees
 
     res <- zoom (positionEvents.at (l^.underlying).non []) $
         -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
         -- sale rule on purchase of a call contract after an equity loss.
         if Opts.washSaleRule opts && l^.instrument == L.Equity
-        then pls' & traverse._2 %%~ washSaleRule (plLot.purchaseDate._Just)
+        then pls' & each._2 %%~ washSaleRule (plLot.purchaseDate._Just)
                  <&> concatMap sequenceA
         else pure pls'
 
-    let hist' = pl^.newList ++ res^..traverse.filtered fst._2.plLot
+    let hist' = c^.newList ++ res^..each.filtered fst._2.plLot
 
     openTransactions.at sym ?= hist'
 

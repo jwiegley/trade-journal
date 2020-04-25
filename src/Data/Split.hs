@@ -76,6 +76,33 @@ data Considered a b c = Considered
 
 makeLenses ''Considered
 
+consideredList :: Traversal' (Considered a a c) a
+consideredList f Considered {..} =
+    Considered <$> traverse f _fromList
+               <*> traverse f _newList
+               <*> pure _fromElement
+               <*> pure _newElement
+
+consideredElements :: Traversal' (Considered a b c) c
+consideredElements f Considered {..} =
+    Considered _fromList _newList
+               <$> traverse f _fromElement
+               <*> traverse f _newElement
+
+consideredFrom :: Traversal' (Considered a b a) a
+consideredFrom f Considered {..} =
+    Considered <$> traverse f _fromList
+               <*> pure _newList
+               <*> traverse f _fromElement
+               <*> pure _newElement
+
+consideredNew :: Traversal' (Considered a c c) c
+consideredNew f Considered {..} =
+    Considered _fromList
+               <$> traverse f _newList
+               <*> pure _fromElement
+               <*> traverse f _newElement
+
 newConsidered :: Considered a b c
 newConsidered = Considered
     { _fromList    = []

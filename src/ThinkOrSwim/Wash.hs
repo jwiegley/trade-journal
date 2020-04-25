@@ -191,10 +191,10 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Data.Foldable
-import Data.Maybe (maybeToList)
 import Data.Split
 import Data.Time
 import Data.Utils
+-- import Debug.Trace (traceM)
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
@@ -230,23 +230,34 @@ washSaleRule dy l
 
       events <- use id
       let c   = matchEvents events l wash
-          res = c^.fromElement ++ maybeToList (c^.newElement)
+          res = c^..consideredElements
       id .= c^.newList ++ map clearLoss res
+      -- traceM $ "washSaleRule: have opening xact  : " ++ showPretty l
+      -- traceM $ "washSaleRule: remove from history: " ++ showPrettyList (c^.fromList)
+      -- traceM $ "washSaleRule: put back in history: " ++ showPrettyList (c^.newList)
+      -- traceM $ "washSaleRule: add to history     : " ++ showPrettyList (map clearLoss res)
+      -- traceM $ "washSaleRule: return result      : " ++ showPrettyList res
       pure res
 
     | l^.loss > 0 = do
+
+      -- traceM $ "washSaleRule: have losing xact   : " ++ showPretty l
 
       events <- use id
       let c = matchEvents events l id
       case c^.fromElement of
           [] -> do
               id .= c^.newList
+              -- traceM $ "washSaleRule: remove from history: " ++ showPrettyList (c^.fromList)
+              -- traceM $ "washSaleRule: return result      : " ++ showPrettyList [l]
               pure [l]
           xs -> do
-              let (y, ys, zs, nl) =
-                      foldl' retroact (l, [], [], c^.newList) xs
-              id .= map clearLoss zs ++ nl
-              pure (y:intermix ys zs)
+              let (ys, zs, nl) = foldl' retroact ([], [], c^.newList) xs
+              id .= nl ++ map clearLoss zs
+              -- traceM $ "washSaleRule: put back in history: " ++ showPrettyList nl
+              -- traceM $ "washSaleRule: add to history     : " ++ showPrettyList (map clearLoss zs)
+              -- traceM $ "washSaleRule: return result      : " ++ showPrettyList (y:intermix ys zs)
+              pure (l:intermix ys zs)
 
     | otherwise = pure [l]
   where
@@ -260,15 +271,13 @@ washSaleRule dy l
     intermix xs ys = error $ "intermix called with uneven lengths: "
         ++ showPrettyList xs ++ " and " ++ showPrettyList ys
 
-    retroact (y', ys', zs', nl') x =
-        let d  = matchEvents nl' x id
-            fl = map (uncurry washLoss)
-                     (zip (d^.fromElement)
-                          (d^.fromList & each.dy .~ l^.day))
-        in ( y'
-           , ys' ++ d^.fromList & each.quantity %~ negate
-           , zs' ++ fl
-           , d^.newList ++ maybeToList (d^.newElement)
+    retroact (ys', zs', nl') x =
+        let d = matchEvents nl' x id
+        in ( ys' ++ d^.fromList & each.quantity %~ negate
+           , zs' ++ zipWith washLoss
+                      (d^.fromElement)
+                      (d^.fromList & each.dy .~ l^.day)
+           , d^..consideredNew
            )
 
 -- Given a list of transactional elements, and some candidate, find all parts
