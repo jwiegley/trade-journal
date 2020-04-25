@@ -1,14 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DataKinds #-}
 
 module ThinkOrSwim.Fixup (fixupTransaction) where
 
-import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
 import qualified Data.Ledger as L
-import           Prelude hiding (Float, Double, (<>))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Transaction.Instances ()
