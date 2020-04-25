@@ -16,6 +16,7 @@
 
 module ThinkOrSwim.Gains where
 
+import           Control.Applicative
 import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
@@ -59,8 +60,8 @@ gainsKeeper opts mnet t n = do
     -- it closes as much of those previous positions as quantities dictate.
     let l    = createLot t n
         pl   = consider closeLot mkLotAndPL hist l
-        f x  = x & plLot.kind    .~ t^.xactSubType
-                 & plLot.L.price .~ fmap coerce (t^.item.API.price)
+        f x  = x & plLot.kind .~ t^.xactSubType
+                 & plLot.L.price %~ (fmap coerce (t^.item.API.price) <|>)
         pls  = pl^..fromList.traverse.to f.to (False,)
             ++ pl^..newElement.traverse.to (review _Lot).to (True,)
         pls' = pls & partsOf (each._2) %~ handleFees (transactionFees t)
@@ -69,8 +70,8 @@ gainsKeeper opts mnet t n = do
         -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
         -- sale rule on purchase of a call contract after an equity loss.
         if Opts.washSaleRule opts && l^.instrument == L.Equity
-        then pls' & traverse._2 %%~ washSaleRule
-                 <&> \xs -> [ (a, b) | (a, bs) <- xs, b <- bs ]
+        then pls' & traverse._2 %%~ washSaleRule (plLot.purchaseDate._Just)
+                 <&> concatMap sequenceA
         else pure pls'
 
     let hist' = pl^.newList ++ res^..traverse.filtered fst._2.plLot
@@ -101,14 +102,14 @@ transactionFees t
 createLot :: API.Transaction -> Amount 6
           -> CommodityLot API.TransactionSubType API.Transaction
 createLot t n = newCommodityLot @API.TransactionSubType
-    & instrument      .~ instr
-    & kind            .~ t^.xactSubType
-    & L.quantity .~ quant
-    & L.symbol   .~ symbolName t
-    & L.cost     ?~ coerce (abs (t^.item.API.cost))
-    & purchaseDate    ?~ utctDay (t^.xactDate)
-    & refs            .~ [ transactionRef t ]
-    & L.price    .~ fmap coerce (t^.item.API.price)
+    & instrument   .~ instr
+    & kind         .~ t^.xactSubType
+    & L.quantity   .~ quant
+    & L.symbol     .~ symbolName t
+    & L.cost       ?~ coerce (abs (t^.item.API.cost))
+    & purchaseDate ?~ utctDay (t^.xactDate)
+    & refs         .~ [ transactionRef t ]
+    & L.price      .~ fmap coerce (t^.item.API.price)
   where
     quant = coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
 

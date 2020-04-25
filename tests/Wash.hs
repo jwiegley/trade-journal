@@ -92,30 +92,23 @@ testWashSaleRule = testGroup "washSaleRule"
                                 , aapl0217o ]
                               , [ aapl0217o ] )
           wash aapl0218c @?==
-              ( [ aapl0216o & loss .~ 0
-                            & cost .~ 205.00
-                , aapl0217o & loss .~ 0
-                            & cost .~ 205.00
+              ( [ 5@@205 ## "2020-02-18" $$ 0.00
+                , 5@@205 ## "2020-02-18" $$ 0.00
                 , (-2)@@48.3333 ## "2020-02-18" $$ 20.00
                 ]
-
               , [ aapl0218c
-
                 , aapl0216o & loss .~ 0.00
                             & quantity %~ negate
-                , aapl0216o & loss .~ (-50.00)
-                            & cost .~ 205
-
+                , 5@@205 ## "2020-02-18" $$ (-50.00)
                 , aapl0217o & loss .~ 0.00
                             & quantity %~ negate
-                , aapl0217o & loss .~ (-50.00)
-                            & cost .~ 205
+                , 5@@205 ## "2020-02-18" $$ (-50.00)
                 ]
               )
     ]
 
 wash :: Transactional a => a -> StateT [a] IO ([a] , [a])
-wash pls = hoist (pure . runIdentity) $ do
-    res <- washSaleRule pls
+wash pl = hoist (pure . runIdentity) $ do
+    res <- washSaleRule day pl
     events <- get
     pure (events, res)

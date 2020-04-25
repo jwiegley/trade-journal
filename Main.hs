@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -13,14 +14,14 @@ import           Data.Aeson
 import           Data.Amount
 import           Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
-import           Data.Ledger as Ledger
-import           Data.Ledger.Render as Ledger
+import           Data.Ledger as L
+import           Data.Ledger.Render as L
 import           Data.Text as T
 import           Data.Text.Encoding as T
 import           Data.Text.IO as T
 import           Data.Time
 import           Data.Time.Format.ISO8601
-import           GHC.Generics
+import           GHC.Generics hiding (to)
 import           Network.HTTP.Client
 import           Network.HTTP.Client.TLS
 import           Servant.Client
@@ -33,7 +34,7 @@ import           ThinkOrSwim.Types
 data Holding = Holding
     { symbol :: Text
     , amount :: Amount 4
-    , cost   :: Amount 4
+    , price  :: Amount 4
     , date   :: Day
     }
     deriving (Generic, Show)
@@ -59,7 +60,7 @@ main = do
             downloadTransactions (T.pack (Opts.account opts)) (T.pack key)
                 =<< createManager
 
-    let addLots xs = Prelude.map (& quantity %~ negate) xs ++ xs
+    let addLots xs = (xs & traverse.quantity %~ negate) ++ xs
 
     priceData <- case equity opts of
         Nothing -> pure newGainsKeeperState
@@ -69,29 +70,27 @@ main = do
                 Left err -> error $ "Failed to decode equity CSV: " ++ err
                 Right holdings -> pure $ (`execState` newGainsKeeperState) $
                     forM_ holdings $ \h ->
-                        let lot = lt Ledger.Equity (Main.amount h)
-                                     (Main.symbol h) (Main.cost h)
+                        let lot = lt L.Equity (Main.amount h)
+                                     (Main.symbol h) (Main.price h)
                                      (Just (date h))
                         in openTransactions.at (Main.symbol h).non []
-                               <>= addLots [lot]
+                             <>= addLots [lot]
 
-    Prelude.putStrLn "; -*- ledger -*-"
-    Prelude.putStrLn ""
+    Prelude.putStrLn "; -*- ledger -*-\n"
     forM_ (convertTransactions opts priceData th) $ \t -> do
         forM_ (renderTransaction t)
             T.putStrLn
         T.putStrLn ""
   where
-    lt i q s p d = CommodityLot
-        { _instrument    = i
-        , _kind          = TransferOfSecurityOrOptionIn
-        , _quantity      = q
-        , Ledger._symbol = s
-        , Ledger._cost   = Just (abs (q * p))
-        , _purchaseDate  = d
-        , _refs          = [ Ref ExistingEquity 0 Nothing ]
-        , Ledger._price  = Just p
-        }
+    lt i q s p d = newCommodityLot @API.TransactionSubType
+        & instrument   .~ i
+        & kind         .~ TransferOfSecurityOrOptionIn
+        & quantity     .~ q
+        & L.symbol     .~ s
+        & L.cost       ?~ abs (q * p)
+        & purchaseDate .~ d
+        & refs         .~ [ Ref ExistingEquity 0 Nothing ]
+        & L.price      ?~ p
 
 createManager :: IO Manager
 createManager =

@@ -224,8 +224,8 @@ import ThinkOrSwim.Transaction
 -- - open, close <30(o), open <30(c)
 -- - open, open <30(c), close <30(o)
 
-washSaleRule :: Transactional a => a -> State [a] [a]
-washSaleRule l
+washSaleRule :: Transactional a => Traversal' a Day -> a -> State [a] [a]
+washSaleRule dy l
     | l^.loss == 0 = do
 
       events <- use id
@@ -243,7 +243,8 @@ washSaleRule l
               id .= c^.newList
               pure [l]
           xs -> do
-              let (y, ys, zs, nl) = foldl' retroact (l, [], [], c^.newList) xs
+              let (y, ys, zs, nl) =
+                      foldl' retroact (l, [], [], c^.newList) xs
               id .= map clearLoss zs ++ nl
               pure (y:intermix ys zs)
 
@@ -261,9 +262,9 @@ washSaleRule l
 
     retroact (y', ys', zs', nl') x =
         let d  = matchEvents nl' x id
-            fl = snd $ unzip $ map
-                (\(i, j) -> (i & loss .~ 0, washLoss i j))
-                (zip (d^.fromElement) (d^.fromList))
+            fl = map (uncurry washLoss)
+                     (zip (d^.fromElement)
+                          (d^.fromList & each.dy .~ l^.day))
         in ( y'
            , ys' ++ d^.fromList & each.quantity %~ negate
            , zs' ++ fl
@@ -298,7 +299,7 @@ matchEvents hs pl k =
     within n x y = abs ((x^.day) `diffDays` (y^.day)) <= n
 
     f h x | areEquivalent h x && (opening || closing) =
-                k (uncurry splits (alignLots h x))
+              k (uncurry splits (alignLots h x))
           | otherwise = nothingApplied @() h x
       where
         closing = h^.loss == 0 && x^.loss >  0

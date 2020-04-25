@@ -54,19 +54,18 @@ instance Transactional
     day      = plDay.non (ModifiedJulianDay 0)
     loss     = plLoss
 
-    washLoss x y | abs (x^.plLot.L.quantity) ==
-                   abs (y^.plLot.L.quantity) =
-        y & plKind .~ WashLoss
-          & plLoss .~ - (x^.plLoss)
-          & plLot.L.cost._Just +~ coerce (x^.plLoss)
+    washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
+        y & loss   .~ - (x^.loss)
+          & cost   +~ coerce (x^.loss)
+          & plKind .~ WashLoss
           & plLot.refs <>~
-                [ Ref (WashSaleRule (coerce (x^.plLoss)))
+                [ Ref (WashSaleRule (coerce (x^.loss)))
                       (x^?!plLot.refs._head.refId)
                       (x^?!plLot.refs._head.refOrig) ]
     washLoss _ y = y
 
     clearLoss x | x^.plKind == WashLoss =
-                      x & plKind .~ BreakEven & plLoss .~ 0
+                    x & plKind .~ BreakEven & loss .~ 0
                 | otherwise = x
 
     isTransferIn x = isTransferIn (x^.plLot)
@@ -76,4 +75,4 @@ instance Transactional
 
     showPretty x = show (x^.plKind)
         ++ " " ++ showPretty (x^.plLot)
-        ++ " $$ "  ++ show (x^.plLoss)
+        ++ " $$ "  ++ show (x^.loss)

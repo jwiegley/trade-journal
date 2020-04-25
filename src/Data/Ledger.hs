@@ -16,7 +16,6 @@ module Data.Ledger where
 import           Control.Applicative
 import           Control.Lens
 import           Data.Amount
-import           Data.Coerce
 import           Data.Default
 import           Data.Int
 import           Data.Map (Map)
