@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -55,11 +56,12 @@ instance Show Equity where
                   ++ " $$ " ++ show _lss
 
 instance Transactional Equity where
-    quantity  = qnt
-    cost      = cst
-    price f p = p <$ f 0
-    day       = dy
-    loss      = lss
+    symbol f p = p <$ f "???"
+    quantity   = qnt
+    cost       = cst
+    price f p  = p <$ f 0
+    day        = dy
+    loss       = lss
 
     washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
         y & loss .~ - (x^.loss)
