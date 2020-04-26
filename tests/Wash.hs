@@ -109,10 +109,10 @@ testWashSaleRule = testGroup "washSaleRule"
       testCase "open many, sell many" $
       flip evalStateT [] $ do
           -- Establish pre-existing equity
-          wash $  140 @@  99.7792 ## "2019-06-24" $$ 0.00 & old .~ True
-          wash $   10 @@  89.785  ## "2019-06-24" $$ 0.00 & old .~ True
-          wash $   30 @@ 106.68   ## "2019-06-24" $$ 0.00 & old .~ True
-          wash $  170 @@  85.8415 ## "2019-06-25" $$ 0.00 & old .~ True
+          wash $  140 @@  99.7792 ## "2019-06-24" $$ 0.00 & eligible .~ False
+          wash $   10 @@  89.785  ## "2019-06-24" $$ 0.00 & eligible .~ False
+          wash $   30 @@ 106.68   ## "2019-06-24" $$ 0.00 & eligible .~ False
+          wash $  170 @@  85.8415 ## "2019-06-25" $$ 0.00 & eligible .~ False
 
           wash (   50 @@  85.80   ## "2019-07-01" $$ 0.00 ) @?==
               ( [ 140 @@  99.7792 ## "2019-06-24" $$ 0.00

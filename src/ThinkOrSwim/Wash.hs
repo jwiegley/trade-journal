@@ -228,7 +228,7 @@ washSaleRule dy l
     | l^.loss == 0 = do
 
       events <- use id
-      let c   = matchEvents events l wash
+      let c   = matchEvents events l wash (const True)
           res = c^..consideredElements
       id .= c^.newList ++ map clearLoss res
       let doc = "\nhave opening xact  : " <> text (showPretty l)
@@ -244,7 +244,7 @@ washSaleRule dy l
       events <- use id
       let doc = "\nhave losing xact   : " <> text (showPretty l)
              $$ "current history    : " <> renderList (text . showPretty) events
-      let c = matchEvents events l id
+      let c = matchEvents events l id (const True)
       case c^.fromElement of
           [] -> do
               id .= c^.newList
@@ -254,7 +254,7 @@ washSaleRule dy l
               pure (doc', [l])
           xs -> do
               let (ys, zs, nl) = foldl' retroact ([], [], c^.newList) xs
-              id .= nl ++ map clearLoss zs
+              id .= map clearLoss zs ++ nl
               let doc' = doc
                       $$ "put back in history: " <> renderList (text . showPretty) nl
                       $$ "add to history     : " <> renderList (text . showPretty) (map clearLoss zs)
@@ -264,7 +264,7 @@ washSaleRule dy l
     | otherwise = do
 
       events <- use id
-      let c = matchEvents events l id
+      let c = matchEvents events l id (const True)
       id .= c^.newList
       let doc = "\nhave winning xact: " <> text (showPretty l)
              $$ "current history    : " <> renderList (text . showPretty) events
@@ -285,13 +285,13 @@ washSaleRule dy l
         ++ showPrettyList xs ++ " and " ++ showPrettyList ys
 
     retroact (ys', zs', nl') x =
-        let d = matchEvents nl' x id
-        in ( ys' ++ d^.fromList & each.quantity %~ negate
-           , zs' ++ zipWith washLoss
-                      (d^.fromElement)
-                      (d^.fromList & each.dy .~ l^.day)
-           , d^..consideredNew
-           )
+        ( ys' ++ d^.fromList & each.quantity %~ negate
+        , zs' ++ zipWith washLoss
+                   (d^.fromElement)
+                   (d^.fromList & each.dy .~ l^.day)
+        , d^..consideredNew )
+      where
+        d = matchEvents nl' x id isWashEligible
 
 -- Given a list of transactional elements, and some candidate, find all parts
 -- of elements in the first list that "match up" with the candidate. The
@@ -313,16 +313,14 @@ washSaleRule dy l
 --     _newElement  = Just 100
 
 matchEvents :: Transactional a
-            => [a] -> a -> (Applied () a a -> Applied () a a)
+            => [a] -> a -> (Applied () a a -> Applied () a a) -> (a -> Bool)
             -> Considered a a a
-matchEvents hs pl k =
+matchEvents hs pl k p =
     consider f (\_ () -> id) (filter (within 30 pl) hs) pl
   where
     within n x y = abs ((x^.day) `diffDays` (y^.day)) <= n
 
-    f h x | areEquivalent h x && (opening || closing)
-            -- && h^.price == x^.price
-            =
+    f h x | areEquivalent h x && (opening || closing) && p h =
               k (uncurry splits (alignLots h x))
           | otherwise = nothingApplied @() h x
       where

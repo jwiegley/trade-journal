@@ -34,14 +34,12 @@ instance Transactional APICommodityLot where
     washLoss  = const id
     clearLoss = id
 
+    isWashEligible = view washEligible
     isTransferIn x = x^.kind == API.TransferOfSecurityOrOptionIn
 
     arePaired = pairedCommodityLots
-    areEquivalent x y =
-        x^.instrument == L.Equity &&
-        y^.instrument == L.Equity &&
-        not (x^.loss == 0 &&
-           anyOf (refs.each.refType) (== ExistingEquity) x)
+    areEquivalent x y = x^.instrument == L.Equity &&
+                        y^.instrument == L.Equity
 
     showPretty CommodityLot {..} =
         show _quantity
@@ -66,6 +64,7 @@ instance Transactional APILotAndPL where
         y & loss   .~ - (x^.loss)
           & cost   +~ coerce (x^.loss)
           & plKind .~ WashLoss
+          & plLot.washEligible .~ False
           & plLot.refs <>~
                 [ Ref (WashSaleRule (coerce (x^.loss)))
                       (x^?!plLot.refs._head.refId)
@@ -76,6 +75,7 @@ instance Transactional APILotAndPL where
                     x & plKind .~ BreakEven & loss .~ 0
                 | otherwise = x
 
+    isWashEligible x = isWashEligible (x^.plLot)
     isTransferIn x = isTransferIn (x^.plLot)
 
     arePaired     x y = (x^.plLot) `arePaired` (y^.plLot)

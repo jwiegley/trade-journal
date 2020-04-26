@@ -88,6 +88,7 @@ main = do
         & quantity     .~ q
         & L.symbol     .~ s
         & L.cost       ?~ abs (q * p)
+        & washEligible .~ False
         & purchaseDate .~ d
         & refs         .~ [ Ref ExistingEquity 0 Nothing ]
         & L.price      ?~ p

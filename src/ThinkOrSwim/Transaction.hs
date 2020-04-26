@@ -39,7 +39,10 @@ class Transactional t where
     -- disposition of future losses.
     clearLoss :: t -> t
 
-    -- True if this transaction is merely a transfer in from previous books.
+    -- True if this transaction relates to a transfer from previous books.
+    isWashEligible :: t -> Bool
+
+    -- True if this transaction is a transfer from previous books.
     isTransferIn :: t -> Bool
 
     -- True if this pair are opening and closing transactions, or closing and

@@ -21,11 +21,11 @@ import Text.Show.Pretty
 import ThinkOrSwim.Transaction
 
 data Equity = Equity
-    { _qnt :: Amount 4
-    , _cst :: Amount 4
-    , _dy  :: Day
-    , _lss :: Amount 2
-    , _old :: Bool
+    { _qnt      :: Amount 4
+    , _cst      :: Amount 4
+    , _dy       :: Day
+    , _lss      :: Amount 2
+    , _eligible :: Bool
     }
 
 instance Eq Equity where
@@ -46,11 +46,11 @@ makeLenses ''Equity
 
 newEquity :: Equity
 newEquity = Equity
-    { _qnt = 0
-    , _cst = 0
-    , _dy  = ModifiedJulianDay 0
-    , _lss = 0
-    , _old = False
+    { _qnt      = 0
+    , _cst      = 0
+    , _dy       = ModifiedJulianDay 0
+    , _lss      = 0
+    , _eligible = True
     }
 
 (@@) :: Amount 4 -> Amount 4 -> Equity
@@ -76,17 +76,19 @@ instance Transactional Equity where
     loss       = lss
 
     washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
-        y & loss .~ - (x^.loss)
-          & cst +~ coerce (x^.loss)
+        y & loss     .~ - (x^.loss)
+          & cst      +~ coerce (x^.loss)
+          & eligible .~ False
     washLoss _ y = y
 
     clearLoss = loss .~ 0
 
+    isWashEligible = view eligible
     isTransferIn _ = False
 
     arePaired x y = (x^.quantity < 0 && y^.quantity > 0)
                   || (x^.quantity > 0 && y^.quantity < 0)
-    areEquivalent x _ = not (x^.loss == 0 && x^.old)
+    areEquivalent _ _ = True
 
     showPretty = show
 

@@ -26,6 +26,7 @@ import           Data.Ledger hiding (symbol, quantity, amount, cost, price)
 import           Data.Split
 import           Data.Text (Text, unpack)
 import           Data.Utils
+import           Debug.Trace (traceM)
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
 import           ThinkOrSwim.Options (Options)
@@ -63,8 +64,12 @@ gainsKeeper opts fees mnet l = do
         -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
         -- sale rule on purchase of a call contract after an equity loss.
         if Opts.washSaleRule opts && l^.instrument == L.Equity
-        then pls' & each._2 %%~ (fmap snd . washSaleRule (plLot.purchaseDate._Just))
-                 <&> concatMap sequenceA
+        then do
+            res <- pls' & each._2 %%~ \pl -> do
+                (doc, res) <- washSaleRule (plLot.purchaseDate._Just) pl
+                traceM $ render doc
+                pure res
+            pure $ concatMap sequenceA res
         else pure pls'
 
     let hist' = c^.newList ++ res^..each.filtered fst._2.plLot

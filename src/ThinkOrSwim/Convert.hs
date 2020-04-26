@@ -84,6 +84,7 @@ convertTransaction t n = newCommodityLot @API.TransactionSubType
     & L.underlying .~ t^.baseSymbol
     & L.cost       ?~ coerce (abs (t^.item.API.cost))
     & purchaseDate ?~ utctDay (t^.xactDate)
+    & washEligible .~ True
     & refs         .~ [ transactionRef t ]
     & L.price      .~ fmap coerce (t^.item.API.price)
   where
