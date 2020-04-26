@@ -194,7 +194,6 @@ import Data.Foldable
 import Data.Split
 import Data.Time
 import Data.Utils
--- import Debug.Trace (traceM)
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
@@ -224,7 +223,7 @@ import ThinkOrSwim.Transaction
 -- - open, close <30(o), open <30(c)
 -- - open, open <30(c), close <30(o)
 
-washSaleRule :: Transactional a => Traversal' a Day -> a -> State [a] [a]
+washSaleRule :: Transactional a => Traversal' a Day -> a -> State [a] (Doc, [a])
 washSaleRule dy l
     | l^.loss == 0 = do
 
@@ -232,34 +231,48 @@ washSaleRule dy l
       let c   = matchEvents events l wash
           res = c^..consideredElements
       id .= c^.newList ++ map clearLoss res
-      -- traceM $ "washSaleRule: have opening xact  : " ++ showPretty l
-      -- traceM $ "washSaleRule: remove from history: " ++ showPrettyList (c^.fromList)
-      -- traceM $ "washSaleRule: put back in history: " ++ showPrettyList (c^.newList)
-      -- traceM $ "washSaleRule: add to history     : " ++ showPrettyList (map clearLoss res)
-      -- traceM $ "washSaleRule: return result      : " ++ showPrettyList res
-      pure res
+      let doc = "\nhave opening xact  : " <> text (showPretty l)
+             $$ "current history    : " <> renderList (text . showPretty) events
+             $$ "remove from history: " <> renderList (text . showPretty) (c^.fromList)
+             $$ "put back in history: " <> renderList (text . showPretty) (c^.newList)
+             $$ "add to history     : " <> renderList (text . showPretty) (map clearLoss res)
+             $$ "return result      : " <> renderList (text . showPretty) res
+      pure (doc, res)
 
     | l^.loss > 0 = do
 
-      -- traceM $ "washSaleRule: have losing xact   : " ++ showPretty l
-
       events <- use id
+      let doc = "\nhave losing xact   : " <> text (showPretty l)
+             $$ "current history    : " <> renderList (text . showPretty) events
       let c = matchEvents events l id
       case c^.fromElement of
           [] -> do
               id .= c^.newList
-              -- traceM $ "washSaleRule: remove from history: " ++ showPrettyList (c^.fromList)
-              -- traceM $ "washSaleRule: return result      : " ++ showPrettyList [l]
-              pure [l]
+              let doc' = doc
+                      $$ "remove from history: " <> renderList (text . showPretty) (c^.fromList)
+                      $$ "return result      : " <> renderList (text . showPretty) [l]
+              pure (doc', [l])
           xs -> do
               let (ys, zs, nl) = foldl' retroact ([], [], c^.newList) xs
               id .= nl ++ map clearLoss zs
-              -- traceM $ "washSaleRule: put back in history: " ++ showPrettyList nl
-              -- traceM $ "washSaleRule: add to history     : " ++ showPrettyList (map clearLoss zs)
-              -- traceM $ "washSaleRule: return result      : " ++ showPrettyList (y:intermix ys zs)
-              pure (l:intermix ys zs)
+              let doc' = doc
+                      $$ "put back in history: " <> renderList (text . showPretty) nl
+                      $$ "add to history     : " <> renderList (text . showPretty) (map clearLoss zs)
+                      $$ "return result      : " <> renderList (text . showPretty) (l:intermix ys zs)
+              pure (doc', (l:intermix ys zs))
 
-    | otherwise = pure [l]
+    | otherwise = do
+
+      events <- use id
+      let c = matchEvents events l id
+      id .= c^.newList
+      let doc = "\nhave winning xact: " <> text (showPretty l)
+             $$ "current history    : " <> renderList (text . showPretty) events
+             $$ "remove from history: " <> renderList (text . showPretty) (c^.fromList)
+             $$ "put back in history: " <> renderList (text . showPretty) (c^.newList)
+             $$ "return result      : " <> renderList (text . showPretty) [l]
+      pure (doc, [l])
+
   where
     wash = zipped (src._SplitUsed) (dest._SplitUsed)
         %~ \(x, y) -> (x, washLoss x y)
@@ -307,7 +320,9 @@ matchEvents hs pl k =
   where
     within n x y = abs ((x^.day) `diffDays` (y^.day)) <= n
 
-    f h x | areEquivalent h x && (opening || closing) =
+    f h x | areEquivalent h x && (opening || closing)
+            -- && h^.price == x^.price
+            =
               k (uncurry splits (alignLots h x))
           | otherwise = nothingApplied @() h x
       where

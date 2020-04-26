@@ -63,7 +63,7 @@ gainsKeeper opts fees mnet l = do
         -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
         -- sale rule on purchase of a call contract after an equity loss.
         if Opts.washSaleRule opts && l^.instrument == L.Equity
-        then pls' & each._2 %%~ washSaleRule (plLot.purchaseDate._Just)
+        then pls' & each._2 %%~ (fmap snd . washSaleRule (plLot.purchaseDate._Just))
                  <&> concatMap sequenceA
         else pure pls'
 

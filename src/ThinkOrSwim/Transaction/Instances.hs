@@ -44,7 +44,7 @@ instance Transactional APICommodityLot where
         show _quantity
             ++ case _cost of
                    Nothing -> ""
-                   Just xs -> " @@ " ++ show xs
+                   Just xs -> " @@ " ++ show (xs / abs _quantity)
             ++ case _purchaseDate of
                    Nothing -> ""
                    Just d  -> " ## " ++ iso8601Show d

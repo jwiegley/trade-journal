@@ -26,7 +26,20 @@ data Equity = Equity
     , _dy  :: Day
     , _lss :: Amount 2
     }
-    deriving Eq
+
+instance Eq Equity where
+    x == y = show (_qnt x) == show (_qnt y)
+           && (show (_cst x) == show (_cst y) ||
+              show (_cst x / abs (_qnt x)) ==
+              show (_cst y / abs (_qnt y)))
+           && show (_dy x)  == show (_dy y)
+           && show (_lss x) == show (_lss y)
+
+instance Show Equity where
+    show Equity {..} =
+        show _qnt ++ " @@ " ++ show (_cst / abs _qnt)
+                  ++ " ## \"" ++ iso8601Show _dy ++ "\""
+                  ++ " $$ " ++ show _lss
 
 makeLenses ''Equity
 
@@ -39,7 +52,10 @@ newEquity = Equity
     }
 
 (@@) :: Amount 4 -> Amount 4 -> Equity
-q @@ c = newEquity & quantity .~ q & cost .~ c
+q @@ c = newEquity & quantity .~ q & cost .~ abs q * c
+
+(@@@) :: Amount 4 -> Amount 4 -> Equity
+q @@@ c = newEquity & quantity .~ q & cost .~ c
 
 (##) :: Equity -> Text -> Equity
 p ## d = p & day
@@ -48,12 +64,6 @@ p ## d = p & day
 
 ($$) :: Equity -> Amount 2 -> Equity
 p $$ a = p & loss .~ a
-
-instance Show Equity where
-    show Equity {..} =
-        show _qnt ++ " @@ " ++ show _cst
-                  ++ " ## " ++ iso8601Show _dy
-                  ++ " $$ " ++ show _lss
 
 instance Transactional Equity where
     symbol f p = p <$ f "???"
