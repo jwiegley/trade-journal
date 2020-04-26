@@ -25,6 +25,7 @@ data Equity = Equity
     , _cst :: Amount 4
     , _dy  :: Day
     , _lss :: Amount 2
+    , _old :: Bool
     }
 
 instance Eq Equity where
@@ -49,6 +50,7 @@ newEquity = Equity
     , _cst = 0
     , _dy  = ModifiedJulianDay 0
     , _lss = 0
+    , _old = False
     }
 
 (@@) :: Amount 4 -> Amount 4 -> Equity
@@ -84,7 +86,7 @@ instance Transactional Equity where
 
     arePaired x y = (x^.quantity < 0 && y^.quantity > 0)
                   || (x^.quantity > 0 && y^.quantity < 0)
-    areEquivalent _ _ = True
+    areEquivalent x _ = not (x^.loss == 0 && x^.old)
 
     showPretty = show
 

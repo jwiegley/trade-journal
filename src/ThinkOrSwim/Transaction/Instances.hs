@@ -37,8 +37,11 @@ instance Transactional APICommodityLot where
     isTransferIn x = x^.kind == API.TransferOfSecurityOrOptionIn
 
     arePaired = pairedCommodityLots
-    areEquivalent x y = x^.instrument == L.Equity &&
-                        y^.instrument == L.Equity
+    areEquivalent x y =
+        x^.instrument == L.Equity &&
+        y^.instrument == L.Equity &&
+        not (x^.loss == 0 &&
+           anyOf (refs.each.refType) (== ExistingEquity) x)
 
     showPretty CommodityLot {..} =
         show _quantity
