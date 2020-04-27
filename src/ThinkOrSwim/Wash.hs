@@ -196,8 +196,6 @@ import Data.Utils
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
-import Text.Show.Pretty
-import Debug.Trace (trace, traceM)
 
 -- This function assumes 'l' is received in temporal order. For this reason,
 -- we remove all entries older than 30 days from the list before beginning.
@@ -263,7 +261,9 @@ washSaleRule ablens dy l
                       $$ "put back in history: " <> renderTransactions nl
                       $$ "add to history     : " <> renderTransactions (map clearLoss zs)
                       $$ "return result      : " <> renderTransactions (l:intermix ys zs)
-              pure (doc'', (l:intermix ys zs))
+                  rm = l^.loss + sumOf (each.loss) zs
+                  l' = l & washDeferred .~ if rm /= 0 then Just rm else Nothing
+              pure (doc'', (l':intermix ys zs))
 
     | otherwise = do
 

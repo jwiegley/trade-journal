@@ -71,6 +71,7 @@ data CommodityLot k = CommodityLot
     , _cost         :: Maybe (Amount 4)
     , _purchaseDate :: Maybe Day
     , _washEligible :: Bool
+    , _washDeferred :: Maybe (Amount 2)
     , _lotId        :: LotId
     , _refs         :: [Ref]
     , _price        :: Maybe (Amount 4)
@@ -89,6 +90,7 @@ newCommodityLot = CommodityLot
     , _cost         = Nothing
     , _purchaseDate = Nothing
     , _washEligible = True
+    , _washDeferred = Nothing
     , _lotId        = 0
     , _refs         = []
     , _price        = Nothing

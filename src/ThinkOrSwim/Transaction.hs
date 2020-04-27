@@ -30,6 +30,7 @@ class Transactional t where
     day      :: Lens' t Day
     loss     :: Lens' t (Amount 2)
 
+    washDeferred :: Lens' t (Maybe (Amount 2))
     washEligible :: Lens' t Bool
 
     -- Given a loss-bearing transaction, wash the loss by transferring it to

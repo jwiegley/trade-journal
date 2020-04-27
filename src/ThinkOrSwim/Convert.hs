@@ -122,11 +122,7 @@ convertPostings opts actId t = posts <$>
 
        ++ (flip Prelude.concatMap cs $ \pl ->
             [ post act False (CommodityAmount pl)
-                  & postMetadata %~ meta
-                  & postMetadata.at "Effect" %~
-                        (<|> Just (if pl^.plLoss == 0
-                                   then "Opening"
-                                   else "Closing"))
+                  & postMetadata %~ meta pl
             | pl^.plKind /= Rounding ])
 
        ++ [ case t^.item.API.price of
@@ -141,18 +137,22 @@ convertPostings opts actId t = posts <$>
       where
         post = newPosting
 
-    meta m = m
-        & at "XType"       ?~ T.pack (show subtyp)
-        & at "XId"         ?~ T.pack (show (t^.xactId))
-        & at "XDate"       ?~ T.pack (iso8601Show (t^.xactDate))
-        & at "Instruction" .~ t^?item.instruction._Just.to show.packed
-        & at "Effect"      .~ t^?item.positionEffect._Just.to show.packed
-        & at "CUSIP"       .~ t^?instrument_._Just.cusip
-        & at "Instrument"  .~ t^?instrument_._Just.assetType.to assetKind
-        & at "Side"        .~ t^?option'.putCall.to show.packed
-        & at "Strike"      .~ t^?option'.strikePrice._Just.to thousands.packed
-        & at "Expiration"  .~ t^?option'.expirationDate.to (T.pack . iso8601Show)
-        & at "Contract"    .~ t^?option'.description
+    meta pl m = m
+        & at "XType"        ?~ T.pack (show subtyp)
+        & at "XId"          ?~ T.pack (show (t^.xactId))
+        & at "XDate"        ?~ T.pack (iso8601Show (t^.xactDate))
+        & at "Instruction"  .~ t^?item.instruction._Just.to show.packed
+        & at "Effect"       .~ (t^?item.positionEffect._Just.to show.packed
+                                  <|> Just (if pl^.plLoss == 0
+                                            then "Opening"
+                                            else "Closing"))
+        & at "CUSIP"        .~ t^?instrument_._Just.cusip
+        & at "Instrument"   .~ t^?instrument_._Just.assetType.to assetKind
+        & at "Side"         .~ t^?option'.putCall.to show.packed
+        & at "Strike"       .~ t^?option'.strikePrice._Just.to thousands.packed
+        & at "Expiration"   .~ t^?option'.expirationDate.to (T.pack . iso8601Show)
+        & at "Contract"     .~ t^?option'.description
+        & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed
 
     act = case atype of
         Just API.Equity              -> Equities actId

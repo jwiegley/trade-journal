@@ -10,7 +10,8 @@ module ThinkOrSwim.Transaction.Instances where
 import           Control.Lens
 import           Data.Amount
 import           Data.Coerce
-import           Data.Ledger hiding (symbol, quantity, cost, price, washEligible)
+import           Data.Ledger hiding (symbol, quantity, cost, price,
+                                     washDeferred, washEligible)
 import qualified Data.Ledger as L
 import           Data.Time
 import           Data.Time.Format.ISO8601
@@ -30,6 +31,7 @@ instance Transactional APICommodityLot where
     price        = L.price.non 0
     day          = purchaseDate.non (ModifiedJulianDay 0)
     loss f       = (<$ f 0)
+    washDeferred = L.washDeferred
     washEligible = L.washEligible
 
     washLoss  = const id
@@ -59,6 +61,7 @@ instance Transactional APILotAndPL where
     price        = plLot.price
     day          = plDay.non (ModifiedJulianDay 0)
     loss         = plLoss
+    washDeferred = plLot.washDeferred
     washEligible = plLot.washEligible
 
     washLoss x y | abs (x^.quantity) == abs (y^.quantity) =

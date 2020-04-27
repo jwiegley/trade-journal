@@ -25,6 +25,7 @@ data Equity = Equity
     , _cst      :: Amount 4
     , _dy       :: Day
     , _lss      :: Amount 2
+    , _deferred :: Maybe (Amount 2)
     , _eligible :: Bool
     }
 
@@ -50,6 +51,7 @@ newEquity = Equity
     , _cst      = 0
     , _dy       = ModifiedJulianDay 0
     , _lss      = 0
+    , _deferred = Nothing
     , _eligible = True
     }
 
@@ -74,6 +76,7 @@ instance Transactional Equity where
     price f p    = p <$ f 0
     day          = dy
     loss         = lss
+    washDeferred = deferred
     washEligible = eligible
 
     washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
