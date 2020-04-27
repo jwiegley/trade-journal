@@ -21,12 +21,14 @@ import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint
 
 class Transactional t where
-    symbol     :: Lens' t Text
-    quantity   :: Lens' t (Amount 4)
-    cost       :: Lens' t (Amount 4)
-    price      :: Lens' t (Amount 4)
-    day        :: Lens' t Day
-    loss       :: Lens' t (Amount 2)
+    symbol   :: Lens' t Text
+    quantity :: Lens' t (Amount 4)
+    cost     :: Lens' t (Amount 4)
+    price    :: Lens' t (Amount 4)
+    day      :: Lens' t Day
+    loss     :: Lens' t (Amount 2)
+
+    washEligible :: Lens' t Bool
 
     -- Given a loss-bearing transaction, wash the loss by transferring it to
     -- the cost basis of the second transaction. The result is the updated
@@ -38,9 +40,6 @@ class Transactional t where
     -- can be recorded in the history of events that may affect the
     -- disposition of future losses.
     clearLoss :: t -> t
-
-    -- True if this transaction relates to a transfer from previous books.
-    isWashEligible :: t -> Bool
 
     -- True if this transaction is a transfer from previous books.
     isTransferIn :: t -> Bool

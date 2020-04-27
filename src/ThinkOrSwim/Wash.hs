@@ -253,13 +253,13 @@ washSaleRule dy l
                       $$ "return result      : " <> renderList (text . showPretty) [l]
               pure (doc', [l])
           xs -> do
-              let (ys, zs, nl) = foldl' retroact ([], [], c^.newList) xs
+              let (doc', ys, zs, nl) = foldl' retroact (doc, [], [], c^.newList) xs
               id .= map clearLoss zs ++ nl
-              let doc' = doc
+              let doc'' = doc'
                       $$ "put back in history: " <> renderList (text . showPretty) nl
                       $$ "add to history     : " <> renderList (text . showPretty) (map clearLoss zs)
                       $$ "return result      : " <> renderList (text . showPretty) (l:intermix ys zs)
-              pure (doc', (l:intermix ys zs))
+              pure (doc'', (l:intermix ys zs))
 
     | otherwise = do
 
@@ -284,14 +284,17 @@ washSaleRule dy l
     intermix xs ys = error $ "intermix called with uneven lengths: "
         ++ showPrettyList xs ++ " and " ++ showPrettyList ys
 
-    retroact (ys', zs', nl') x =
-        ( ys' ++ d^.fromList & each.quantity %~ negate
+    retroact (doc, ys', zs', nl') x =
+        ( doc $$ "ys': " <> renderList (text . showPretty) ys'
+              $$ "zs': " <> renderList (text . showPretty) zs'
+              $$ "nl': " <> renderList (text . showPretty) nl'
+        , ys' ++ (d^.fromList & each.quantity %~ negate)
         , zs' ++ zipWith washLoss
                    (d^.fromElement)
                    (d^.fromList & each.dy .~ l^.day)
         , d^..consideredNew )
       where
-        d = matchEvents nl' x id isWashEligible
+        d = matchEvents nl' x id (view washEligible)
 
 -- Given a list of transactional elements, and some candidate, find all parts
 -- of elements in the first list that "match up" with the candidate. The

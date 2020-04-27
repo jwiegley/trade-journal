@@ -10,7 +10,7 @@ module ThinkOrSwim.Transaction.Instances where
 import           Control.Lens
 import           Data.Amount
 import           Data.Coerce
-import           Data.Ledger hiding (symbol, quantity, cost, price)
+import           Data.Ledger hiding (symbol, quantity, cost, price, washEligible)
 import qualified Data.Ledger as L
 import           Data.Time
 import           Data.Time.Format.ISO8601
@@ -25,16 +25,17 @@ type APIGainsKeeperState =
 type APICommodityLot = CommodityLot API.TransactionSubType API.Transaction
 
 instance Transactional APICommodityLot where
-    symbol    = L.symbol
-    quantity  = L.quantity
-    cost      = L.cost.non 0
-    price     = L.price.non 0
-    day       = purchaseDate.non (ModifiedJulianDay 0)
-    loss f    = (<$ f 0)
+    symbol       = L.symbol
+    quantity     = L.quantity
+    cost         = L.cost.non 0
+    price        = L.price.non 0
+    day          = purchaseDate.non (ModifiedJulianDay 0)
+    loss f       = (<$ f 0)
+    washEligible = L.washEligible
+
     washLoss  = const id
     clearLoss = id
 
-    isWashEligible = view washEligible
     isTransferIn x = x^.kind == API.TransferOfSecurityOrOptionIn
 
     arePaired = pairedCommodityLots
@@ -53,18 +54,19 @@ instance Transactional APICommodityLot where
 type APILotAndPL = LotAndPL API.TransactionSubType API.Transaction
 
 instance Transactional APILotAndPL where
-    symbol   = plLot.symbol
-    quantity = plLot.quantity
-    cost     = plLot.cost
-    price    = plLot.price
-    day      = plDay.non (ModifiedJulianDay 0)
-    loss     = plLoss
+    symbol       = plLot.symbol
+    quantity     = plLot.quantity
+    cost         = plLot.cost
+    price        = plLot.price
+    day          = plDay.non (ModifiedJulianDay 0)
+    loss         = plLoss
+    washEligible = plLot.washEligible
 
     washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
-        y & loss   .~ - (x^.loss)
-          & cost   +~ coerce (x^.loss)
+        y & loss .~ - (x^.loss)
+          & cost +~ coerce (x^.loss)
+          & washEligible .~ False
           & plKind .~ WashLoss
-          & plLot.washEligible .~ False
           & plLot.refs <>~
                 [ Ref (WashSaleRule (coerce (x^.loss)))
                       (x^?!plLot.refs._head.refId)
@@ -75,7 +77,6 @@ instance Transactional APILotAndPL where
                     x & plKind .~ BreakEven & loss .~ 0
                 | otherwise = x
 
-    isWashEligible x = isWashEligible (x^.plLot)
     isTransferIn x = isTransferIn (x^.plLot)
 
     arePaired     x y = (x^.plLot) `arePaired` (y^.plLot)

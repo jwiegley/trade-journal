@@ -68,12 +68,13 @@ p ## d = p & day
 p $$ a = p & loss .~ a
 
 instance Transactional Equity where
-    symbol f p = p <$ f "???"
-    quantity   = qnt
-    cost       = cst
-    price f p  = p <$ f 0
-    day        = dy
-    loss       = lss
+    symbol f p   = p <$ f "???"
+    quantity     = qnt
+    cost         = cst
+    price f p    = p <$ f 0
+    day          = dy
+    loss         = lss
+    washEligible = eligible
 
     washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
         y & loss     .~ - (x^.loss)
@@ -83,7 +84,6 @@ instance Transactional Equity where
 
     clearLoss = loss .~ 0
 
-    isWashEligible = view eligible
     isTransferIn _ = False
 
     arePaired x y = (x^.quantity < 0 && y^.quantity > 0)
