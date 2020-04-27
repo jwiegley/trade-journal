@@ -24,6 +24,8 @@ import           Data.Text (Text)
 import           Data.Time
 import           Prelude hiding (Float, Double)
 
+type LotId = Int64
+
 data RefType
     = WashSaleRule (Amount 6)
       -- ^ A wash sale rule increases the cost basis of an equity purchase by
@@ -41,10 +43,9 @@ data RefType
 
 makePrisms ''RefType
 
-data Ref t = Ref
+data Ref = Ref
     { _refType :: RefType
-    , _refId   :: Int64
-    , _refOrig :: Maybe t
+    , _refId   :: LotId
     }
     deriving (Eq, Ord, Show)
 
@@ -61,7 +62,7 @@ data Instrument
 
 makePrisms ''Instrument
 
-data CommodityLot k t = CommodityLot
+data CommodityLot k = CommodityLot
     { _instrument   :: Instrument
     , _kind         :: k
     , _quantity     :: Amount 4
@@ -70,21 +71,15 @@ data CommodityLot k t = CommodityLot
     , _cost         :: Maybe (Amount 4)
     , _purchaseDate :: Maybe Day
     , _washEligible :: Bool
-    , _refs         :: [Ref t]
+    , _lotId        :: LotId
+    , _refs         :: [Ref]
     , _price        :: Maybe (Amount 4)
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''CommodityLot
 
-lotPrice :: CommodityLot k t -> Maybe (Amount 4)
-lotPrice l = case l^.instrument of
-    Equity  -> sign (l^.quantity) <$> l^.price
-        <|> (/ l^.quantity) <$> l^.cost
-    Option -> Nothing            -- jww (2020-04-16): NYI
-    _      -> Nothing            -- jww (2020-04-16): NYI
-
-newCommodityLot :: Default k => CommodityLot k t
+newCommodityLot :: Default k => CommodityLot k
 newCommodityLot = CommodityLot
     { _instrument   = Equity
     , _kind         = def
@@ -94,6 +89,7 @@ newCommodityLot = CommodityLot
     , _cost         = Nothing
     , _purchaseDate = Nothing
     , _washEligible = True
+    , _lotId        = 0
     , _refs         = []
     , _price        = Nothing
     }
@@ -110,31 +106,31 @@ data PL
 
 makePrisms ''PL
 
-data LotAndPL k t = LotAndPL
+data LotAndPL k = LotAndPL
     { _plKind :: PL
     , _plDay  :: Maybe Day
     , _plLoss :: Amount 2           -- positive is loss, else gain or wash
-    , _plLot  :: CommodityLot k t
+    , _plLot  :: CommodityLot k
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''LotAndPL
 
-mkLotAndPL :: CommodityLot k t -> Amount 2 -> CommodityLot k t
-           -> LotAndPL k t
+mkLotAndPL :: CommodityLot k -> Amount 2 -> CommodityLot k
+           -> LotAndPL k
 mkLotAndPL c pl = LotAndPL knd (c^.purchaseDate) pl
       where
         knd | pl > 0    = LossShort
             | pl < 0    = GainShort
             | otherwise = BreakEven
 
-_Lot :: Prism' (LotAndPL k t) (CommodityLot k t)
-_Lot = prism' (\l -> mkLotAndPL l 0 l) (Just . _plLot)
+_LotAndPL :: Prism' (LotAndPL k) (CommodityLot k)
+_LotAndPL = prism' (\l -> mkLotAndPL l 0 l) (Just . _plLot)
 
-data PostingAmount k t (lot :: * -> * -> *)
+data PostingAmount k (lot :: * -> *)
     = NoAmount
     | DollarAmount (Amount 2)
-    | CommodityAmount (lot k t)
+    | CommodityAmount (lot k)
     deriving (Eq, Ord, Show)
 
 makePrisms ''PostingAmount
@@ -171,18 +167,18 @@ plAccount LossLong  = Just CapitalLossLong
 plAccount WashLoss  = Just CapitalWashLoss
 plAccount Rounding  = Just RoundingError
 
-data Posting k t (lot :: * -> * -> *) = Posting
+data Posting k (lot :: * -> *) = Posting
     { _account      :: Account
     , _isVirtual    :: Bool
     , _isBalancing  :: Bool
-    , _amount       :: PostingAmount k t lot
+    , _amount       :: PostingAmount k lot
     , _postMetadata :: Map Text Text
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''Posting
 
-newPosting :: Account -> Bool -> PostingAmount k t lot -> Posting k t lot
+newPosting :: Account -> Bool -> PostingAmount k lot -> Posting k lot
 newPosting a b m = Posting
     { _account      = a
     , _isVirtual    = b
@@ -191,12 +187,12 @@ newPosting a b m = Posting
     , _postMetadata = M.empty
     }
 
-data Transaction k o t (lot :: * -> * -> *) = Transaction
+data Transaction k o (lot :: * -> *) = Transaction
     { _actualDate    :: Day
     , _effectiveDate :: Maybe Day
     , _code          :: Text
     , _payee         :: Text
-    , _postings      :: [Posting k t lot]
+    , _postings      :: [Posting k lot]
     , _xactMetadata  :: Map Text Text
     , _provenance    :: o
     }
@@ -204,7 +200,7 @@ data Transaction k o t (lot :: * -> * -> *) = Transaction
 
 makeLenses ''Transaction
 
-optionLots :: Traversal' (Transaction k o t LotAndPL) (LotAndPL k t)
+optionLots :: Traversal' (Transaction k o LotAndPL) (LotAndPL k)
 optionLots
     = postings
     . traverse
@@ -212,7 +208,7 @@ optionLots
     . _CommodityAmount
     . filtered (has (plLot.instrument._Option))
 
-equityLots :: Traversal' (Transaction k o t LotAndPL) (LotAndPL k t)
+equityLots :: Traversal' (Transaction k o LotAndPL) (LotAndPL k)
 equityLots
     = postings
     . traverse
@@ -220,15 +216,15 @@ equityLots
     . _CommodityAmount
     . filtered (has (plLot.instrument._Equity))
 
-data GainsKeeperState k t = GainsKeeperState
-    { _openTransactions :: Map Text [CommodityLot k t]
-    , _positionEvents   :: Map Text [LotAndPL k t]
+data GainsKeeperState k = GainsKeeperState
+    { _openTransactions :: Map Text [CommodityLot k]
+    , _positionEvents   :: Map Text [LotAndPL k]
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''GainsKeeperState
 
-newGainsKeeperState :: GainsKeeperState k t
+newGainsKeeperState :: GainsKeeperState k
 newGainsKeeperState = GainsKeeperState
     { _openTransactions = M.empty
     , _positionEvents   = M.empty

@@ -42,7 +42,7 @@ gainsKeeper :: Options -> Amount 2 -> Maybe (Amount 2) -> APICommodityLot
             -> State APIGainsKeeperState [APILotAndPL]
 gainsKeeper opts fees _ l
     | not (Opts.capitalGains opts) =
-      pure [ _Lot # l & cost +~ coerce (sign (l^.quantity) fees) ]
+      pure [ _LotAndPL # l & cost +~ coerce (sign (l^.quantity) fees) ]
 
 gainsKeeper opts fees mnet l = do
     let sym = l^.symbol
@@ -57,16 +57,19 @@ gainsKeeper opts fees mnet l = do
         f x  = x & plLot.kind .~ l^.kind
                  & plLot.L.price %~ (fmap coerce (l^.L.price) <|>)
         pls  = c^..fromList.each.to f.to (False,)
-            ++ c^..newElement.each.to (review _Lot).to (True,)
+            ++ c^..newElement.each.to (review _LotAndPL).to (True,)
         pls' = pls & partsOf (each._2) %~ handleFees fees
 
-    res <- zoom (positionEvents.at (l^.underlying).non []) $
+    openTransactions.at sym ?= c^.newList
+
+    res <- zoom (zipped (openTransactions.at sym.non [])
+                       (positionEvents.at sym.non [])) $
         -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
         -- sale rule on purchase of a call contract after an equity loss.
         if Opts.washSaleRule opts && l^.instrument == L.Equity
         then do
             res <- pls' & each._2 %%~ \pl -> do
-                (doc, res) <- washSaleRule (plLot.purchaseDate._Just) pl
+                (doc, res) <- washSaleRule plLot (plLot.purchaseDate._Just) pl
                 traceM $ render doc
                 pure res
             pure $ concatMap sequenceA res
@@ -74,7 +77,7 @@ gainsKeeper opts fees mnet l = do
 
     let hist' = c^.newList ++ res^..each.filtered fst._2.plLot
 
-    openTransactions.at sym ?= hist'
+    openTransactions.ix sym <>= res^..each.filtered fst._2.plLot
 
     let res'  = map snd res
         res'' = case mnet of

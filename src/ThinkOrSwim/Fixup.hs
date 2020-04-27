@@ -9,21 +9,18 @@ import           Data.Ledger hiding (symbol, quantity, cost)
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Transaction.Instances ()
-import           ThinkOrSwim.Types
 
 -- If a transaction represents an options assignment, where the closing of a
 -- short option has resulted in a forced purchase or sale, factor the premium
 -- from the option sale into either the cost basis of the purchased shares, or
 -- capital gain/loss of the sold shares -- taking into account the fact that
 -- multiple lots of call option contracts may be closing, which may result in
--- the sale of multiple lots of equity.
+-- the sale or purchase of multiple lots of equity.
 
 fixupTransaction
-    :: Transaction API.TransactionSubType API.Order
-                    API.Transaction LotAndPL
-    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            (Transaction API.TransactionSubType API.Order
-                           API.Transaction LotAndPL)
+    :: Transaction API.TransactionSubType API.Order LotAndPL
+    -> State (GainsKeeperState API.TransactionSubType)
+            (Transaction API.TransactionSubType API.Order LotAndPL)
 fixupTransaction t | not xactOA = pure t
   where
     hasOA  = has (plLot.kind.API._OptionAssignment)

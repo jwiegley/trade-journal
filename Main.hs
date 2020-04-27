@@ -90,7 +90,8 @@ main = do
         & L.cost       ?~ abs (q * p)
         & washEligible .~ False
         & purchaseDate .~ d
-        & refs         .~ [ Ref ExistingEquity 0 Nothing ]
+        & lotId        .~ 0
+        & refs         .~ [ Ref ExistingEquity 0 ]
         & L.price      ?~ p
 
 createManager :: IO Manager

@@ -29,10 +29,9 @@ import           ThinkOrSwim.Types
 
 convertOrders
     :: Options
-    -> GainsKeeperState API.TransactionSubType API.Transaction
+    -> GainsKeeperState API.TransactionSubType
     -> TransactionHistory
-    -> [L.Transaction API.TransactionSubType API.Order
-                     API.Transaction L.LotAndPL]
+    -> [L.Transaction API.TransactionSubType API.Order L.LotAndPL]
 convertOrders opts st hist = (`evalState` st) $
     Prelude.mapM (convertOrder opts (hist^.ordersMap))
                  (hist^.settlementList)
@@ -45,9 +44,8 @@ convertOrder
     :: Options
     -> OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
-    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            (L.Transaction API.TransactionSubType API.Order
-                           API.Transaction L.LotAndPL)
+    -> State (GainsKeeperState API.TransactionSubType)
+            (L.Transaction API.TransactionSubType API.Order L.LotAndPL)
 convertOrder opts m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
@@ -75,7 +73,7 @@ transactionFees t
     + t^.fees_.commission
 
 convertTransaction :: API.Transaction -> Amount 6
-                   -> CommodityLot API.TransactionSubType API.Transaction
+                   -> CommodityLot API.TransactionSubType
 convertTransaction t n = newCommodityLot @API.TransactionSubType
     & instrument   .~ instr
     & kind         .~ t^.xactSubType
@@ -85,6 +83,7 @@ convertTransaction t n = newCommodityLot @API.TransactionSubType
     & L.cost       ?~ coerce (abs (t^.item.API.cost))
     & purchaseDate ?~ utctDay (t^.xactDate)
     & washEligible .~ True
+    & lotId        .~ t^.xactId
     & refs         .~ [ transactionRef t ]
     & L.price      .~ fmap coerce (t^.item.API.price)
   where
@@ -103,8 +102,8 @@ convertPostings
     :: Options
     -> Text
     -> API.Transaction
-    -> State (GainsKeeperState API.TransactionSubType API.Transaction)
-            [L.Posting API.TransactionSubType API.Transaction L.LotAndPL]
+    -> State (GainsKeeperState API.TransactionSubType)
+            [L.Posting API.TransactionSubType L.LotAndPL]
 convertPostings _ _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings opts actId t = posts <$>

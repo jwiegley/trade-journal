@@ -7,6 +7,8 @@ module ThinkOrSwim.Transaction
     , sumTransactions
     , renderConsidered
     , applyTo
+    , renderTransactions
+    , showTransactions
     ) where
 
 import Control.Lens
@@ -100,13 +102,19 @@ sumTransactions = foldl' go 0
     cst l     = sign (l^.quantity) (l^.cost)
     go acc pl = acc + norm (coerce (cst pl)) + norm (pl^.loss)
 
+renderTransactions :: Transactional a => [a] -> Doc
+renderTransactions = renderList (text . showPretty)
+
+showTransactions :: Transactional a => [a] -> String
+showTransactions = show . renderTransactions
+
 renderConsidered :: Transactional a => Considered a a a -> Doc
 renderConsidered c =
         text "c^.fromList    "
-        <> renderList (text . showPretty) (c^.fromList)
+        <> renderTransactions (c^.fromList)
     $$ text "c^.newList     "
-        <> renderList (text . showPretty) (c^.newList)
+        <> renderTransactions (c^.newList)
     $$ text "c^.fromElement "
-        <> renderList (text . showPretty) (c^.fromElement)
+        <> renderTransactions (c^.fromElement)
     $$ text "c^.newElement  "
         <> text (show (fmap showPretty (c^.newElement)))

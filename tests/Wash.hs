@@ -19,13 +19,13 @@ testWashSaleRule :: TestTree
 testWashSaleRule = testGroup "washSaleRule"
     [
     --   testCase "open" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215 = 12@@@300 ## "2020-02-15" $$ 0.00
     --       wash aapl0215 @?== ( [ aapl0215 ]
     --                          , [ aapl0215 ] )
 
     -- , testCase "open, open <30" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215 = 12@@@300 ## "2020-02-15" $$ 0.00
     --           aapl0216 = 12@@@300 ## "2020-02-16" $$ 0.00
     --       wash aapl0215
@@ -34,7 +34,7 @@ testWashSaleRule = testGroup "washSaleRule"
     --                          , [ aapl0216 ] )
 
     -- , testCase "open, open >30" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215 = 12@@@300 ## "2020-02-15" $$ 0.00
     --           aapl0416 = 12@@@300 ## "2020-04-16" $$ 0.00
     --       wash aapl0215
@@ -42,7 +42,7 @@ testWashSaleRule = testGroup "washSaleRule"
     --                          , [ aapl0416 ] )
 
     -- , testCase "open, sell at loss <30" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215 =    12@@@300 ## "2020-02-15" $$    0.00
     --           aapl0216 = (-12)@@@200 ## "2020-02-16" $$ 1200.00
     --       wash aapl0215
@@ -50,7 +50,7 @@ testWashSaleRule = testGroup "washSaleRule"
     --                          , [ aapl0216 ] )
 
     -- , testCase "open, sell at gain" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215 =    12@@@300 ## "2020-02-15" $$      0.00
     --           aapl0216 = (-12)@@@400 ## "2020-02-16" $$ (-1200.00)
     --       wash aapl0215
@@ -58,14 +58,14 @@ testWashSaleRule = testGroup "washSaleRule"
     --                          , [ aapl0216 ] )
 
     -- , testCase "open, sell at loss >30" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215 =    12@@@300 ## "2020-02-15" $$    0.00
     --           aapl0416 = (-12)@@@200 ## "2020-04-16" $$ 1200.00
     --       wash aapl0215
     --       wash aapl0416 @?== ([], [aapl0416])
 
     -- , testCase "open, sell at loss <30, open again <30" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215o =    12@@@300 ## "2020-02-15" $$     0.00
     --           aapl0216c = (-12)@@@290 ## "2020-02-16" $$   120.00
     --           aapl0217o =    12@@@300 ## "2020-02-17" $$     0.00
@@ -79,7 +79,7 @@ testWashSaleRule = testGroup "washSaleRule"
     --           , [ 12@@@420 ## "2020-02-17" $$ (-120.00) ] )
 
     -- , testCase "open, open, sell at loss <30" $
-    --   flip evalStateT [] $ do
+    --   flip evalStateT ([], []) $ do
     --       let aapl0215o =    12@@@300 ## "2020-02-15" $$   0.00
     --           aapl0216o =     5@@@155 ## "2020-02-16" $$   0.00
     --           aapl0217o =     5@@@155 ## "2020-02-17" $$   0.00
@@ -107,7 +107,7 @@ testWashSaleRule = testGroup "washSaleRule"
     --             , 5@@@205 ## "2020-02-18" $$ (-50.00) ] )
 
       testCase "open many, sell many" $
-      flip evalStateT [] $ do
+      flip evalStateT ([], []) $ do
           -- Establish pre-existing equity
           wash $  140 @@  99.7792 ## "2019-06-24" $$ 0.00 & eligible .~ False
           wash $   10 @@  89.785  ## "2019-06-24" $$ 0.00 & eligible .~ False
@@ -161,9 +161,10 @@ testWashSaleRule = testGroup "washSaleRule"
           pure ()
     ]
 
-wash :: Transactional a => a -> StateT [a] IO ([a] , [a])
+wash :: (Transactional a, Show a, Eq a)
+     => a -> StateT ([a], [a]) IO ([a] , [a])
 wash pl = hoist (pure . runIdentity) $ do
-    (doc, res) <- washSaleRule day pl
+    (doc, res) <- washSaleRule id day pl
     traceM $ render doc
     events <- get
-    pure (events, res)
+    pure (snd events, res)

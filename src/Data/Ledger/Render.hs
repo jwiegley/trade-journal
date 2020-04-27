@@ -29,7 +29,7 @@ import           Prelude hiding (Float, Double)
 import           Text.Printf
 import           Text.Show.Pretty
 
-renderRefs :: [Ref t] -> Text
+renderRefs :: [Ref] -> Text
 renderRefs = T.intercalate "," . map go
   where
     go r = case r^.refType of
@@ -40,7 +40,7 @@ renderRefs = T.intercalate "," . map go
         OpeningOrder   -> "" <> T.pack (show (r^.refId))
         ExistingEquity -> "Equity"
 
-renderPostingAmount :: PostingAmount k t LotAndPL -> [Text]
+renderPostingAmount :: PostingAmount k LotAndPL -> [Text]
 renderPostingAmount NoAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
 renderPostingAmount (CommodityAmount (LotAndPL _ _ _ l@(CommodityLot {..})))
@@ -83,7 +83,7 @@ renderAccount = \case
     RoundingError        -> "Expenses:TD:Rounding"
     OpeningBalances      -> "Equity:TD:Opening Balances"
 
-renderPosting :: Posting k t LotAndPL -> [Text]
+renderPosting :: Posting k LotAndPL -> [Text]
 renderPosting Posting {..} =
     [ T.pack $ printf "    %-32s%16s%s"
         (if _isVirtual then "(" <> act <> ")" else act)
@@ -100,7 +100,7 @@ renderMetadata = Prelude.map go . M.assocs
   where
     go (k, v) = "    ; " <> k <> ": " <> v
 
-renderTransaction :: (Show k, Show t) => Transaction k o t LotAndPL -> [Text]
+renderTransaction :: Show k => Transaction k o LotAndPL -> [Text]
 renderTransaction xact
     = [ T.concat
           $  [ T.pack (iso8601Show (xact^.actualDate)) ]

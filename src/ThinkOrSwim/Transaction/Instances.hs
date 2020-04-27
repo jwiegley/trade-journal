@@ -19,10 +19,9 @@ import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Types
 
-type APIGainsKeeperState =
-    GainsKeeperState API.TransactionSubType API.Transaction
+type APIGainsKeeperState = GainsKeeperState API.TransactionSubType
 
-type APICommodityLot = CommodityLot API.TransactionSubType API.Transaction
+type APICommodityLot = CommodityLot API.TransactionSubType
 
 instance Transactional APICommodityLot where
     symbol       = L.symbol
@@ -51,7 +50,7 @@ instance Transactional APICommodityLot where
                    Nothing -> ""
                    Just d  -> " ## " ++ iso8601Show d
 
-type APILotAndPL = LotAndPL API.TransactionSubType API.Transaction
+type APILotAndPL = LotAndPL API.TransactionSubType
 
 instance Transactional APILotAndPL where
     symbol       = plLot.symbol
@@ -63,18 +62,17 @@ instance Transactional APILotAndPL where
     washEligible = plLot.washEligible
 
     washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
-        y & loss .~ - (x^.loss)
-          & cost +~ coerce (x^.loss)
+        y & loss         .~ - (x^.loss)
+          & cost         +~ coerce (x^.loss)
           & washEligible .~ False
-          & plKind .~ WashLoss
-          & plLot.refs <>~
-                [ Ref (WashSaleRule (coerce (x^.loss)))
-                      (x^?!plLot.refs._head.refId)
-                      (x^?!plLot.refs._head.refOrig) ]
+          & plKind       .~ WashLoss
+          & plLot.refs   <>~
+              [ Ref (WashSaleRule (coerce (x^.loss))) (x^.plLot.lotId) ]
     washLoss _ y = y
 
     clearLoss x | x^.plKind == WashLoss =
-                    x & plKind .~ BreakEven & loss .~ 0
+                    x & plKind .~ BreakEven
+                      & loss .~ 0
                 | otherwise = x
 
     isTransferIn x = isTransferIn (x^.plLot)

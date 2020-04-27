@@ -190,13 +190,14 @@ module ThinkOrSwim.Wash (washSaleRule) where
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
-import Data.Foldable
 import Data.Split
 import Data.Time
 import Data.Utils
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
+import Text.Show.Pretty
+import Debug.Trace (trace, traceM)
 
 -- This function assumes 'l' is received in temporal order. For this reason,
 -- we remove all entries older than 30 days from the list before beginning.
@@ -223,80 +224,86 @@ import ThinkOrSwim.Transaction
 -- - open, close <30(o), open <30(c)
 -- - open, open <30(c), close <30(o)
 
-washSaleRule :: Transactional a => Traversal' a Day -> a -> State [a] (Doc, [a])
-washSaleRule dy l
+washSaleRule :: (Transactional a, Show a, Transactional b, Eq b, Show b)
+             => Lens' a b -> Traversal' a Day -> a
+
+             -> State ([b], [a]) (Doc, [a])
+washSaleRule ablens dy l
     | l^.loss == 0 = do
 
-      events <- use id
+      events <- use _2
       let c   = matchEvents events l wash (const True)
           res = c^..consideredElements
-      id .= c^.newList ++ map clearLoss res
+      _2 .= c^.newList ++ map clearLoss res
       let doc = "\nhave opening xact  : " <> text (showPretty l)
-             $$ "current history    : " <> renderList (text . showPretty) events
-             $$ "remove from history: " <> renderList (text . showPretty) (c^.fromList)
-             $$ "put back in history: " <> renderList (text . showPretty) (c^.newList)
-             $$ "add to history     : " <> renderList (text . showPretty) (map clearLoss res)
-             $$ "return result      : " <> renderList (text . showPretty) res
+             $$ "current history    : " <> renderTransactions events
+             $$ "remove from history: " <> renderTransactions (c^.fromList)
+             $$ "put back in history: " <> renderTransactions (c^.newList)
+             $$ "add to history     : " <> renderTransactions (map clearLoss res)
+             $$ "return result      : " <> renderTransactions res
       pure (doc, res)
 
     | l^.loss > 0 = do
 
-      events <- use id
+      events <- use _2
       let doc = "\nhave losing xact   : " <> text (showPretty l)
-             $$ "current history    : " <> renderList (text . showPretty) events
+             $$ "current history    : " <> renderTransactions events
       let c = matchEvents events l id (const True)
       case c^.fromElement of
           [] -> do
-              id .= c^.newList
+              _2 .= c^.newList
               let doc' = doc
-                      $$ "remove from history: " <> renderList (text . showPretty) (c^.fromList)
-                      $$ "return result      : " <> renderList (text . showPretty) [l]
+                      $$ "remove from history: " <> renderTransactions (c^.fromList)
+                      $$ "return result      : " <> renderTransactions [l]
               pure (doc', [l])
           xs -> do
-              let (doc', ys, zs, nl) = foldl' retroact (doc, [], [], c^.newList) xs
-              id .= map clearLoss zs ++ nl
+              (doc', ys, zs, nl) <- foldM retroact (doc, [], [], c^.newList) xs
+              _2 .= map clearLoss zs ++ nl
               let doc'' = doc'
-                      $$ "put back in history: " <> renderList (text . showPretty) nl
-                      $$ "add to history     : " <> renderList (text . showPretty) (map clearLoss zs)
-                      $$ "return result      : " <> renderList (text . showPretty) (l:intermix ys zs)
+                      $$ "put back in history: " <> renderTransactions nl
+                      $$ "add to history     : " <> renderTransactions (map clearLoss zs)
+                      $$ "return result      : " <> renderTransactions (l:intermix ys zs)
               pure (doc'', (l:intermix ys zs))
 
     | otherwise = do
 
-      events <- use id
+      events <- use _2
       let c = matchEvents events l id (const True)
-      id .= c^.newList
+      _2 .= c^.newList
       let doc = "\nhave winning xact: " <> text (showPretty l)
-             $$ "current history    : " <> renderList (text . showPretty) events
-             $$ "remove from history: " <> renderList (text . showPretty) (c^.fromList)
-             $$ "put back in history: " <> renderList (text . showPretty) (c^.newList)
-             $$ "return result      : " <> renderList (text . showPretty) [l]
+             $$ "current history    : " <> renderTransactions events
+             $$ "remove from history: " <> renderTransactions (c^.fromList)
+             $$ "put back in history: " <> renderTransactions (c^.newList)
+             $$ "return result      : " <> renderTransactions [l]
       pure (doc, [l])
 
   where
     wash = zipped (src._SplitUsed) (dest._SplitUsed)
         %~ \(x, y) -> (x, washLoss x y)
 
-    showPrettyList = show . renderList (text . showPretty)
-
     intermix [] [] = []
     intermix (x:xs) (y:ys) = x:y:intermix xs ys
     intermix xs ys = error $ "intermix called with uneven lengths: "
-        ++ showPrettyList xs ++ " and " ++ showPrettyList ys
+        ++ showTransactions xs ++ " and " ++ showTransactions ys
 
-    retroact (doc, ys', zs', nl') x =
-        ( doc $$ "ys': " <> renderList (text . showPretty) ys'
-              $$ "zs': " <> renderList (text . showPretty) zs'
-              $$ "nl': " <> renderList (text . showPretty) nl'
-        , ys' ++ (d^.fromList & each.quantity %~ negate)
-        , zs' ++ zipWith washLoss
-                   (d^.fromElement)
-                   (d^.fromList & each.dy .~ l^.day)
-        , d^..consideredNew )
+    retroact (doc, ys', zs', nl') x = do
+        fel <- (\f -> zipWithM f
+                      (d^.fromElement)
+                      (d^.fromList)) $ \e i -> do
+            let j = washLoss e i & dy .~ l^.day
+            _1.traverse %= \y ->
+                if y == i^.ablens then j^.ablens else y
+            pure j
+        pure ( doc $$ "ys': " <> renderTransactions ys'
+                   $$ "zs': " <> renderTransactions zs'
+                   $$ "nl': " <> renderTransactions nl'
+             , ys' ++ (d^.fromList & each.quantity %~ negate)
+             , zs' ++ fel
+             , d^..consideredNew )
       where
         d = matchEvents nl' x id (view washEligible)
 
--- Given a list of transactional elements, and some candidate, find all parts
+-- Given a list of transactional elements, and some candidate, find all part, Show bs
 -- of elements in the first list that "match up" with the candidate. The
 -- function 'k' offers an opportunity to modify the parts used and not used in
 -- the source and destination at each step.

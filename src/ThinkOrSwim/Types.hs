@@ -1,6 +1,5 @@
 module ThinkOrSwim.Types where
 
-import Control.Applicative ((<|>))
 import Control.Lens
 import Data.Ledger as Ledger
 import Data.Time
@@ -14,21 +13,17 @@ import Debug.Trace (traceM)
 renderM :: Applicative f => Doc -> f ()
 renderM = traceM . render
 
-transactionRef :: API.Transaction -> Ref API.Transaction
-transactionRef t = Ref OpeningOrder (t^.xactId) (Just t)
+transactionRef :: API.Transaction -> Ref
+transactionRef t = Ref OpeningOrder (t^.xactId)
 
-lotDate :: CommodityLot k API.Transaction -> Maybe Day
-lotDate l = l^.purchaseDate
-    <|> utctDay <$> l^?refs._head.refOrig._Just.xactDate
-
-daysApart :: CommodityLot k API.Transaction -> Day -> Maybe Integer
+daysApart :: CommodityLot k -> Day -> Maybe Integer
 daysApart x yd = do
-    xd <- lotDate x
+    xd <- x^.purchaseDate
     pure $ xd `diffDays` yd
 
 -- Return True if 'x' is an open and 'y' is a close.
-pairedCommodityLots :: CommodityLot API.TransactionSubType t
-                    -> CommodityLot API.TransactionSubType t
+pairedCommodityLots :: CommodityLot API.TransactionSubType
+                    -> CommodityLot API.TransactionSubType
                     -> Bool
 pairedCommodityLots x y
     | x' <- x^?Ledger.instrument,
