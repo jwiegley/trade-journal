@@ -190,6 +190,7 @@ module ThinkOrSwim.Wash (washSaleRule) where
 import Control.Applicative
 import Control.Lens
 import Control.Monad.State
+import Data.List (foldl')
 import Data.Split
 import Data.Time
 import Data.Utils
@@ -230,16 +231,21 @@ washSaleRule ablens dy l
     | l^.loss == 0 = do
 
       events <- use _2
-      let c   = matchEvents events l wash (const True)
-          res = c^..consideredElements
-      _2 .= c^.newList ++ map clearLoss res
+      let c   = matchEvents events l id (const True)
+          -- res = c^..consideredElements
+          l'  = foldl' (flip (washLoss True)) l (c^.fromList)
+      -- _2 .= c^.newList ++ map clearLoss res
+      _2 .= c^.newList ++ [clearLoss l']
       let doc = "\nhave opening xact  : " <> text (showPretty l)
              $$ "current history    : " <> renderTransactions events
              $$ "remove from history: " <> renderTransactions (c^.fromList)
              $$ "put back in history: " <> renderTransactions (c^.newList)
-             $$ "add to history     : " <> renderTransactions (map clearLoss res)
-             $$ "return result      : " <> renderTransactions res
-      pure (doc, res)
+             $$ "add to history     : " <> renderTransactions [clearLoss l']
+             -- $$ "add to history     : " <> renderTransactions (map clearLoss res)
+             $$ "return result      : " <> renderTransactions [l']
+             -- $$ "return result      : " <> renderTransactions res
+      -- pure (doc, res)
+      pure (doc, [l'])
 
     | l^.loss > 0 = do
 
@@ -258,12 +264,13 @@ washSaleRule ablens dy l
               (doc', ys, zs, nl) <- foldM retroact (doc, [], [], c^.newList) xs
               _2 .= map clearLoss zs ++ nl
               let doc'' = doc'
+                      $$ "considered         : " <> renderConsidered c
                       $$ "put back in history: " <> renderTransactions nl
                       $$ "add to history     : " <> renderTransactions (map clearLoss zs)
                       $$ "return result      : " <> renderTransactions (l:intermix ys zs)
                   rm = l^.loss + sumOf (each.loss) zs
                   l' = l & washDeferred .~ if rm /= 0 then Just rm else Nothing
-              pure (doc'', (l':intermix ys zs))
+              pure (doc'', l':intermix ys zs)
 
     | otherwise = do
 
@@ -278,8 +285,8 @@ washSaleRule ablens dy l
       pure (doc, [l])
 
   where
-    wash = zipped (src._SplitUsed) (dest._SplitUsed)
-        %~ \(x, y) -> (x, washLoss x y)
+    -- wash = zipped (src._SplitUsed) (dest._SplitUsed)
+    --     %~ \(x, y) -> (x, washLoss False x y)
 
     intermix [] [] = []
     intermix (x:xs) (y:ys) = x:y:intermix xs ys
@@ -290,7 +297,7 @@ washSaleRule ablens dy l
         fel <- (\f -> zipWithM f
                       (d^.fromElement)
                       (d^.fromList)) $ \e i -> do
-            let j = washLoss e i & dy .~ l^.day
+            let j = washLoss False e i & dy .~ l^.day
             _1.traverse %= \y ->
                 if y == i^.ablens then j^.ablens else y
             pure j

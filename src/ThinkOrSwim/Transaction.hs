@@ -37,7 +37,7 @@ class Transactional t where
     -- the cost basis of the second transaction. The result is the updated
     -- version of both transactions, the first with loss removed, the second
     -- with wash loss applied.
-    washLoss :: t -> t -> t
+    washLoss :: Bool -> t -> t -> t
 
     -- If this opening transaction has a wash loss applied, unwash it so it
     -- can be recorded in the history of events that may affect the

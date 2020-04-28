@@ -34,8 +34,8 @@ instance Transactional APICommodityLot where
     washDeferred = L.washDeferred
     washEligible = L.washEligible
 
-    washLoss  = const id
-    clearLoss = id
+    washLoss _ _ = id
+    clearLoss    = id
 
     isTransferIn x = x^.kind == API.TransferOfSecurityOrOptionIn
 
@@ -64,14 +64,14 @@ instance Transactional APILotAndPL where
     washDeferred = plLot.washDeferred
     washEligible = plLot.washEligible
 
-    washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
-        y & loss         .~ - (x^.loss)
+    washLoss b x y | b || abs (x^.quantity) == abs (y^.quantity) =
+        y & loss         -~ x^.loss
           & cost         +~ coerce (x^.loss)
           & washEligible .~ False
           & plKind       .~ WashLoss
-          & plLot.refs   <>~
+          & plLot.refs  <>~
               [ Ref (WashSaleRule (coerce (x^.loss))) (x^.plLot.lotId) ]
-    washLoss _ y = y
+    washLoss _ _ y = y
 
     clearLoss x | x^.plKind == WashLoss =
                     x & plKind .~ BreakEven

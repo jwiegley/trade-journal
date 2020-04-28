@@ -79,11 +79,11 @@ instance Transactional Equity where
     washDeferred = deferred
     washEligible = eligible
 
-    washLoss x y | abs (x^.quantity) == abs (y^.quantity) =
+    washLoss b x y | b || abs (x^.quantity) == abs (y^.quantity) =
         y & loss     .~ - (x^.loss)
           & cst      +~ coerce (x^.loss)
           & eligible .~ False
-    washLoss _ y = y
+    washLoss _ _ y = y
 
     clearLoss = loss .~ 0
 
