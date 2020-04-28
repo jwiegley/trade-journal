@@ -34,9 +34,9 @@ renderRefs = T.intercalate "," . map go
   where
     go r = case r^.refType of
         WashSaleRule wash ->
-            "W$" <> T.pack (show wash) <> "-" <> T.pack (show (r^.refId))
+            "W$" <> T.pack (show wash) <> "/" <> T.pack (show (r^.refId))
         RollingOrder roll ->
-            "R$" <> T.pack (show roll) <> "-" <> T.pack (show (r^.refId))
+            "R$" <> T.pack (show roll) <> "/" <> T.pack (show (r^.refId))
         OpeningOrder   -> "" <> T.pack (show (r^.refId))
         ExistingEquity -> "Equity"
 
