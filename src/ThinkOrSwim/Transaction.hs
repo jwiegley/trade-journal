@@ -4,6 +4,7 @@
 module ThinkOrSwim.Transaction
     ( Transactional(..)
     , alignLots
+    , splitLots
     , sumTransactions
     , renderConsidered
     , applyTo
@@ -57,7 +58,8 @@ class Transactional t where
 
     showPretty :: t -> String
 
-alignLots :: Transactional a => a -> a -> (Split a, Split a)
+alignLots :: (Transactional a, Transactional b)
+          => a -> b -> (Split a, Split b)
 alignLots x y
     | xq == 0 && yq == 0 = ( None x, None y )
     | xq == 0           = ( None x, All  y )
@@ -89,6 +91,9 @@ alignLots x y
     xlps = x^.loss / coerce (abs xq)
     ylps = y^.loss / coerce (abs yq)
     diff = abs (abs xq - abs yq)
+
+splitLots :: Transactional a => a -> a -> Applied () a a
+splitLots x y = uncurry splits (x `alignLots` y)
 
 applyTo :: Transactional a => Traversal' a (Amount n) -> (Amount m, a) -> a
 applyTo l (n, x) = x & l +~ coerce n
