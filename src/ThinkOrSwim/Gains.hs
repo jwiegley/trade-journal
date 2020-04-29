@@ -34,7 +34,7 @@ import qualified ThinkOrSwim.Options as Opts
 import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Transaction.Instances
 import           ThinkOrSwim.Types
-import           ThinkOrSwim.Wash
+import           ThinkOrSwim.Wash (washSaleRule, openTransactions, symbolHistory)
 
 -- The function seeks to replicate logic used by GainsKeeper to calculate the
 -- capital gains for a transaction based on a history of past transactions.
