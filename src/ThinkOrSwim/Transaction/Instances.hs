@@ -19,8 +19,11 @@ import           Prelude hiding (Float, Double, (<>))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Transaction
 import           ThinkOrSwim.Types
+import           ThinkOrSwim.Wash
 
-type APIGainsKeeperState = GainsKeeperState API.TransactionSubType
+type APIGainsKeeperState =
+    GainsKeeperState (CommodityLot API.TransactionSubType)
+                     (LotAndPL API.TransactionSubType)
 
 type APICommodityLot = CommodityLot API.TransactionSubType
 

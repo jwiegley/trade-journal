@@ -8,7 +8,8 @@ import           Data.Amount
 import           Data.Ledger hiding (symbol, quantity, cost)
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Transaction
-import           ThinkOrSwim.Transaction.Instances ()
+import           ThinkOrSwim.Transaction.Instances
+import           ThinkOrSwim.Wash
 
 -- If a transaction represents an options assignment, where the closing of a
 -- short option has resulted in a forced purchase or sale, factor the premium
@@ -19,7 +20,7 @@ import           ThinkOrSwim.Transaction.Instances ()
 
 fixupTransaction
     :: Transaction API.TransactionSubType API.Order LotAndPL
-    -> State (GainsKeeperState API.TransactionSubType)
+    -> State APIGainsKeeperState
             (Transaction API.TransactionSubType API.Order LotAndPL)
 fixupTransaction t | not xactOA = pure t
   where

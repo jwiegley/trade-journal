@@ -62,8 +62,7 @@ gainsKeeper opts fees mnet l = do
 
     openTransactions.at sym ?= c^.newList
 
-    res <- zoom (zipped (openTransactions.at sym.non [])
-                       (positionEvents.at sym.non [])) $
+    res <- zoom (symbolHistory sym) $
         -- jww (2020-04-20): TD Ameritrade doesn't seem to apply the wash
         -- sale rule on purchase of a call contract after an equity loss.
         if Opts.washSaleRule opts && l^.instrument == L.Equity

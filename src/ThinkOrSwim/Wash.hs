@@ -17,8 +17,17 @@
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
--- module ThinkOrSwim.Wash (washSaleRule) where
-module ThinkOrSwim.Wash where
+module ThinkOrSwim.Wash
+    ( GainsKeeperState(..)
+    , newGainsKeeperState
+    , openTransactions
+    , SymbolHistory
+    , symbolHistory
+    , history
+    , washSaleRule
+    , Entry(..)
+    , AnEntry(..)
+    ) where
 
 import Control.Applicative
 import Control.Exception (assert)
@@ -26,10 +35,13 @@ import Control.Lens
 import Control.Monad.State
 import Data.Coerce
 import Data.Int (Int64)
-import Data.List (foldl')
+import Data.Map (Map)
+import Data.Text (Text)
 import Data.Split
 import Data.Time
+import Data.Utils
 import Prelude hiding (Float, Double, (<>))
+import Text.Show.Pretty
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
 
@@ -38,7 +50,7 @@ data Event
     = Open
     | Close
     | LosingClose
-    deriving (Eq, Show, Enum, Bounded)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 type EntryId = Int64
 
@@ -46,7 +58,7 @@ data Entry (k :: Event) a = Entry
     { _entId   :: EntryId        -- uniquely identifies each entry
     , _entItem :: a
     }
-    deriving Eq
+    deriving (Eq, Ord)
 
 instance Transactional a => Show (Entry k a) where
     show Entry {..} = "#" ++ show _entId ++ " :: " ++ showPretty _entItem
@@ -57,11 +69,12 @@ data AnEntry a where
     LosingCloser :: Entry LosingClose a -> AnEntry a
 
 deriving instance Eq a => Eq (AnEntry a)
+deriving instance Ord a => Ord (AnEntry a)
 deriving instance Transactional a => Show (AnEntry a)
 
 overEntry :: AnEntry a -> (forall k. Entry k a -> Entry k a) -> AnEntry a
-overEntry (Opener e) k = Opener (k e)
-overEntry (Closer e) k = Closer (k e)
+overEntry (Opener e) k       = Opener (k e)
+overEntry (Closer e) k       = Closer (k e)
 overEntry (LosingCloser e) k = LosingCloser (k e)
 
 -- After a trading event is matched with its history, the series of resulting
@@ -77,23 +90,50 @@ data Action a
 
 deriving instance Transactional a => Show (Action a)
 
-data WashHistory a = WashHistory
-    { _nextId  :: EntryId
-    , _history :: [AnEntry a]
-    }
-    deriving Show
-
-newWashHistory :: WashHistory a
-newWashHistory = WashHistory
-    { _nextId  = 1
-    , _history = []
-    }
-
 makePrisms ''Event
 makeLenses ''Entry
 makePrisms ''AnEntry
 makePrisms ''Action
-makeLenses ''WashHistory
+
+anEntryItem :: Lens' (AnEntry a) a
+anEntryItem f = \case
+    Opener e       -> Opener <$> (e & entItem %%~ f)
+    Closer e       -> Closer <$> (e & entItem %%~ f)
+    LosingCloser e -> LosingCloser <$> (e & entItem %%~ f)
+
+data GainsKeeperState t e = GainsKeeperState
+    { _openTransactions :: Map Text [t]
+    , _positionEvents   :: Map Text [AnEntry e]
+    , _nextEventId      :: EntryId
+    }
+    deriving (Eq, Ord, Show)
+
+makeLenses ''GainsKeeperState
+
+newGainsKeeperState :: GainsKeeperState t e
+newGainsKeeperState = GainsKeeperState
+    { _openTransactions = mempty
+    , _positionEvents   = mempty
+    , _nextEventId      = 1
+    }
+
+data SymbolHistory t a = SymbolHistory
+    { _xacts   :: [t]
+    , _history :: [AnEntry a]
+    , _nextId  :: EntryId
+    }
+
+makeLenses ''SymbolHistory
+
+symbolHistory :: (Eq t, Eq a)
+              => Text -> Lens' (GainsKeeperState t a) (SymbolHistory t a)
+symbolHistory sym f s =
+    f (SymbolHistory (s^.openTransactions.at sym.non [])
+                     (s^.positionEvents.at sym.non [])
+                     (s^.nextEventId)) <&> \h ->
+      s & openTransactions.at sym ?~ h^.xacts
+        & positionEvents.at sym   ?~ h^.history
+        & nextEventId             .~ h^.nextId
 
 instance forall k a. Transactional a => Transactional (Entry k a) where
     symbol            = entItem.symbol
@@ -130,7 +170,7 @@ _Entry next = prism' build fold
         Closer e       -> Just (e^.entItem)
         LosingCloser e -> Just (e^.entItem)
 
-newEntry :: Transactional a => a -> State (WashHistory a) (AnEntry a)
+newEntry :: Transactional a => a -> State (SymbolHistory t a) (AnEntry a)
 newEntry t = do
     next <- use nextId
     nextId += 1
@@ -165,8 +205,10 @@ findMatches = go
         AddOpen x : go xs y
 
     go (LosingCloser x:xs) (Opener y)
-        | Just us <- s^?_SplitUsed =
+        | Just us <- s^?_SplitUsed,
+          Just ud <- d^?_SplitUsed=
             RemoveLosingClose us :
+            AddOpen (ud & cost +~ coerce (us^.loss)) :
             WashOpen us :
             continue d s LosingCloser Opener xs
       where
@@ -175,7 +217,7 @@ findMatches = go
     go (LosingCloser x:xs) y =
         AddLosingClose x : go xs y
 
-    go xs _ = error $ "Invalid history: " ++ show xs
+    go xs _ = error $ "Invalid history: " ++ ppShow xs
 
     continue :: (Transactional a, Show a)
              => Split b
@@ -193,7 +235,7 @@ findMatches = go
 
 evalActions :: Transactional a
             => AnEntry a -> [Action a]
-            -> State (WashHistory a) (AnEntry a, [AnEntry a])
+            -> State (SymbolHistory t a) (AnEntry a, [AnEntry a])
 evalActions ent = go
   where
     go [] = pure (ent, [])
@@ -247,18 +289,34 @@ evalActions ent = go
 -- - open, close <30(o), open <30(c)
 -- - open, open <30(c), close <30(o)
 
-washSaleRule :: (Transactional a, Show a, Transactional b, Eq b, Show b)
-             => Lens' a b -> Traversal' a Day -> a
-             -> State ([b], [a]) (Doc, [a])
-washSaleRule ablens dy l
+washSaleRule :: (Transactional a, Show a, Transactional t, Eq t, Show t)
+             => Lens' a t -> Traversal' a Day -> a
+             -> State (SymbolHistory t a) (Doc, [a])
+washSaleRule _ablens _dy l = do
+    ent <- newEntry l
+    hs  <- use history
+    let actions = findMatches hs ent
+    (e, es) <- evalActions ent actions
+    hs' <- use history
+    let doc = P.empty
+            $$ text "pl      = " <> text (showPretty l)
+            $$ text "before  = " <> renderList (text . ppShow) hs
+            $$ text "raw     = " <> text (ppShow ent)
+            $$ text "actions = " <> renderList (text . ppShow) actions
+            $$ text "ent     = " <> text (ppShow e)
+            $$ text "ents    = " <> renderList (text . ppShow) es
+            $$ text "after   = " <> renderList (text . ppShow) hs'
+    pure (doc, (e:es)^..traverse.anEntryItem)
+
+{-
     | l^.loss == 0 = do
 
-      events <- use _2
+      events <- use history
       let c   = matchEvents events l id (const True)
           -- res = c^..consideredElements
           l'  = foldl' (flip (washLoss True)) l (c^.fromList)
-      -- _2 .= c^.newList ++ map clearLoss res
-      _2 .= c^.newList ++ [clearLoss l']
+      -- history .= c^.newList ++ map clearLoss res
+      history .= c^.newList ++ [clearLoss l']
       let doc = "\nhave opening xact  : " <> text (showPretty l)
              $$ "current history    : " <> renderTransactions events
              $$ "remove from history: " <> renderTransactions (c^.fromList)
@@ -272,20 +330,20 @@ washSaleRule ablens dy l
 
     | l^.loss > 0 = do
 
-      events <- use _2
+      events <- use history
       let doc = "\nhave losing xact   : " <> text (showPretty l)
              $$ "current history    : " <> renderTransactions events
       let c = matchEvents events l id (const True)
       case c^.fromElement of
           [] -> do
-              _2 .= c^.newList
+              history .= c^.newList
               let doc' = doc
                       $$ "remove from history: " <> renderTransactions (c^.fromList)
                       $$ "return result      : " <> renderTransactions [l]
               pure (doc', [l])
           xs -> do
               (doc', ys, zs, nl) <- foldM retroact (doc, [], [], c^.newList) xs
-              _2 .= map clearLoss zs ++ nl
+              history .= map clearLoss zs ++ nl
               let doc'' = doc'
                       $$ "considered         : " <> renderConsidered c
                       $$ "put back in history: " <> renderTransactions nl
@@ -297,9 +355,9 @@ washSaleRule ablens dy l
 
     | otherwise = do
 
-      events <- use _2
+      events <- use history
       let c = matchEvents events l id (const True)
-      _2 .= c^.newList
+      history .= c^.newList
       let doc = "\nhave winning xact: " <> text (showPretty l)
              $$ "current history    : " <> renderTransactions events
              $$ "remove from history: " <> renderTransactions (c^.fromList)
@@ -366,6 +424,7 @@ matchEvents hs pl k p =
       where
         closing = h^.loss == 0 && x^.loss >  0
         opening = h^.loss >  0 && x^.loss == 0
+-}
 
 {- The "Wash Sale Rule"
 

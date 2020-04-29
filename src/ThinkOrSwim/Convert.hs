@@ -25,11 +25,12 @@ import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Fixup
 import           ThinkOrSwim.Gains
 import           ThinkOrSwim.Options (Options)
+import           ThinkOrSwim.Transaction.Instances
 import           ThinkOrSwim.Types
 
 convertOrders
     :: Options
-    -> GainsKeeperState API.TransactionSubType
+    -> APIGainsKeeperState
     -> TransactionHistory
     -> [L.Transaction API.TransactionSubType API.Order L.LotAndPL]
 convertOrders opts st hist = (`evalState` st) $
@@ -44,7 +45,7 @@ convertOrder
     :: Options
     -> OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
-    -> State (GainsKeeperState API.TransactionSubType)
+    -> State (APIGainsKeeperState)
             (L.Transaction API.TransactionSubType API.Order L.LotAndPL)
 convertOrder opts m (sd, getOrder m -> o) = do
     let _actualDate    = sd
@@ -102,7 +103,7 @@ convertPostings
     :: Options
     -> Text
     -> API.Transaction
-    -> State (GainsKeeperState API.TransactionSubType)
+    -> State (APIGainsKeeperState)
             [L.Posting API.TransactionSubType L.LotAndPL]
 convertPostings _ _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []

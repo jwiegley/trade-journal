@@ -30,6 +30,7 @@ import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Convert
 import           ThinkOrSwim.Options as Opts
 import           ThinkOrSwim.Types
+import           ThinkOrSwim.Wash
 
 data Holding = Holding
     { symbol :: Text
