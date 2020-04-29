@@ -37,6 +37,7 @@ library:
     - Data.Ledger
     - Data.Ledger.Render
     - Data.Split
+    - Data.Utils
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert

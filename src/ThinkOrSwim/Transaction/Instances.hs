@@ -33,6 +33,7 @@ instance Transactional APICommodityLot where
     loss f       = (<$ f 0)
     washDeferred = L.washDeferred
     washEligible = L.washEligible
+    ident        = L.lotId
 
     washLoss _ _ = id
     clearLoss    = id
@@ -63,6 +64,7 @@ instance Transactional APILotAndPL where
     loss         = plLoss
     washDeferred = plLot.washDeferred
     washEligible = plLot.washEligible
+    ident        = plLot.ident
 
     washLoss b x y | b || abs (x^.quantity) == abs (y^.quantity) =
         y & loss         -~ x^.loss
@@ -70,7 +72,7 @@ instance Transactional APILotAndPL where
           & washEligible .~ False
           & plKind       .~ WashLoss
           & plLot.refs  <>~
-              [ Ref (WashSaleRule (coerce (x^.loss))) (x^.plLot.lotId) ]
+              [ Ref (WashSaleRule (coerce (x^.loss))) (x^.ident) ]
     washLoss _ _ y = y
 
     clearLoss x | x^.plKind == WashLoss =

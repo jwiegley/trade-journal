@@ -43,18 +43,6 @@ _SplitKept f (Some u k) = Some u <$> f k
 _SplitKept _ (All u)    = pure $ All u
 _SplitKept f (None k)   = None <$> f k
 
--- _SplitUsed :: Prism' (Split a) a
--- _SplitUsed = prism' All $ \case
---     Some u _ -> Just u
---     All u    -> Just u
---     _        -> Nothing
-
--- _SplitKept :: Prism' (Split a) a
--- _SplitKept = prism' None $ \case
---     Some _ k -> Just k
---     None k   -> Just k
---     _        -> Nothing
-
 data Applied v a b = Applied
     { _value :: v
     , _src   :: Split a

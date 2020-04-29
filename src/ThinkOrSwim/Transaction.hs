@@ -15,6 +15,7 @@ module ThinkOrSwim.Transaction
 import Control.Lens
 import Data.Amount
 import Data.Coerce
+import Data.Int (Int64)
 import Data.List (foldl')
 import Data.Split
 import Data.Text (Text)
@@ -30,6 +31,7 @@ class Transactional t where
     price    :: Lens' t (Amount 4)
     day      :: Lens' t Day
     loss     :: Lens' t (Amount 2)
+    ident    :: Lens' t Int64
 
     washDeferred :: Lens' t (Maybe (Amount 2))
     washEligible :: Lens' t Bool
@@ -38,7 +40,7 @@ class Transactional t where
     -- the cost basis of the second transaction. The result is the updated
     -- version of both transactions, the first with loss removed, the second
     -- with wash loss applied.
-    washLoss :: Bool -> t -> t -> t
+    washLoss :: Transactional u => Bool -> u -> t -> t
 
     -- If this opening transaction has a wash loss applied, unwash it so it
     -- can be recorded in the history of events that may affect the

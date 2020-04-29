@@ -24,12 +24,11 @@ import Control.Applicative
 import Control.Exception (assert)
 import Control.Lens
 import Control.Monad.State
-import Data.Amount
+import Data.Coerce
 import Data.Int (Int64)
 import Data.List (foldl')
 import Data.Split
 import Data.Time
--- import Data.Utils
 import Prelude hiding (Float, Double, (<>))
 import Text.PrettyPrint as P
 import ThinkOrSwim.Transaction
@@ -44,12 +43,13 @@ data Event
 type EntryId = Int64
 
 data Entry (k :: Event) a = Entry
-    { _entPrice :: Amount 4       -- per *share*
-    , _entId    :: EntryId        -- uniquely identifies each entry
-    , _entItem  :: a
-    -- , _entHistory :: [SomeMatch a]
+    { _entId   :: EntryId        -- uniquely identifies each entry
+    , _entItem :: a
     }
-    deriving (Eq, Show)
+    deriving Eq
+
+instance Transactional a => Show (Entry k a) where
+    show Entry {..} = "#" ++ show _entId ++ " :: " ++ showPretty _entItem
 
 data AnEntry a where
     Opener       :: Entry Open a -> AnEntry a
@@ -57,7 +57,12 @@ data AnEntry a where
     LosingCloser :: Entry LosingClose a -> AnEntry a
 
 deriving instance Eq a => Eq (AnEntry a)
-deriving instance Show a => Show (AnEntry a)
+deriving instance Transactional a => Show (AnEntry a)
+
+overEntry :: AnEntry a -> (forall k. Entry k a -> Entry k a) -> AnEntry a
+overEntry (Opener e) k = Opener (k e)
+overEntry (Closer e) k = Closer (k e)
+overEntry (LosingCloser e) k = LosingCloser (k e)
 
 -- After a trading event is matched with its history, the series of resulting
 -- matches cause a corresponding series of modifications to the history or the
@@ -67,8 +72,10 @@ data Action a
     | AddLosingClose (Entry LosingClose a)
     | RemoveOpen (Entry Open a)
     | RemoveLosingClose (Entry LosingClose a)
-    | AdjustCostBasis (Entry Open a) (Amount 2)
-    | WashOpen (Amount 2)
+    | AdjustCostBasis (Entry Open a) (Entry LosingClose a)
+    | WashOpen (Entry LosingClose a)
+
+deriving instance Transactional a => Show (Action a)
 
 data WashHistory a = WashHistory
     { _nextId  :: EntryId
@@ -76,114 +83,144 @@ data WashHistory a = WashHistory
     }
     deriving Show
 
+newWashHistory :: WashHistory a
+newWashHistory = WashHistory
+    { _nextId  = 1
+    , _history = []
+    }
+
 makePrisms ''Event
 makeLenses ''Entry
 makePrisms ''AnEntry
 makePrisms ''Action
 makeLenses ''WashHistory
 
-_Entry :: Transactional a => EntryId -> Prism' (AnEntry a) a
-_Entry next = prism' build fold
-  where
-    build t
-        | t^.quantity > 0 = assert (t^.loss == 0) $
-            Opener Entry
-                { _entPrice = t^.cost / abs (t^.quantity)
-                , _entId    = next
-                , _entItem  = t
-                }
-        | t^.loss <= 0 =
-            Closer Entry
-                { _entPrice = t^.cost / abs (t^.quantity)
-                , _entId    = next
-                , _entItem  = t
-                }
-        | otherwise =
-            LosingCloser Entry
-                { _entPrice = t^.cost / abs (t^.quantity)
-                , _entId    = next
-                , _entItem  = t
-                }
-    fold = \case
-        Opener e       -> Just (e^.entItem)
-        Closer e       -> Just (e^.entItem)
-        LosingCloser e -> Just (e^.entItem)
-
-instance Transactional a => Transactional (Entry k a) where
+instance forall k a. Transactional a => Transactional (Entry k a) where
     symbol            = entItem.symbol
     quantity          = entItem.quantity
     cost              = entItem.cost
     price             = entItem.price
     day               = entItem.day
     loss              = entItem.loss
+    ident             = entItem.ident
     washDeferred      = entItem.washDeferred
     washEligible      = entItem.washEligible
-    washLoss b x y    = y & entItem %~ washLoss b (x^.entItem)
+    washLoss b x y    = y & entItem %~ washLoss b x
     clearLoss x       = x & entItem %~ clearLoss
     isTransferIn x    = isTransferIn (x^.entItem)
     arePaired     x y = (x^.entItem) `arePaired` (y^.entItem)
     areEquivalent x y = (x^.entItem) `areEquivalent` (y^.entItem)
     showPretty        = showPretty . view entItem
 
-continue :: (Transactional a, Show a)
-         => Split b
-         -> Split c
-         -> (c -> AnEntry a)
-         -> (b -> AnEntry a)
-         -> [AnEntry a]
-         -> [Action a]
-continue d s f g xs = case d^?_SplitKept of
-    Nothing -> []
-    Just y' -> findMatches (case s^?_SplitKept of
-                               Nothing -> xs
-                               Just k -> f k:xs)
-                          (g y')
+_Entry :: Transactional a => EntryId -> Prism' (AnEntry a) a
+_Entry next = prism' build fold
+  where
+    build t
+        | t^.quantity > 0 = assert (t^.loss == 0) $
+            Opener Entry { _entId   = next
+                         , _entItem = t }
+        | t^.loss <= 0 =
+            Closer Entry { _entId   = next
+                         , _entItem = t }
+        | otherwise =
+            LosingCloser Entry { _entId   = next
+                               , _entItem = t }
+    fold = \case
+        Opener e       -> Just (e^.entItem)
+        Closer e       -> Just (e^.entItem)
+        LosingCloser e -> Just (e^.entItem)
+
+newEntry :: Transactional a => a -> State (WashHistory a) (AnEntry a)
+newEntry t = do
+    next <- use nextId
+    nextId += 1
+    pure $ _Entry next # t
 
 findMatches :: (Transactional a, Show a)
             => [AnEntry a] -> AnEntry a -> [Action a]
-findMatches [] _ = []
-
-findMatches (Opener x:xs) (Closer y)
-    | x^.entPrice == y^.entPrice,
-      Just u <- s^?_SplitUsed = assert (has _SplitUsed d) $
-        RemoveOpen u :
-        continue d s Opener Closer xs
+findMatches = go
   where
-    (s, d) = x `alignLots` y
+    go [] (Opener y) = [AddOpen y]
+    go [] _ = []
 
-findMatches (Opener x:xs) (LosingCloser y)
-    | x^.entPrice == y^.entPrice,
-      Just us <- s^?_SplitUsed =
-        RemoveOpen us :
-        -- Is there an opening after this that can be adjusted now?
-        continue d s Opener LosingCloser xs
+    go (Opener x:xs) (Closer y)
+        | Just u <- s^?_SplitUsed = assert (has _SplitUsed d) $
+            RemoveOpen u :
+            continue d s Opener Closer xs
+      where
+        (s, d) = x `alignLots` y
+
+    go (Opener x:xs) (LosingCloser y)
+        | Just us <- s^?_SplitUsed,
+          Just ud <- d^?_SplitUsed =
+            RemoveOpen us :
+            -- Is there an opening after this that can be adjusted now? Otherwise,
+            -- recall the loss for later washing.
+            AddLosingClose ud :
+            continue d s Opener LosingCloser xs
+      where
+        (s, d) = x `alignLots` y
+
+    go (Opener x:xs) y =
+        AddOpen x : go xs y
+
+    go (LosingCloser x:xs) (Opener y)
+        | Just us <- s^?_SplitUsed =
+            RemoveLosingClose us :
+            WashOpen us :
+            continue d s LosingCloser Opener xs
+      where
+        (s, d) = x `alignLots` y
+
+    go (LosingCloser x:xs) y =
+        AddLosingClose x : go xs y
+
+    go xs _ = error $ "Invalid history: " ++ show xs
+
+    continue :: (Transactional a, Show a)
+             => Split b
+             -> Split c
+             -> (c -> AnEntry a)
+             -> (b -> AnEntry a)
+             -> [AnEntry a]
+             -> [Action a]
+    continue d s f g xs = case d^?_SplitKept of
+        Nothing -> []
+        Just y' -> go (case s^?_SplitKept of
+                          Nothing -> xs
+                          Just k -> f k:xs)
+                     (g y')
+
+evalActions :: Transactional a
+            => AnEntry a -> [Action a]
+            -> State (WashHistory a) (AnEntry a, [AnEntry a])
+evalActions ent = go
   where
-    (s, d) = x `alignLots` y
+    go [] = pure (ent, [])
+    go (x:xs) = do
+        res@(r, rest) <- go xs
+        case x of
+            AddOpen o ->
+                res <$ (history %= (Opener o:))
+            AddLosingClose lc ->
+                res <$ (history %= (LosingCloser lc:))
+            RemoveOpen o ->
+                res <$ (history %= filter (not . openMatches o))
+            RemoveLosingClose lc ->
+                res <$ (history %= filter (not . closeMatches lc))
+            AdjustCostBasis o lc -> do
+                history <>= []
+                pure (r, Closer (coerce o & quantity %~ negate)
+                           : Opener (washLoss True lc o)
+                           : rest)
+            WashOpen lc ->
+                pure (overEntry r (washLoss True lc), rest)
+      where
+        openMatches i (Opener j) = i^.entId == j^.entId
+        openMatches _ _ = False
 
-findMatches (Opener x:xs) y =
-    AddOpen x : findMatches xs y
-
-findMatches (LosingCloser x:xs) (Opener y)
-    | Just us <- s^?_SplitUsed =
-        RemoveLosingClose us :
-        WashOpen (us^.loss) :
-        continue d s LosingCloser Opener xs
-  where
-    (s, d) = x `alignLots` y
-
-findMatches (LosingCloser x:xs) y =
-    AddLosingClose x : findMatches xs y
-
-findMatches xs _ = error $ "Invalid history: " ++ show xs
-
-examineTransaction :: Transactional a
-                   => a -> State (WashHistory a) (AnEntry a)
-examineTransaction t = do
-    next <- use nextId
-    nextId += 1
-    let a = _Entry next # t
-    history <>= [a]
-    pure a
+        closeMatches i (LosingCloser j) = i^.entId == j^.entId
+        closeMatches _ _ = False
 
 -- This function assumes 'l' is received in temporal order. For this reason,
 -- we remove all entries older than 30 days from the list before beginning.
@@ -212,7 +249,6 @@ examineTransaction t = do
 
 washSaleRule :: (Transactional a, Show a, Transactional b, Eq b, Show b)
              => Lens' a b -> Traversal' a Day -> a
-
              -> State ([b], [a]) (Doc, [a])
 washSaleRule ablens dy l
     | l^.loss == 0 = do

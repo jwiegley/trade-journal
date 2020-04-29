@@ -12,6 +12,7 @@ import Control.Monad.Morph
 import Control.Monad.Trans.State
 import Data.Amount
 import Data.Coerce
+import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text
 import Data.Time
@@ -25,6 +26,7 @@ data Equity = Equity
     , _cst      :: Amount 4
     , _dy       :: Day
     , _lss      :: Amount 2
+    , _xid      :: Int64
     , _deferred :: Maybe (Amount 2)
     , _eligible :: Bool
     }
@@ -51,6 +53,7 @@ newEquity = Equity
     , _cst      = 0
     , _dy       = ModifiedJulianDay 0
     , _lss      = 0
+    , _xid      = 0
     , _deferred = Nothing
     , _eligible = True
     }
@@ -78,6 +81,7 @@ instance Transactional Equity where
     loss         = lss
     washDeferred = deferred
     washEligible = eligible
+    ident        = xid
 
     washLoss b x y | b || abs (x^.quantity) == abs (y^.quantity) =
         y & loss     .~ - (x^.loss)
