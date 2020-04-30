@@ -24,17 +24,11 @@ import           Control.Monad.State
 import           Data.Amount
 import           Data.Coerce
 import           Data.Split
-import           Data.Text (Text, unpack)
+import           Data.Text (Text)
 import           Data.Time
 import           Data.Utils
-import           Debug.Trace (traceM)
 import           Prelude hiding (Float, Double, (<>))
-import           Text.PrettyPrint
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Options (Options)
-import qualified ThinkOrSwim.Options as Opts
-import           ThinkOrSwim.Types
-import           ThinkOrSwim.Wash (washSaleRule, openTransactions, symbolHistory)
 
 data Event t
     = OpenPosition t
@@ -49,27 +43,35 @@ data Event t
     deriving (Eq, Ord, Show)
 
 class Transactional t where
-    ident      :: Lens' t API.TransactionId
-    time       :: Lens' t UTCTime
-    kind       :: Lens' t API.TransactionSubType
-    cusip      :: Lens' t Text
-    symbol     :: Lens' t Text
-    underlying :: Lens' t Text
+    ident      :: Fold t API.TransactionId
+    time       :: Fold t UTCTime
+    kind       :: Fold t API.TransactionSubType
+    cusip      :: Fold t Text
+    symbol     :: Fold t Text
+    underlying :: Fold t Text
     quantity   :: Lens' t (Amount 4)
     cost       :: Lens' t (Amount 4)
-    fees       :: Lens' t (Amount 2)
+    fees       :: Fold t (Amount 2)
     refs       :: Lens' t [Event t]
 
 data Lot t = Lot
-    { _shares :: Amount 4
-    , _xact   :: t
-    , _trail  :: [Event (Lot t)]
+    { _shares       :: Amount 4
+    , _costOfShares :: Amount 4  -- the cost of a lot may be adjusted
+    , _xact         :: t
+    , _trail        :: [Event (Lot t)]
     }
 
 makeLenses ''Lot
 
-percent :: Num a => a -> Lens' a a
-percent n f s = f (s * n) <&> \v -> v + (s - (s * n))
+sliceOf :: (Transactional t, Functor f)
+        => Lens' t (Amount 4) -> LensLike' f t (Amount n)
+        -> LensLike' f t (Amount n)
+sliceOf n l f t = t & l.percent (coerce (t^.n / t^.quantity)) %%~ f
+
+sliceOf' :: (Transactional t, Functor f)
+         => Amount 4 -> LensLike' f t (Amount n)
+         -> LensLike' f t (Amount n)
+sliceOf' n l f t = t & l.percent (coerce (n / t^.quantity)) %%~ f
 
 instance Transactional t => Transactional (Lot t) where
     ident      = xact.ident
@@ -79,11 +81,55 @@ instance Transactional t => Transactional (Lot t) where
     symbol     = xact.symbol
     underlying = xact.underlying
     quantity   = shares
-    cost f t   = f ((t^.xact.cost / t^.xact.quantity) * t^.shares) <&> \n ->
-        t & xact.cost .~ n + (t^.xact.cost / t^.xact.quantity) *
-                             (t^.xact.quantity - t^.shares)
-    fees       = xact.fees
+    cost       = costOfShares
+    fees       = shares `sliceOf` (xact.fees)
     refs       = trail
+
+mkLot :: Transactional t => t -> Lot t
+mkLot t = Lot
+    { _shares       = t^.quantity
+    , _costOfShares = t^.cost
+    , _xact         = t
+    , _trail        = []
+    }
+
+alignLots :: (Transactional a, Transactional b)
+          => a -> b -> (Split a, Split b)
+alignLots x y
+    | xq == 0 && yq == 0 = ( None x, None y )
+    | xq == 0           = ( None x, All  y )
+    | yq == 0           = ( All  x, None y )
+    | abs xq == abs yq  = ( All  x, All  y )
+    | abs xq <  abs yq  =
+        ( All x
+        , Some (y & quantity .~ sign yq xq
+                  & cost     .~ abs xq * ycps
+                  -- & loss     .~ coerce (abs xq) * ylps
+               )
+               (y & quantity .~ sign yq diff
+                  & cost     .~ diff * ycps
+                  -- & loss     .~ coerce diff * ylps
+               )
+        )
+    | otherwise =
+        ( Some (x & quantity .~ sign xq yq
+                  & cost     .~ abs yq * xcps
+                  -- & loss     .~ coerce (abs yq) * xlps
+               )
+               (x & quantity .~ sign xq diff
+                  & cost     .~ diff * xcps
+                  -- & loss     .~ coerce diff * xlps
+               )
+        , All y
+        )
+  where
+    xq   = x^.quantity
+    yq   = y^.quantity
+    xcps = x^.cost / abs xq
+    ycps = y^.cost / abs yq
+    -- xlps = x^.loss / coerce (abs xq)
+    -- ylps = y^.loss / coerce (abs yq)
+    diff = abs (abs xq - abs yq)
 
 loss :: Transactional t => Fold (Event t) (Amount 2)
 loss f s = case s of

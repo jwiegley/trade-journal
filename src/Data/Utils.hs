@@ -11,6 +11,10 @@ import qualified Data.Text as T
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint as P
 
+percent :: Num a => a -> Lens' a a
+percent n f s = f part <&> \v -> v + (s - part)
+  where part = s * n
+
 zipped :: Traversal' s a -> Traversal' s b -> Traversal' s (a, b)
 zipped f g k s = case liftA2 (,) (s^?f) (s^?g) of
     Nothing -> pure s
