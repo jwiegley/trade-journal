@@ -31,6 +31,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
 import           Data.Time.Format.ISO8601
+import           Data.Utils
 import           Prelude hiding (Float, Double)
 import           System.IO.Unsafe
 import           Text.Show.Pretty
@@ -566,31 +567,31 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
         = mapM_ check
         . pairAssignments
         . sortBy (comparing (^?transactionInfo_.transactionDate) <>
-                  comparing (^?baseSymbol))
+                  comparing (^?xunderlying))
       <=< mapM findNames
-        . filter (\t -> t^.xactSubType `notElem` [ InternalTransfer
+        . filter (\t -> t^.xsubType `notElem` [ InternalTransfer
                                         , TradeCorrection ])
         . Prelude.reverse
 
     findNames :: Transaction -> State TransactionHistory Transaction
-    findNames t = case t^.instrument_ of
+    findNames t = case t^.xinstr of
         Nothing -> pure t
         Just inst -> case inst^.symbol of
             "" -> preuse (cusipMap.ix (inst^.cusip)) >>= \case
                 Nothing -> error $ "Unknown CUSIP: " ++ T.unpack (inst^.cusip)
-                Just inst' -> pure $ t & instrument_ ?~ inst'
+                Just inst' -> pure $ t & xinstr ?~ inst'
             _sym -> do
                 cusipMap.at (inst^.cusip) ?= inst
                 pure t
 
     check :: Transaction -> State TransactionHistory ()
-    check t | Just "" <- t^?instrument_._Just.symbol =
+    check t | Just "" <- t^?xinstr._Just.symbol =
                   error $ "Symbol has no name: " ++ ppShow t
             | otherwise = do
         allTransactions %= (t :)
 
         let sd = t^.settlementDate
-        case orderIdAndDate t of
+        case t^?xorderIdAndDate of
             Just (oid, date) -> use (ordersMap.at oid) >>= \case
                 Nothing -> do
                     ordersMap.at oid ?= Order
@@ -598,76 +599,97 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
                         , _orderId          = oid
                         , _orderType        = t^.type_
                         , _orderDate        = date
-                        , _orderDescription =
-                          t^.transactionInfo_.transactionDescription
-                        , _orderAccountId   = t^.accountId_
+                        , _orderDescription = t^.xdesc
+                        , _orderAccountId   = t^.xaccount
                         }
                     settlementList %= ((sd, Right oid) :)
                 Just _ ->
                     ordersMap.ix oid.transactions %= (t:)
             _ -> settlementList %= ((sd, Left t) :)
 
-orderIdAndDate :: Transaction -> Maybe (OrderId, UTCTime)
-orderIdAndDate t = liftA2 (,) (t^?baseOrderId) (t^.transactionOrderDate)
+------------------------------------------------------------------------------
 
--- A Fold over the individual components of a Text split on a separator.
---
--- splitOn :: Text -> Fold String String
--- splitOn :: Text -> Traversal' String String
---
--- splitOn :: Text -> IndexedFold Int String String
--- splitOn :: Text -> IndexedTraversal' Int String String
---
--- Note: This function type-checks as a Traversal but it doesn't satisfy the
--- laws. It's only valid to use it when you don't insert any separator strings
--- while traversing, and if your original Text contains only isolated split
--- strings.
-splitOn :: Applicative f => Text -> IndexedLensLike' Int f Text Text
-splitOn s f = fmap (T.intercalate s) . go . T.splitOn s
+xorderIdAndDate :: Traversal' Transaction (OrderId, UTCTime)
+xorderIdAndDate = zipped xbaseOrderId xorderDate
+
+xfees :: Traversal' Transaction (Amount 2)
+xfees f t =
+    let r = f (t^.fees_.regFee)
+        o = f (t^.fees_.otherCharges)
+        c = f (t^.fees_.commission)
+    in liftA3 (,,) r o c <&> \(r', o', c') ->
+        t & fees_.regFee       .~ r'
+          & fees_.otherCharges .~ o'
+          & fees_.commission   .~ c'
+
+xbaseOrderId :: Traversal' Transaction Text
+xbaseOrderId = transactionOrderId.traverse.splitOn ".".index 0
+
+xorderDate :: Traversal' Transaction UTCTime
+xorderDate = transactionOrderDate.each
+
+xtype :: Lens' Transaction TransactionType
+xtype = type_
+
+xsubType :: Lens' Transaction TransactionSubType
+xsubType = transactionInfo_.transactionSubType
+
+xid :: Lens' Transaction Int64
+xid = transactionInfo_.transactionId
+
+xdate :: Lens' Transaction UTCTime
+xdate = transactionInfo_.transactionDate
+
+xdesc :: Lens' Transaction Text
+xdesc = transactionInfo_.transactionDescription
+
+xitem :: Lens' Transaction TransactionItem
+xitem = transactionInfo_.transactionItem_
+
+xcost :: Lens' Transaction (Amount 6)
+xcost = xitem.cost
+
+xprice :: Traversal' Transaction (Amount 6)
+xprice = xitem.price.traverse
+
+xcostPerShare :: Lens' Transaction (Amount 6)
+xcostPerShare f t = f (t^.xcost / abs (t^.xamount)) <&> \n ->
+    t & xcost .~ n * abs (t^.xamount)
+
+xaccount :: Lens' Transaction AccountId
+xaccount = xitem.accountId
+
+xamount :: Getter Transaction (Amount 6)
+xamount f t =
+    t & xitem.instruction %%~ \x -> x <$ case x of Just Sell -> f (-n); _ -> f n
   where
-    go = conjoined traverse (indexing traverse) f
+    n = t^.xitem.amount.non 0
 
-baseOrderId :: Traversal' Transaction Text
-baseOrderId = transactionOrderId.traverse.splitOn ".".index 0
+xinstr :: Lens' Transaction (Maybe Instrument)
+xinstr = xitem.transactionInstrument
 
-baseSymbol :: Traversal' Transaction Text
-baseSymbol =
-    instrument_._Just.failing (assetType._OptionAsset.underlyingSymbol) symbol
+xasset :: Traversal' Transaction AssetType
+xasset = xinstr.each.assetType
 
-symbolName :: Transaction -> Text
-symbolName t = case t^.instrument_ of
+xoption :: Traversal' Transaction Option
+xoption = xinstr.each.assetType._OptionAsset
+
+xsymbol :: Lens' Transaction Text
+xsymbol f t = case t^.xinstr of
     Nothing ->
-        error $ "Transaction instrument missing for XId " ++ show (t^.xactId)
+        error $ "Transaction instrument missing for XId " ++ show (t^.xid)
     Just inst -> case inst^.symbol of
-        " " -> inst^.cusip
-        s   -> s
+        " " -> f (inst^.cusip) <&> \x -> t & xinstr.each.symbol .~ x
+        s   -> f s <&> \x -> t & xinstr.each.symbol .~ x
 
-xactId :: Lens' Transaction Int64
-xactId = transactionInfo_.transactionId
+xcusip :: Traversal' Transaction Text
+xcusip = xinstr.each.cusip
 
-xactDate :: Lens' Transaction UTCTime
-xactDate = transactionInfo_.transactionDate
+xunderlying :: Traversal' Transaction Text
+xunderlying =
+    xinstr.each.failing (assetType._OptionAsset.underlyingSymbol) symbol
 
-xactSubType :: Lens' Transaction TransactionSubType
-xactSubType = transactionInfo_.transactionSubType
-
-xactAmount :: Getter Transaction (Amount 6)
-xactAmount f t =
-    t & item.instruction %%~ \x -> x <$ case x of Just Sell -> f (-n); _ -> f n
-  where
-    n = t^.item.amount.non 0
-
-item :: Lens' Transaction TransactionItem
-item = transactionInfo_.transactionItem_
-
-instrument_ :: Lens' Transaction (Maybe Instrument)
-instrument_ = item.transactionInstrument
-
-accountId_ :: Lens' Transaction AccountId
-accountId_ = item.accountId
-
-option' :: Traversal' Transaction Option
-option' = instrument_._Just.assetType._OptionAsset
+------------------------------------------------------------------------------
 
 infixr 7 <+>
 (<+>) :: (Applicative m, Num a) => m a -> m a -> m a
@@ -681,34 +703,27 @@ infixr 7 <+>
 orderTransactions :: [Transaction] -> [Transaction]
 orderTransactions =
     contractList mergeTransactions
-        . sortBy (comparing (^?instrument_._Just.assetType) <>
-                  comparing (^?transactionInfo_.transactionDate))
+        . sortBy (comparing (^?xasset) <>
+                  comparing (^?xdate))
 
 pairAssignments :: [Transaction] -> [Transaction]
 pairAssignments [] = []
 pairAssignments [x] = [x]
 pairAssignments (x:y:xs)
-    | x^.type_       == ReceiveAndDeliver &&
-      x^.xactSubType == OptionAssignment  &&
-      y^.type_       == Trade             &&
-      y^.xactSubType == OptionAssignment  &&
-      x^.baseSymbol  == y^.baseSymbol =
+    | x^.xtype       == ReceiveAndDeliver &&
+      x^.xsubType    == OptionAssignment  &&
+      y^.xtype       == Trade             &&
+      y^.xsubType    == OptionAssignment  &&
+      x^.xunderlying == y^.xunderlying =
           (x & settlementDate       .~ y^.settlementDate
              & transactionOrderId   ?~ assignmentId
-             & transactionOrderDate ?~ x^.xactDate)
+             & transactionOrderDate ?~ x^.xdate)
         : (y & transactionOrderId   ?~ assignmentId
-             & transactionOrderDate ?~ x^.xactDate)
+             & transactionOrderDate ?~ x^.xdate)
         : pairAssignments xs
     | otherwise = x : pairAssignments (y:xs)
   where
-    assignmentId = "OA" <> T.pack (show (x^.transactionInfo_.transactionId))
-
-contractList :: (a -> a -> Maybe a) -> [a] -> [a]
-contractList _ [] = []
-contractList _ [x] = [x]
-contractList f (x:y:xs) = case f x y of
-    Nothing -> x : contractList f (y:xs)
-    Just z  ->     contractList f (z:xs)
+    assignmentId = "OA" <> T.pack (show (x^.xid))
 
 mergeTransactionItems :: TransactionItem -> TransactionItem
                       -> Maybe TransactionItem
@@ -759,8 +774,8 @@ mergeTransactionInfos x y = do
 
 mergeTransactions :: Transaction -> Transaction -> Maybe Transaction
 mergeTransactions x y = do
-    _orderId <- x^?baseOrderId
-    yid      <- y^?baseOrderId
+    _orderId <- x^?xbaseOrderId
+    yid      <- y^?xbaseOrderId
     guard $ _orderId == yid
     guard conditions
     _transactionInfo_ <-
@@ -798,8 +813,8 @@ orderFromTransaction :: Transaction -> Order
 orderFromTransaction t = Order {..}
   where
     _transactions     = [t]
-    _orderId          = T.pack . show $ t^.transactionInfo_.transactionId
-    _orderType        = t^.type_
-    _orderDate        = t^.transactionInfo_.transactionDate
-    _orderDescription = t^.transactionInfo_.transactionDescription
-    _orderAccountId   = t^.accountId_
+    _orderId          = T.pack . show $ t^.xid
+    _orderType        = t^.xtype
+    _orderDate        = t^.xdate
+    _orderDescription = t^.xdesc
+    _orderAccountId   = t^.xaccount

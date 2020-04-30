@@ -65,9 +65,9 @@ convertOrder opts m (sd, getOrder m -> o) = do
          | otherwise =
                error $ "Transaction deals with various symbols: " ++ show xs
         where
-            xs = Prelude.map (^.baseSymbol) (o^.transactions)
+            xs = Prelude.map (^.xunderlying) (o^.transactions)
 
-transactionFees :: API.Transaction-> Amount 2
+transactionFees :: API.Transaction -> Amount 2
 transactionFees t
     = t^.fees_.regFee
     + t^.fees_.otherCharges
@@ -77,20 +77,20 @@ convertTransaction :: API.Transaction -> Amount 6
                    -> CommodityLot API.TransactionSubType
 convertTransaction t n = newCommodityLot @API.TransactionSubType
     & instrument   .~ instr
-    & kind         .~ t^.xactSubType
+    & kind         .~ t^.xsubType
     & L.quantity   .~ quant
-    & L.symbol     .~ symbolName t
-    & L.underlying .~ t^.baseSymbol
-    & L.cost       ?~ coerce (abs (t^.item.API.cost))
-    & purchaseDate ?~ utctDay (t^.xactDate)
+    & L.symbol     .~ t^.xsymbol
+    & L.underlying .~ t^.xunderlying
+    & L.cost       ?~ coerce (abs (t^.xcost))
+    & purchaseDate ?~ utctDay (t^.xdate)
     & washEligible .~ True
-    & lotId        .~ t^.xactId
+    & lotId        .~ t^.xid
     & refs         .~ [ transactionRef t ]
-    & L.price      .~ fmap coerce (t^.item.API.price)
+    & L.price      .~ fmap coerce (t^?xprice)
   where
-    quant = coerce (case t^.item.instruction of Just Sell -> -n; _ -> n)
+    quant = coerce (case t^.xitem.instruction of Just Sell -> -n; _ -> n)
 
-    instr = case t^?instrument_._Just.assetType of
+    instr = case t^?xasset of
         Just API.Equity           -> L.Equity
         Just MutualFund           -> L.Equity
         Just (OptionAsset _)      -> L.Option
@@ -108,7 +108,7 @@ convertPostings
 convertPostings _ _ t
     | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
 convertPostings opts actId t = posts <$>
-    case t^.item.API.amount of
+    case t^?xamount of
         Nothing -> pure []
         Just n  -> gainsKeeper opts (transactionFees t) maybeNet
                               (convertTransaction t n)
@@ -126,33 +126,33 @@ convertPostings opts actId t = posts <$>
                   & postMetadata %~ meta pl
             | pl^.plKind /= Rounding ])
 
-       ++ [ case t^.item.API.price of
+       ++ [ case t^?xprice of
                 Just _              -> cashPost
                 Nothing | isPriced  -> cashPost
                         | otherwise -> post act False NoAmount
-          | case t^.item.API.price of
+          | case t^?xprice of
                 Just _  -> isPriced
                 Nothing -> not fromEquity ]
        ++ [ post OpeningBalances False NoAmount
-          | isNothing (t^.item.API.amount) || fromEquity ]
+          | isNothing (t^?xamount) || fromEquity ]
       where
         post = newPosting
 
     meta pl m = m
         & at "XType"        ?~ T.pack (show subtyp)
-        & at "XId"          ?~ T.pack (show (t^.xactId))
-        & at "XDate"        ?~ T.pack (iso8601Show (t^.xactDate))
-        & at "Instruction"  .~ t^?item.instruction._Just.to show.packed
-        & at "Effect"       .~ (t^?item.positionEffect._Just.to show.packed
+        & at "XId"          ?~ T.pack (show (t^.xid))
+        & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
+        & at "Instruction"  .~ t^?xitem.instruction._Just.to show.packed
+        & at "Effect"       .~ (t^?xitem.positionEffect._Just.to show.packed
                                   <|> Just (if pl^.plLoss == 0
                                             then "Opening"
                                             else "Closing"))
-        & at "CUSIP"        .~ t^?instrument_._Just.cusip
-        & at "Instrument"   .~ t^?instrument_._Just.assetType.to assetKind
-        & at "Side"         .~ t^?option'.putCall.to show.packed
-        & at "Strike"       .~ t^?option'.strikePrice._Just.to thousands.packed
-        & at "Expiration"   .~ t^?option'.expirationDate.to (T.pack . iso8601Show)
-        & at "Contract"     .~ t^?option'.description
+        & at "CUSIP"        .~ t^?xcusip
+        & at "Instrument"   .~ t^?xasset.to assetKind
+        & at "Side"         .~ t^?xoption.putCall.to show.packed
+        & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
+        & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
+        & at "Contract"     .~ t^?xoption.description
         & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed
 
     act = case atype of
@@ -163,10 +163,10 @@ convertPostings opts actId t = posts <$>
         Just (CashEquivalentAsset _) -> MoneyMarkets actId
         Nothing                      -> OpeningBalances
 
-    atype      = t^?instrument_._Just.assetType
+    atype      = t^?xasset
     subtyp     = t^.transactionInfo_.transactionSubType
     isPriced   = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
-    direct     = cashXact || isNothing (t^.item.API.amount) || fromEquity
+    direct     = cashXact || not (has xamount t) || fromEquity
     maybeNet   = if direct then Nothing else Just (t^.netAmount)
     fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
     cashXact   = subtyp `elem` [ CashAlternativesPurchase

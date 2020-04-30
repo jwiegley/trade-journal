@@ -14,7 +14,7 @@ renderM :: Applicative f => Doc -> f ()
 renderM = traceM . render
 
 transactionRef :: API.Transaction -> Ref
-transactionRef t = Ref OpeningOrder (t^.xactId)
+transactionRef t = Ref OpeningOrder (t^.xid)
 
 daysApart :: CommodityLot k -> Day -> Maybe Integer
 daysApart x yd = do
