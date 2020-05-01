@@ -23,11 +23,15 @@ import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
 import           Data.Coerce
+import           Data.Foldable
+import           Data.Maybe (fromMaybe, maybeToList)
 import           Data.Split
-import           Data.Text (Text)
+import           Data.Text (Text, unpack)
 import           Data.Time
+import           Data.Time.Format.ISO8601
 import           Data.Utils
 import           Prelude hiding (Float, Double, (<>))
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions (TransactionSubType(..))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 
 data Event t
@@ -42,17 +46,16 @@ data Event t
     | ExpireOption t
     deriving (Eq, Ord, Show)
 
-class Transactional t where
-    ident      :: Fold t API.TransactionId
-    time       :: Fold t UTCTime
-    kind       :: Fold t API.TransactionSubType
-    cusip      :: Fold t Text
-    symbol     :: Fold t Text
-    underlying :: Fold t Text
+class Show t => Transactional t where
+    ident      :: Getter t API.TransactionId
+    time       :: Getter t UTCTime
+    kind       :: Getter t API.TransactionSubType
+    cusip      :: Getter t Text
+    symbol     :: Getter t Text
+    underlying :: Getter t Text
     quantity   :: Lens' t (Amount 4)
     cost       :: Lens' t (Amount 4)
-    fees       :: Fold t (Amount 2)
-    refs       :: Lens' t [Event t]
+    fees       :: Getter t (Amount 2)
 
 data Lot t = Lot
     { _shares       :: Amount 4
@@ -60,6 +63,7 @@ data Lot t = Lot
     , _xact         :: t
     , _trail        :: [Event (Lot t)]
     }
+    deriving Show
 
 makeLenses ''Lot
 
@@ -83,7 +87,6 @@ instance Transactional t => Transactional (Lot t) where
     quantity   = shares
     cost       = costOfShares
     fees       = shares `sliceOf` (xact.fees)
-    refs       = trail
 
 mkLot :: Transactional t => t -> Lot t
 mkLot t = Lot
@@ -97,44 +100,34 @@ alignLots :: (Transactional a, Transactional b)
           => a -> b -> (Split a, Split b)
 alignLots x y
     | xq == 0 && yq == 0 = ( None x, None y )
-    | xq == 0           = ( None x, All  y )
-    | yq == 0           = ( All  x, None y )
-    | abs xq == abs yq  = ( All  x, All  y )
-    | abs xq <  abs yq  =
+    | xq == 0  = ( None x, All  y )
+    | yq == 0  = ( All  x, None y )
+    | xq == yq = ( All  x, All  y )
+    | xq <  yq =
         ( All x
-        , Some (y & quantity .~ sign yq xq
-                  & cost     .~ abs xq * ycps
-                  -- & loss     .~ coerce (abs xq) * ylps
-               )
-               (y & quantity .~ sign yq diff
-                  & cost     .~ diff * ycps
-                  -- & loss     .~ coerce diff * ylps
-               )
+        , Some (y & quantity .~ xq
+                  & cost     .~ xq * ycps)
+               (y & quantity .~ diff
+                  & cost     .~ diff * ycps)
         )
     | otherwise =
-        ( Some (x & quantity .~ sign xq yq
-                  & cost     .~ abs yq * xcps
-                  -- & loss     .~ coerce (abs yq) * xlps
-               )
-               (x & quantity .~ sign xq diff
-                  & cost     .~ diff * xcps
-                  -- & loss     .~ coerce diff * xlps
-               )
+        ( Some (x & quantity .~ yq
+                  & cost     .~ yq * xcps)
+               (x & quantity .~ diff
+                  & cost     .~ diff * xcps)
         , All y
         )
   where
     xq   = x^.quantity
     yq   = y^.quantity
-    xcps = x^.cost / abs xq
-    ycps = y^.cost / abs yq
-    -- xlps = x^.loss / coerce (abs xq)
-    -- ylps = y^.loss / coerce (abs yq)
-    diff = abs (abs xq - abs yq)
+    xcps = x^.cost / xq
+    ycps = y^.cost / yq
+    diff = xq - yq
 
 loss :: Transactional t => Fold (Event t) (Amount 2)
 loss f s = case s of
     OpenPosition _           -> pure s
-    ClosePosition o c        -> s <$ f (coerce (o^.cost - c^.cost) - sumOf fees c)
+    ClosePosition o c        -> s <$ f (coerce (c^.cost - o^.cost) - sumOf fees c)
     AdjustCostBasisForOpen _ -> pure s
     AdjustCostBasis _ _      -> pure s
     RememberWashSaleLoss _   -> pure s
@@ -143,8 +136,101 @@ loss f s = case s of
     ExerciseOption _ _       -> pure s
     ExpireOption _           -> pure s
 
-longTerm :: Traversal' (Event t) Bool
-longTerm = undefined
+gainsKeeper :: Transactional t => t -> State [Event (Lot t)] [Event (Lot t)]
+gainsKeeper = go . mkLot
+  where
+    go t = case t^.kind of
+        BuyTrade -> do
+            -- jww (2020-04-30): Need to check for pending wash sales.
+            id <>= [OpenPosition t]
+            pure [OpenPosition t]
+        SellTrade -> do
+            events <- use id
+            let (mt', reverse -> res, reverse -> evs) =
+                    (\f -> foldl' f (Just t, [], []) events) $
+                        \acc@(mt', res, evs) e -> case (e, mt') of
+                            (OpenPosition o, Just t') ->
+                                let (s, d) = o `alignLots` t'
+                                    cp = maybeToList (ClosePosition
+                                                        <$> s^?_SplitUsed
+                                                        <*> d^?_SplitUsed)
+                                in ( d^?_SplitKept
+                                   , cp ++ res
+                                   , cp ++ evs
+                                   )
+                            _ -> acc
+            id .= evs
+            pure $ case mt' of
+                Just t' ->
+                    error $ "Unexpected: short sale from SellTrade: " ++ show t'
+                    -- OpenPosition (t' & quantity %~ negate) : res
+                Nothing -> res
+        _ -> undefined
+
+data Mock = Mock
+    { _mockIdent      :: API.TransactionId
+    , _mockTime       :: UTCTime
+    , _mockKind       :: API.TransactionSubType
+    , _mockCusip      :: Text
+    , _mockSymbol     :: Text
+    , _mockUnderlying :: Text
+    , _mockQuantity   :: Amount 4
+    , _mockCost       :: Amount 4
+    , _mockFees       :: Amount 2
+    }
+
+instance Show Mock where
+    show Mock {..} =
+        show _mockQuantity
+            ++ " @@ " ++ show (_mockCost / _mockQuantity)
+            ++ " ## \"" ++ iso8601Show (utctDay _mockTime) ++ "\""
+
+makeLenses ''Mock
+
+newMock :: Mock
+newMock = Mock
+    { _mockIdent      = 0
+    , _mockTime       = UTCTime (ModifiedJulianDay 0) 0
+    , _mockKind       = BuyTrade
+    , _mockCusip      = ""
+    , _mockSymbol     = ""
+    , _mockUnderlying = ""
+    , _mockQuantity   = 0
+    , _mockCost       = 0
+    , _mockFees       = 0
+    }
+
+instance Transactional Mock where
+    ident      = mockIdent
+    time       = mockTime
+    kind       = mockKind
+    cusip      = mockCusip
+    symbol     = mockSymbol
+    underlying = mockUnderlying
+    quantity   = mockQuantity
+    cost       = mockCost
+    fees       = mockFees
+
+(@@) :: Amount 4 -> Amount 4 -> Mock
+q @@ c = newMock & mockQuantity .~ q & mockCost .~ q * c
+
+(@@@) :: Amount 4 -> Amount 4 -> Mock
+q @@@ c = newMock & quantity .~ q & cost .~ c
+
+(##) :: Mock -> Text -> Mock
+p ## d = p & mockTime
+    .~ UTCTime day 0
+  where
+    day = fromMaybe (error $ "Failed to parse: " ++ unpack d)
+                    (iso8601ParseM (unpack d))
+
+test_gainsKeeper :: IO ()
+test_gainsKeeper = do
+    let res = (`runState` []) $ do
+            gainsKeeper (10 @@ 20.00 ## "2020-03-21")
+            gainsKeeper (10 @@ 30.00 ## "2020-03-22" & mockKind .~ SellTrade)
+    print res
+    print $ res^?_1._head.loss
 
 {-
 
