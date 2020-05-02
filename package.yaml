@@ -41,14 +41,9 @@ library:
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
-    - ThinkOrSwim.Fixup
-    - ThinkOrSwim.Gains
     - ThinkOrSwim.Options
     - ThinkOrSwim.Model
-    - ThinkOrSwim.Transaction
-    - ThinkOrSwim.Transaction.Instances
     - ThinkOrSwim.Types
-    - ThinkOrSwim.Wash
 
 tests:
   thinkorswim-tests:

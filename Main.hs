@@ -14,7 +14,7 @@ import           Data.Aeson
 import           Data.Amount
 import           Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
-import           Data.Ledger as L
+import           Data.Foldable
 import           Data.Ledger.Render as L
 import           Data.Text as T
 import           Data.Text.Encoding as T
@@ -28,15 +28,14 @@ import           Servant.Client
 import           ThinkOrSwim.API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Convert
+import           ThinkOrSwim.Model
 import           ThinkOrSwim.Options as Opts
-import           ThinkOrSwim.Types
-import           ThinkOrSwim.Wash
 
 data Holding = Holding
-    { symbol :: Text
-    , amount :: Amount 4
-    , price  :: Amount 4
-    , date   :: Day
+    { holdSymbol :: Text
+    , holdAmount :: Amount 6
+    , holdPrice  :: Amount 6
+    , holdDate   :: Day
     }
     deriving (Generic, Show)
 
@@ -61,39 +60,28 @@ main = do
             downloadTransactions (T.pack (Opts.account opts)) (T.pack key)
                 =<< createManager
 
-    let addLots xs = (xs & traverse.quantity %~ negate) ++ xs
-
     priceData <- case equity opts of
-        Nothing -> pure newGainsKeeperState
+        Nothing -> pure []
         Just fp -> do
             eres <- Csv.decode Csv.NoHeader <$> BL.readFile fp
             case eres of
                 Left err -> error $ "Failed to decode equity CSV: " ++ err
-                Right holdings -> pure $ (`execState` newGainsKeeperState) $
-                    forM_ holdings $ \h ->
-                        let lot = lt L.Equity (Main.amount h)
-                                     (Main.symbol h) (Main.price h)
-                                     (Just (date h))
-                        in openTransactions.at (Main.symbol h).non []
-                             <>= addLots [lot]
+                Right holdings -> pure $ toList holdings
+
+    let ts = flip evalState newGainsKeeperState $ do
+            forM_ priceData $ \h ->
+                positionEvents.at (holdSymbol h).non []
+                    <>= [ EstablishEquityCost
+                            (holdAmount h)
+                            (- (holdPrice h * holdAmount h))
+                            (UTCTime (holdDate h) 0) ]
+            convertOrders opts th
 
     Prelude.putStrLn "; -*- ledger -*-\n"
-    forM_ (convertOrders opts priceData th) $ \t -> do
-        forM_ (renderTransaction t)
+    forM_ ts $ \t -> do
+        forM_ (renderTransaction t) $
             T.putStrLn
         T.putStrLn ""
-  where
-    lt i q s p d = newCommodityLot @API.TransactionSubType
-        & instrument   .~ i
-        & kind         .~ TransferOfSecurityOrOptionIn
-        & quantity     .~ q
-        & L.symbol     .~ s
-        & L.cost       ?~ abs (q * p)
-        & washEligible .~ False
-        & purchaseDate .~ d
-        & lotId        .~ 0
-        & refs         .~ [ Ref ExistingEquity 0 ]
-        & L.price      ?~ p
 
 createManager :: IO Manager
 createManager =

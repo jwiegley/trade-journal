@@ -5,18 +5,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Gains (testGainsKeeper) where
+module Gains where
 
 import Control.Lens
 import Data.Amount
 import Data.Coerce
 import Data.Split
-import Pos
+import Mock
 import Test.Tasty
 import Test.Tasty.HUnit (testCase)
-import ThinkOrSwim.Gains
-import ThinkOrSwim.Transaction
+import ThinkOrSwim.Model
 
+{-
 pl :: Transactional a => Amount 4 -> a -> a -> Amount 2
 pl q x y = coerce $ q * (y^.cost / abs (y^.quantity) -
                          x^.cost / abs (x^.quantity))
@@ -274,12 +274,13 @@ testGainsKeeper = testGroup "gainsKeeper"
     ]
   where
     q12c300, qn12c300, q10c500, qn10c500, q12c500, qn12c500, q10c300, qn10c300
-        :: Equity
-    q12c300  =    12 @@@ 300
-    qn12c300 = (-12) @@@ 300
-    q10c500  =    10 @@@ 500
-    qn10c500 = (-10) @@@ 500
-    q12c500  =    12 @@@ 500
-    qn12c500 = (-12) @@@ 500
-    q10c300  =    10 @@@ 300
-    qn10c300 = (-10) @@@ 300
+        :: Mock
+    q12c300  = bto "2020-03-21" 12 300
+    qn12c300 = stc "2020-03-21" 12 300
+    q10c500  = bto "2020-03-21" 10 500
+    qn10c500 = stc "2020-03-21" 10 500
+    q12c500  = bto "2020-03-21" 12 500
+    qn12c500 = stc "2020-03-21" 12 500
+    q10c300  = bto "2020-03-21" 10 300
+    qn10c300 = stc "2020-03-21" 10 300
+-}

@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -13,7 +15,8 @@ import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
 import           Data.Coerce
-import           Data.Ledger as L
+import           Data.Ledger hiding (symbol, quantity, cost, price)
+import qualified Data.Ledger as L
 import qualified Data.Map as M
 import           Data.Maybe (isNothing)
 import           Data.Text as T
@@ -21,19 +24,18 @@ import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double, (<>))
-import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Fixup
-import           ThinkOrSwim.Gains
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (symbol, cost)
+import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+import           ThinkOrSwim.Model
 import           ThinkOrSwim.Options (Options)
-import           ThinkOrSwim.Transaction.Instances
 import           ThinkOrSwim.Types
 
 convertOrders
     :: Options
-    -> APIGainsKeeperState
     -> TransactionHistory
-    -> [L.Transaction API.TransactionSubType API.Order L.LotAndPL]
-convertOrders opts st hist = (`evalState` st) $
+    -> State (GainsKeeperState API.Transaction)
+            [L.Transaction API.TransactionSubType API.Order L.CommodityLot]
+convertOrders opts hist =
     Prelude.mapM (convertOrder opts (hist^.ordersMap))
                  (hist^.settlementList)
 
@@ -45,8 +47,8 @@ convertOrder
     :: Options
     -> OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
-    -> State (APIGainsKeeperState)
-            (L.Transaction API.TransactionSubType API.Order L.LotAndPL)
+    -> State (GainsKeeperState API.Transaction)
+            (L.Transaction API.TransactionSubType API.Order L.CommodityLot)
 convertOrder opts m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
@@ -59,7 +61,7 @@ convertOrder opts m (sd, getOrder m -> o) = do
     _postings <- Prelude.concat <$>
         mapM (convertPostings opts (T.pack (show (o^.orderAccountId))))
              (o^.transactions)
-    fixupTransaction L.Transaction {..}
+    pure L.Transaction {..}
   where
     base | Prelude.all (== Prelude.head xs) (Prelude.tail xs) = Prelude.head xs
          | otherwise =
@@ -67,30 +69,101 @@ convertOrder opts m (sd, getOrder m -> o) = do
         where
             xs = Prelude.map (^.xunderlying) (o^.transactions)
 
-transactionFees :: API.Transaction -> Amount 2
-transactionFees t
-    = t^.fees_.regFee
-    + t^.fees_.otherCharges
-    + t^.fees_.commission
-
-convertTransaction :: API.Transaction -> Amount 6
-                   -> CommodityLot API.TransactionSubType
-convertTransaction t n = newCommodityLot @API.TransactionSubType
-    & instrument   .~ instr
-    & kind         .~ t^.xsubType
-    & L.quantity   .~ quant
-    & L.symbol     .~ t^.xsymbol
-    & L.underlying .~ t^.xunderlying
-    & L.cost       ?~ coerce (abs (t^.xcost))
-    & purchaseDate ?~ utctDay (t^.xdate)
-    & washEligible .~ True
-    & lotId        .~ t^.xid
-    & refs         .~ [ transactionRef t ]
-    & L.price      .~ fmap coerce (t^?xprice)
+convertPostings
+    :: Options
+    -> Text
+    -> API.Transaction
+    -> State (GainsKeeperState API.Transaction)
+            [L.Posting API.TransactionSubType L.CommodityLot]
+convertPostings _ _ t
+    | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
+convertPostings _opts actId t = roundPostings . posts <$>
+    if gainsRelated then gainsKeeper t else pure []
   where
-    quant = coerce (case t^.xitem.instruction of Just Sell -> -n; _ -> n)
+    posts cs
+        = [ newPosting L.Fees True (DollarAmount (t^.fees_.regFee))
+          | t^.fees_.regFee /= 0 ]
+       ++ [ newPosting L.Charges True (DollarAmount (t^.fees_.otherCharges))
+          | t^.fees_.otherCharges /= 0 ]
+       ++ [ newPosting L.Commissions True (DollarAmount (t^.fees_.commission))
+          | t^.fees_.commission /= 0 ]
 
-    instr = case t^?xasset of
+       ++ (flip Prelude.concatMap cs $ \ev ->
+             postingsFromEvent actId (postMetadata %~ meta ev) ev)
+
+       ++ [ case t^?xprice of
+                Just _              -> cashPost
+                Nothing | isPriced  -> cashPost
+                        | otherwise -> newPosting act False NoAmount
+          | case t^?xprice of
+                Just _  -> isPriced
+                Nothing -> not fromEquity ]
+       ++ [ newPosting OpeningBalances False NoAmount
+          | isNothing (t^?xamount) || fromEquity ]
+
+    meta ev m = m
+        & at "XType"        ?~ T.pack (show subtyp)
+        & at "XId"          ?~ T.pack (show (t^.xid))
+        & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
+        & at "Instruction"  .~ t^?xitem.instruction._Just.to show.packed
+        & at "CUSIP"        .~ t^?xcusip
+        & at "Instrument"   .~ t^?xasset.to assetKind
+        & at "Side"         .~ t^?xoption.putCall.to show.packed
+        & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
+        & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
+        & at "Contract"     .~ t^?xoption.description
+        & at "Effect"       .~ (effectDesc ev <|>
+                                t^?xitem.positionEffect.each.to show.packed)
+        -- & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed
+
+    effectDesc = \case
+        OpenPosition disp _    -> Just $ T.pack $ "Open " ++ show disp
+        ClosePosition disp _ _ -> Just $ T.pack $ "Close " ++ show disp
+        TransferEquitiesIn _   -> Just "Transfer"
+        _ -> Nothing
+
+    act          = transactionAccount actId t
+    subtyp       = t^.transactionInfo_.transactionSubType
+    isPriced     = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
+    gainsRelated = has xamount t && has xinstr t
+    direct       = cashXact || not (has xamount t) || fromEquity
+    maybeNet     = if direct then Nothing else Just (t^.netAmount)
+    fromEquity   = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
+    cashXact     = subtyp `elem` [ CashAlternativesPurchase
+                            , CashAlternativesRedemption ]
+
+    cashPost = newPosting (Cash actId) False $
+        if t^.netAmount == 0
+        then NoAmount
+        else DollarAmount (t^.netAmount)
+
+    roundPostings ps | Just net <- maybeNet =
+        let slip = - (net + sumPostings ps)
+        in ps ++ [ newPosting L.Commissions False (DollarAmount slip)
+                 | slip /= 0 && abs slip < 0.02 ]
+    roundPostings ps = ps
+
+transactionAccount :: Text -> API.Transaction -> L.Account
+transactionAccount actId t = case t^?xasset of
+    Just API.Equity              -> Equities actId
+    Just MutualFund              -> Equities actId
+    Just (OptionAsset _)         -> Options  actId
+    Just (FixedIncomeAsset _)    -> Bonds actId
+    Just (CashEquivalentAsset _) -> MoneyMarkets actId
+    Nothing                      -> OpeningBalances
+
+mkCommodityLot :: Lot API.Transaction
+               -> CommodityLot API.TransactionSubType
+mkCommodityLot t = newCommodityLot @API.TransactionSubType
+    & instrument   .~ instr
+    & L.quantity   .~ coerce (t^.quantity)
+    & L.symbol     .~ t^.symbol
+    & L.cost       ?~ coerce (abs (t^.cost))
+    & purchaseDate ?~ utctDay (t^.time)
+    & refs         .~ [ transactionRef (t^.xact) ]
+    & L.price      .~ fmap coerce (t^?xact.xprice)
+  where
+    instr = case t^?xact.xasset of
         Just API.Equity           -> L.Equity
         Just MutualFund           -> L.Equity
         Just (OptionAsset _)      -> L.Option
@@ -99,80 +172,69 @@ convertTransaction t n = newCommodityLot @API.TransactionSubType
               CashMoneyMarket)    -> L.MoneyMarket
         Nothing                   -> error "Unexpected"
 
-convertPostings
-    :: Options
-    -> Text
-    -> API.Transaction
-    -> State (APIGainsKeeperState)
-            [L.Posting API.TransactionSubType L.LotAndPL]
-convertPostings _ _ t
-    | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings opts actId t = posts <$>
-    case t^?xamount of
-        Nothing -> pure []
-        Just n  -> gainsKeeper opts (transactionFees t) maybeNet
-                              (convertTransaction t n)
+postClosePosition :: Text
+                  -> (L.Posting API.TransactionSubType L.CommodityLot ->
+                     L.Posting API.TransactionSubType L.CommodityLot)
+                  -> Disposition
+                  -> Amount 2
+                  -> Lot API.Transaction
+                  -> Lot API.Transaction
+                  -> [L.Posting API.TransactionSubType L.CommodityLot]
+postClosePosition actId meta disp pl o c =
+    (case mact of
+         Nothing  -> []
+         Just act -> [ newPosting act False (DollarAmount (signed pl)) ])
+    ++ [ newPosting (transactionAccount actId (o^.xact)) False
+           (CommodityAmount $ mkCommodityLot o
+              & L.quantity %~ signed
+              & L.price    .~ fmap coerce (c^?xact.xprice)) & meta ]
   where
-    posts cs
-        = [ post L.Fees True (DollarAmount (t^.fees_.regFee))
-          | t^.fees_.regFee /= 0 ]
-       ++ [ post L.Charges True (DollarAmount (t^.fees_.otherCharges))
-          | t^.fees_.otherCharges /= 0 ]
-       ++ [ post L.Commissions True (DollarAmount (t^.fees_.commission))
-          | t^.fees_.commission /= 0 ]
+    signed :: Num a => a -> a
+    signed = case disp of Long -> negate; Short -> id
 
-       ++ (flip Prelude.concatMap cs $ \pl ->
-            [ post act False (CommodityAmount pl)
-                  & postMetadata %~ meta pl
-            | pl^.plKind /= Rounding ])
+    long = utctDay (c^.time) `diffDays` utctDay (o^.time) > 365
+    mact | pl > 0 && long = Just CapitalGainLong
+         | pl > 0        = Just CapitalGainShort
+         | pl < 0 && long = Just CapitalLossLong
+         | pl < 0        = Just CapitalLossShort
+         | otherwise     = Nothing
 
-       ++ [ case t^?xprice of
-                Just _              -> cashPost
-                Nothing | isPriced  -> cashPost
-                        | otherwise -> post act False NoAmount
-          | case t^?xprice of
-                Just _  -> isPriced
-                Nothing -> not fromEquity ]
-       ++ [ post OpeningBalances False NoAmount
-          | isNothing (t^?xamount) || fromEquity ]
-      where
-        post = newPosting
+postingsFromEvent
+    :: Text
+    -> (L.Posting API.TransactionSubType L.CommodityLot ->
+       L.Posting API.TransactionSubType L.CommodityLot)
+    -> Event (Lot API.Transaction)
+    -> [L.Posting API.TransactionSubType L.CommodityLot]
+postingsFromEvent actId meta ev = case ev of
+    OpenPosition disp o        ->
+        [ newPosting (transactionAccount actId (o^.xact)) False
+            (CommodityAmount $ mkCommodityLot o
+               & L.quantity %~ case disp of Long -> id; Short -> negate
+               & L.cost     %~ fmap (+ coerce (o^.fees)))
+              & meta ]
 
-    meta pl m = m
-        & at "XType"        ?~ T.pack (show subtyp)
-        & at "XId"          ?~ T.pack (show (t^.xid))
-        & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
-        & at "Instruction"  .~ t^?xitem.instruction._Just.to show.packed
-        & at "Effect"       .~ (t^?xitem.positionEffect._Just.to show.packed
-                                  <|> Just (if pl^.plLoss == 0
-                                            then "Opening"
-                                            else "Closing"))
-        & at "CUSIP"        .~ t^?xcusip
-        & at "Instrument"   .~ t^?xasset.to assetKind
-        & at "Side"         .~ t^?xoption.putCall.to show.packed
-        & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
-        & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
-        & at "Contract"     .~ t^?xoption.description
-        & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed
+    ClosePosition disp o c ->
+        postClosePosition actId meta disp (ev^.loss) o c
 
-    act = case atype of
-        Just API.Equity              -> Equities actId
-        Just MutualFund              -> Equities actId
-        Just (OptionAsset _)         -> Options  actId
-        Just (FixedIncomeAsset _)    -> Bonds actId
-        Just (CashEquivalentAsset _) -> MoneyMarkets actId
-        Nothing                      -> OpeningBalances
+    AdjustCostBasisForOpen _ _ -> []
+    AdjustCostBasis _ _ _      -> []
+    RememberWashSaleLoss _ _   -> []
+    EstablishEquityCost _ _ _  -> []
+    TransferEquitiesIn o       -> []
+    AssignOption _             -> []
+    ExerciseOption _           -> []
+    ExpireOption _             -> []
 
-    atype      = t^?xasset
-    subtyp     = t^.transactionInfo_.transactionSubType
-    isPriced   = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
-    direct     = cashXact || not (has xamount t) || fromEquity
-    maybeNet   = if direct then Nothing else Just (t^.netAmount)
-    fromEquity = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
-    cashXact   = subtyp `elem` [ CashAlternativesPurchase
-                          , CashAlternativesRedemption ]
+ --            [ post act False (CommodityAmount pl)
 
-    cashPost = newPosting (Cash actId) False $
-        if t^.netAmount == 0
-        then NoAmount
-        else DollarAmount (t^.netAmount)
+-- The idea of this function is to replicate what Ledger will calculate the
+-- sum to be, so that if there's any discrepancy we can add a rounding
+-- adjustment to pass the balancing check.
+sumPostings :: [L.Posting API.TransactionSubType L.CommodityLot] -> Amount 2
+sumPostings _ = 0
+-- sumPostings = foldl' go 0
+--   where
+--     norm      = normalizeAmount mpfr_RNDNA
+--     cst l     = sign (l^.L.quantity) (l^.L.cost)
+--     go acc pl = acc + norm (coerce (cst pl)) + norm (pl^.loss)
+

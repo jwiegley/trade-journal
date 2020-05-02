@@ -24,58 +24,92 @@ import           Control.Monad.State
 import           Data.Amount
 import           Data.Coerce
 import           Data.Foldable
+import           Data.Map (Map)
 import           Data.Maybe (fromMaybe, maybeToList)
 import           Data.Split
 import           Data.Text (Text, unpack)
 import           Data.Time
-import           Data.Time.Format.ISO8601
 import           Data.Utils
 import           Prelude hiding (Float, Double, (<>))
+import           Text.PrettyPrint
+import           Text.Show.Pretty
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions (TransactionSubType(..))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 
+data Disposition
+    = Long
+    | Short
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+makePrisms ''Disposition
+
+{-
+Things that can happen which may change the raw sequence of transactions, or
+affect the history of events having possible future implications:
+
+- open position by buying/selling long/short
+- close position with gain/loss by selling/covering, short/long-term/collectible
+- adjust cost basis when opening position due to previous wash sale
+- adjust cost basis of existing open position due to current wash sale
+- remember fact of an unapplied wash sale loss
+- equities transferred in
+- shares assigned/carried away due to option assignment/exercise by counter-party
+- shares bought/sold due to option exercise
+- short/long-term loss/gain due to option expiration of long/short call/put
+-}
 data Event t
-    = OpenPosition t
-    | ClosePosition t t
-    | AdjustCostBasisForOpen t
-    | AdjustCostBasis t t
-    | RememberWashSaleLoss t
-    | TransferEquitiesIn t
-    | AssignOption t t
-    | ExerciseOption t t
+    = OpenPosition Disposition t
+    | ClosePosition Disposition t t
+      -- Wash Sales
+    | AdjustCostBasisForOpen Disposition (Event t)
+    | AdjustCostBasis Disposition (Event t) (Event t)
+    | RememberWashSaleLoss Disposition (Event t)
+      -- Options
+    | ExerciseOption t
     | ExpireOption t
+    | AssignOption t
+      -- Transfer
+    | EstablishEquityCost
+        { _equityAmount :: Amount 6
+        , _equityCost   :: Amount 6
+        , _equityDate   :: UTCTime
+        }
+    | TransferEquitiesIn t
     deriving (Eq, Ord, Show)
+
+makePrisms ''Event
 
 class Show t => Transactional t where
     ident      :: Getter t API.TransactionId
-    time       :: Getter t UTCTime
+    time       :: Lens' t UTCTime
     kind       :: Getter t API.TransactionSubType
     cusip      :: Getter t Text
     symbol     :: Getter t Text
     underlying :: Getter t Text
-    quantity   :: Lens' t (Amount 4)
-    cost       :: Lens' t (Amount 4)
+    quantity   :: Lens' t (Amount 6)
+    cost       :: Lens' t (Amount 6)
     fees       :: Getter t (Amount 2)
 
+instance Transactional API.Transaction where
+    ident          = API.xid
+    time           = API.xdate
+    kind           = API.xsubType
+    cusip f s      = s <$ f (s^?!API.xcusip)
+    symbol         = API.xsymbol
+    underlying f s = s <$ f (s^?!API.xunderlying)
+    quantity       = API.xamount
+    cost           = API.xcost
+    fees f s       = s <$ f (sumOf (API.xfees) s)
+
 data Lot t = Lot
-    { _shares       :: Amount 4
-    , _costOfShares :: Amount 4  -- the cost of a lot may be adjusted
+    { _shares       :: Amount 6
+    , _costOfShares :: Amount 6
     , _xact         :: t
     , _trail        :: [Event (Lot t)]
     }
-    deriving Show
+    deriving (Eq, Ord)
 
 makeLenses ''Lot
-
-sliceOf :: (Transactional t, Functor f)
-        => Lens' t (Amount 4) -> LensLike' f t (Amount n)
-        -> LensLike' f t (Amount n)
-sliceOf n l f t = t & l.percent (coerce (t^.n / t^.quantity)) %%~ f
-
-sliceOf' :: (Transactional t, Functor f)
-         => Amount 4 -> LensLike' f t (Amount n)
-         -> LensLike' f t (Amount n)
-sliceOf' n l f t = t & l.percent (coerce (n / t^.quantity)) %%~ f
 
 instance Transactional t => Transactional (Lot t) where
     ident      = xact.ident
@@ -85,8 +119,20 @@ instance Transactional t => Transactional (Lot t) where
     symbol     = xact.symbol
     underlying = xact.underlying
     quantity   = shares
-    cost       = costOfShares
     fees       = shares `sliceOf` (xact.fees)
+    cost       = costOfShares
+
+instance (Transactional t, Show t) => Show (Lot t) where
+    show l@(Lot {..}) =
+        show _xact
+            ++ " " ++ show _shares
+            ++ " @@ " ++ show (coerce (l^.cost) / _shares)
+
+sliceOf :: (Transactional t, Functor f)
+        => Lens' (Lot t) (Amount 6) -> LensLike' f (Lot t) (Amount n)
+        -> LensLike' f (Lot t) (Amount n)
+sliceOf n l f t =
+    t & l.percent (coerce (t^.n / t^.xact.quantity)) %%~ f
 
 mkLot :: Transactional t => t -> Lot t
 mkLot t = Lot
@@ -122,129 +168,175 @@ alignLots x y
     yq   = y^.quantity
     xcps = x^.cost / xq
     ycps = y^.cost / yq
-    diff = xq - yq
+    diff = abs (xq - yq)
 
-loss :: Transactional t => Fold (Event t) (Amount 2)
+intoEvent :: Transactional t => Lot t -> Event (Lot t)
+intoEvent t = case t^.kind of
+    BuyTrade -> OpenPosition Long t
+    SellTrade -> error $ "Attempt to open SellTrade: " ++ show t
+    ShortSale -> OpenPosition Short t
+    CloseShortPosition ->
+        error $ "Attempt to open CloseShortPosition: " ++ show t
+    TransferOfSecurityOrOptionIn -> OpenPosition Long t
+    _ -> error $ "Cannot render directly into event: " ++ show t
+
+data StateChange t = StateChange
+    { _leftover     :: Maybe t
+    , _results      :: [Event t]
+    , _replacements :: [Event t]
+    , _newEvents    :: [Event t]
+    }
+    deriving (Eq, Ord, Show)
+
+makeLenses ''StateChange
+
+newStateChange :: t -> StateChange t
+newStateChange t = StateChange
+    { _leftover     = Just t
+    , _results      = []
+    , _replacements = []
+    , _newEvents    = []
+    }
+
+foldEvents :: Transactional t
+           => Lot t
+           -> (Lot t -> Event (Lot t) -> StateChange (Lot t))
+           -> State [Event (Lot t)] [Event (Lot t)]
+foldEvents t k = do
+    events <- use id
+    let sc' = (\f -> foldl' f (newStateChange t) events) $
+            \sc e -> case sc^.leftover of
+                Nothing -> sc & replacements <>~ [e]
+                Just t' ->
+                    k t' e & results      %~ (sc^.results ++)
+                           & replacements %~ (sc^.replacements ++)
+                           & newEvents    %~ (sc^.newEvents ++)
+        res = maybeToList (intoEvent <$> sc'^.leftover)
+    id .= sc'^.replacements ++ sc'^.newEvents ++ res
+    pure $ res ++ sc'^.results
+
+washSaleEligible :: Transactional t => t -> Bool
+washSaleEligible t = t^.kind /= TransferOfSecurityOrOptionIn
+
+loss :: Transactional t => Getter (Event t) (Amount 2)
 loss f s = case s of
-    OpenPosition _           -> pure s
-    ClosePosition o c        -> s <$ f (coerce (c^.cost - o^.cost) - sumOf fees c)
-    AdjustCostBasisForOpen _ -> pure s
-    AdjustCostBasis _ _      -> pure s
-    RememberWashSaleLoss _   -> pure s
-    TransferEquitiesIn _     -> pure s
-    AssignOption _ _         -> pure s
-    ExerciseOption _ _       -> pure s
-    ExpireOption _           -> pure s
+    OpenPosition _ _           -> s <$ f 0
+    ClosePosition _ o c        -> s <$ f (coerce (o^.cost + c^.cost) - c^.fees)
+    AdjustCostBasisForOpen _ _ -> s <$ f 0
+    AdjustCostBasis _ _ _      -> s <$ f 0
+    RememberWashSaleLoss _ _   -> s <$ f 0
+    EstablishEquityCost _ _ _  -> s <$ f 0
+    TransferEquitiesIn _       -> s <$ f 0
+    AssignOption _             -> s <$ f 0
+    ExerciseOption _           -> s <$ f 0
+    ExpireOption _             -> s <$ f 0
 
-gainsKeeper :: Transactional t => t -> State [Event (Lot t)] [Event (Lot t)]
-gainsKeeper = go . mkLot
+openPosition :: Transactional t
+             => Lot t -> State [Event (Lot t)] [Event (Lot t)]
+openPosition t = foldEvents t $ \t' e -> case e of
+    EstablishEquityCost amt cst dt ->
+        if amt < t'^.quantity
+        then let res = [ intoEvent (t' & quantity .~ amt
+                                       & cost     .~ cst
+                                       & time     .~ dt) ] in
+            StateChange
+              { _leftover     = Just (t' & quantity -~ amt)
+              , _results      = res
+              , _replacements = []
+              , _newEvents    = res
+              }
+        else let res = [ intoEvent
+                           (t' & cost +~ cst^.percent (t'^.quantity / amt)
+                               & time .~ dt) ] in
+            StateChange
+              { _leftover     = Nothing
+              , _results      = res
+              , _replacements =
+                  [ EstablishEquityCost
+                      (amt - t'^.quantity)
+                      (cst^.percent ((amt - t'^.quantity) / amt))
+                      dt
+                  | amt > t'^.quantity ]
+              , _newEvents    = res
+              }
+    _ -> StateChange
+          { _leftover     = Just t'
+          , _results      = []
+          , _replacements = [e]
+          , _newEvents    = []
+          }
+
+closePosition :: Transactional t
+              => Disposition -> Lot t -> State [Event (Lot t)] [Event (Lot t)]
+closePosition disp t = foldEvents t $ \t' e -> case e of
+    OpenPosition ls o | disp == ls ->
+        let (s, d) = o `alignLots` t'
+            res = maybeToList (ClosePosition disp
+                                 <$> s^?_SplitUsed
+                                 <*> d^?_SplitUsed)
+        in StateChange
+             { _leftover     = d^?_SplitKept
+             , _results      = res
+             , _replacements = s^.._SplitKept.to (OpenPosition ls)
+             , _newEvents    = res
+             }
+    _ -> StateChange
+          { _leftover     = Just t'
+          , _results      = []
+          , _replacements = [e]
+          , _newEvents    = []
+          }
+
+processTransaction :: Transactional t
+                   => t -> State [Event (Lot t)] [Event (Lot t)]
+processTransaction = go . mkLot
   where
     go t = case t^.kind of
-        BuyTrade -> do
-            -- jww (2020-04-30): Need to check for pending wash sales.
-            id <>= [OpenPosition t]
-            pure [OpenPosition t]
-        SellTrade -> do
-            events <- use id
-            let (mt', reverse -> res, reverse -> evs) =
-                    (\f -> foldl' f (Just t, [], []) events) $
-                        \acc@(mt', res, evs) e -> case (e, mt') of
-                            (OpenPosition o, Just t') ->
-                                let (s, d) = o `alignLots` t'
-                                    cp = maybeToList (ClosePosition
-                                                        <$> s^?_SplitUsed
-                                                        <*> d^?_SplitUsed)
-                                in ( d^?_SplitKept
-                                   , cp ++ res
-                                   , cp ++ evs
-                                   )
-                            _ -> acc
-            id .= evs
-            pure $ case mt' of
-                Just t' ->
-                    error $ "Unexpected: short sale from SellTrade: " ++ show t'
-                    -- OpenPosition (t' & quantity %~ negate) : res
-                Nothing -> res
-        _ -> undefined
+        BuyTrade  -> openPosition t
+        ShortSale -> openPosition t
 
-data Mock = Mock
-    { _mockIdent      :: API.TransactionId
-    , _mockTime       :: UTCTime
-    , _mockKind       :: API.TransactionSubType
-    , _mockCusip      :: Text
-    , _mockSymbol     :: Text
-    , _mockUnderlying :: Text
-    , _mockQuantity   :: Amount 4
-    , _mockCost       :: Amount 4
-    , _mockFees       :: Amount 2
+        TransferOfSecurityOrOptionIn -> openPosition t
+
+        SellTrade          -> closePosition Long t
+        CloseShortPosition -> closePosition Short t
+
+        OptionAssignment ->
+            -- If this is the contract, it closes it much like
+            -- OptionExpiration, except P/L is carried to the equity transfer,
+            -- whose kind is also OptionAssignment, and which will follow this
+            -- event.
+            pure []
+
+        OptionExpiration -> pure []
+
+        _ -> pure []
+
+data GainsKeeperState t = GainsKeeperState
+    { _positionEvents :: Map Text [Event (Lot t)]
+    , _nextEventId    :: API.TransactionId
+    }
+    deriving (Eq, Ord, Show)
+
+makeLenses ''GainsKeeperState
+
+newGainsKeeperState :: GainsKeeperState t
+newGainsKeeperState = GainsKeeperState
+    { _positionEvents = mempty
+    , _nextEventId    = 1
     }
 
-instance Show Mock where
-    show Mock {..} =
-        show _mockQuantity
-            ++ " @@ " ++ show (_mockCost / _mockQuantity)
-            ++ " ## \"" ++ iso8601Show (utctDay _mockTime) ++ "\""
-
-makeLenses ''Mock
-
-newMock :: Mock
-newMock = Mock
-    { _mockIdent      = 0
-    , _mockTime       = UTCTime (ModifiedJulianDay 0) 0
-    , _mockKind       = BuyTrade
-    , _mockCusip      = ""
-    , _mockSymbol     = ""
-    , _mockUnderlying = ""
-    , _mockQuantity   = 0
-    , _mockCost       = 0
-    , _mockFees       = 0
-    }
-
-instance Transactional Mock where
-    ident      = mockIdent
-    time       = mockTime
-    kind       = mockKind
-    cusip      = mockCusip
-    symbol     = mockSymbol
-    underlying = mockUnderlying
-    quantity   = mockQuantity
-    cost       = mockCost
-    fees       = mockFees
-
-(@@) :: Amount 4 -> Amount 4 -> Mock
-q @@ c = newMock & mockQuantity .~ q & mockCost .~ q * c
-
-(@@@) :: Amount 4 -> Amount 4 -> Mock
-q @@@ c = newMock & quantity .~ q & cost .~ c
-
-(##) :: Mock -> Text -> Mock
-p ## d = p & mockTime
-    .~ UTCTime day 0
-  where
-    day = fromMaybe (error $ "Failed to parse: " ++ unpack d)
-                    (iso8601ParseM (unpack d))
-
-test_gainsKeeper :: IO ()
-test_gainsKeeper = do
-    let res = (`runState` []) $ do
-            gainsKeeper (10 @@ 20.00 ## "2020-03-21")
-            gainsKeeper (10 @@ 30.00 ## "2020-03-22" & mockKind .~ SellTrade)
-    print res
-    print $ res^?_1._head.loss
-
-{-
-
-Things that can happen which may change the raw sequence of transactions, or
-affect the history of events having possible future implications:
-
-- open position by buying/selling long/short
-- close position with gain/loss by selling/covering, short/long-term/collectible
-- adjust cost basis when opening position due to previous wash sale
-- adjust cost basis of existing open position due to current wash sale
-- remember fact of an unapplied wash sale loss
-- equities transferred in
-- shares assigned/carried away due to option assignment/exercise by counter-party
-- shares bought/sold due to option exercise
-- short/long-term loss/gain due to option expiration of long/short call/put
-
--}
+gainsKeeper :: (Transactional t, Eq t)
+            => t -> State (GainsKeeperState t) [Event (Lot t)]
+gainsKeeper t = zoom (positionEvents.at (t^.symbol).non []) $ do
+    hist <- use id
+    renderM $ text "before "
+        <> text (unpack (t^.symbol))
+        <> ": " <> renderList (text . ppShow) hist
+    renderM $ text "transaction: " <> text (ppShow t)
+    res <- processTransaction t
+    renderM $ text "result: " <> renderList (text . ppShow) res
+    hist' <- use id
+    renderM $ text "after "
+        <> text (unpack (t^.symbol))
+        <> ": " <> renderList (text . ppShow) hist'
+    pure res

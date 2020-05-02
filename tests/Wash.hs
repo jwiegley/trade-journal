@@ -2,18 +2,17 @@
 
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
-module Wash (testWashSaleRule) where
+module Wash where
 
 import Control.Lens
 import Control.Monad.Morph
 import Control.Monad.Trans.State
-import Pos
 import Test.Tasty
 import Test.Tasty.HUnit
 import Text.PrettyPrint hiding (($$), (<>))
-import ThinkOrSwim.Transaction
-import ThinkOrSwim.Wash
+import ThinkOrSwim.Model
 
+{-
 testWashSaleRule :: TestTree
 testWashSaleRule = testGroup "washSaleRule"
     [ testCase "open" $
@@ -169,3 +168,4 @@ wash pl = do
     lift $ putStrLn $ render doc
     events <- use history
     pure (events, res)
+-}

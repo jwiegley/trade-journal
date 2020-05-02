@@ -464,9 +464,17 @@ data Transaction = Transaction
     , _clearingReferenceNumber       :: Maybe Text
     , _type_                         :: TransactionType
     }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord)
 
 makeLenses ''Transaction
+
+instance Show Transaction where
+    show t = "(" ++ show (t^.transactionInfo_.transactionId)
+        ++ " " ++ show (t^.transactionInfo_.transactionSubType)
+        ++ " " ++ show (t^.transactionInfo_.transactionItem_.amount.non 0)
+        ++ " \""
+        ++ iso8601Show (utctDay (t^.transactionInfo_.transactionDate))
+        ++ "\")"
 
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
@@ -565,7 +573,7 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
   where
     prepare
         = mapM_ check
-        . pairAssignments
+        -- . pairAssignments
         . sortBy (comparing (^?transactionInfo_.transactionDate) <>
                   comparing (^?xunderlying))
       <=< mapM findNames
@@ -653,17 +661,14 @@ xprice :: Traversal' Transaction (Amount 6)
 xprice = xitem.price.traverse
 
 xcostPerShare :: Lens' Transaction (Amount 6)
-xcostPerShare f t = f (t^.xcost / abs (t^.xamount)) <&> \n ->
-    t & xcost .~ n * abs (t^.xamount)
+xcostPerShare f t = f (t^.xcost / t^.xamount) <&> \n ->
+    t & xcost .~ n * t^.xamount
 
 xaccount :: Lens' Transaction AccountId
 xaccount = xitem.accountId
 
-xamount :: Getter Transaction (Amount 6)
-xamount f t =
-    t & xitem.instruction %%~ \x -> x <$ case x of Just Sell -> f (-n); _ -> f n
-  where
-    n = t^.xitem.amount.non 0
+xamount :: Lens' Transaction (Amount 6)
+xamount f t = t & xitem.amount.non 0 %%~ f
 
 xinstr :: Lens' Transaction (Maybe Instrument)
 xinstr = xitem.transactionInstrument
@@ -706,8 +711,9 @@ orderTransactions =
         . sortBy (comparing (^?xasset) <>
                   comparing (^?xdate))
 
+{-
 pairAssignments :: [Transaction] -> [Transaction]
-pairAssignments [] = []
+pairAssignments []  = []
 pairAssignments [x] = [x]
 pairAssignments (x:y:xs)
     | x^.xtype       == ReceiveAndDeliver &&
@@ -724,6 +730,7 @@ pairAssignments (x:y:xs)
     | otherwise = x : pairAssignments (y:xs)
   where
     assignmentId = "OA" <> T.pack (show (x^.xid))
+-}
 
 mergeTransactionItems :: TransactionItem -> TransactionItem
                       -> Maybe TransactionItem

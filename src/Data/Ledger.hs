@@ -13,7 +13,6 @@
 
 module Data.Ledger where
 
-import           Control.Applicative
 import           Control.Lens
 import           Data.Amount
 import           Data.Default
@@ -64,15 +63,10 @@ makePrisms ''Instrument
 
 data CommodityLot k = CommodityLot
     { _instrument   :: Instrument
-    , _kind         :: k
     , _quantity     :: Amount 4
     , _symbol       :: Text
-    , _underlying   :: Text
     , _cost         :: Maybe (Amount 4)
     , _purchaseDate :: Maybe Day
-    , _washEligible :: Bool
-    , _washDeferred :: Maybe (Amount 2)
-    , _lotId        :: LotId
     , _refs         :: [Ref]
     , _price        :: Maybe (Amount 4)
     }
@@ -83,51 +77,13 @@ makeLenses ''CommodityLot
 newCommodityLot :: Default k => CommodityLot k
 newCommodityLot = CommodityLot
     { _instrument   = Equity
-    , _kind         = def
     , _quantity     = 0.0
     , _symbol       = "???"
-    , _underlying   = "???"
     , _cost         = Nothing
     , _purchaseDate = Nothing
-    , _washEligible = True
-    , _washDeferred = Nothing
-    , _lotId        = 0
     , _refs         = []
     , _price        = Nothing
     }
-
-data PL
-    = BreakEven
-    | GainShort
-    | GainLong
-    | LossShort
-    | LossLong
-    | WashLoss
-    | Rounding
-    deriving (Eq, Ord, Show, Enum, Bounded)
-
-makePrisms ''PL
-
-data LotAndPL k = LotAndPL
-    { _plKind :: PL
-    , _plDay  :: Maybe Day
-    , _plLoss :: Amount 2           -- positive is loss, else gain or wash
-    , _plLot  :: CommodityLot k
-    }
-    deriving (Eq, Ord, Show)
-
-makeLenses ''LotAndPL
-
-mkLotAndPL :: CommodityLot k -> Amount 2 -> CommodityLot k
-           -> LotAndPL k
-mkLotAndPL c pl = LotAndPL knd (c^.purchaseDate) pl
-      where
-        knd | pl > 0    = LossShort
-            | pl < 0    = GainShort
-            | otherwise = BreakEven
-
-_LotAndPL :: Prism' (LotAndPL k) (CommodityLot k)
-_LotAndPL = prism' (\l -> mkLotAndPL l 0 l) (Just . _plLot)
 
 data PostingAmount k (lot :: * -> *)
     = NoAmount
@@ -159,15 +115,6 @@ data Account
     deriving (Eq, Ord, Show)
 
 makePrisms ''Account
-
-plAccount :: PL -> Maybe Account
-plAccount BreakEven = Nothing
-plAccount GainShort = Just CapitalGainShort
-plAccount GainLong  = Just CapitalGainLong
-plAccount LossShort = Just CapitalLossShort
-plAccount LossLong  = Just CapitalLossLong
-plAccount WashLoss  = Just CapitalWashLoss
-plAccount Rounding  = Just RoundingError
 
 data Posting k (lot :: * -> *) = Posting
     { _account      :: Account
@@ -202,18 +149,18 @@ data Transaction k o (lot :: * -> *) = Transaction
 
 makeLenses ''Transaction
 
-optionLots :: Traversal' (Transaction k o LotAndPL) (LotAndPL k)
+optionLots :: Traversal' (Transaction k o CommodityLot) (CommodityLot k)
 optionLots
     = postings
     . traverse
     . amount
     . _CommodityAmount
-    . filtered (has (plLot.instrument._Option))
+    . filtered (has (instrument._Option))
 
-equityLots :: Traversal' (Transaction k o LotAndPL) (LotAndPL k)
+equityLots :: Traversal' (Transaction k o CommodityLot) (CommodityLot k)
 equityLots
     = postings
     . traverse
     . amount
     . _CommodityAmount
-    . filtered (has (plLot.instrument._Equity))
+    . filtered (has (instrument._Equity))

@@ -6,6 +6,6 @@ import Wash
 
 main :: IO ()
 main = defaultMain $ testGroup "thinkorswim"
-    [ testGainsKeeper
-    , testWashSaleRule
+    [ -- testGainsKeeper
+    -- , testWashSaleRule
     ]

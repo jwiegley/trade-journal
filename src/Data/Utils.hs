@@ -8,8 +8,12 @@ import           Control.Lens
 import           Data.Foldable
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Debug.Trace (traceM)
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint as P
+
+renderM :: Applicative f => Doc -> f ()
+renderM = traceM . render
 
 percent :: Num a => a -> Lens' a a
 percent n f s = f part <&> \v -> v + (s - part)
