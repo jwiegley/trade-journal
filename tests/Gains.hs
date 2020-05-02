@@ -14,7 +14,7 @@ import Data.Split
 import Mock
 import Test.Tasty
 import Test.Tasty.HUnit (testCase)
-import ThinkOrSwim.Model
+import ThinkOrSwim.Event
 
 {-
 pl :: Transactional a => Amount 4 -> a -> a -> Amount 2

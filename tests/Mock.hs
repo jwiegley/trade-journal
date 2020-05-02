@@ -14,7 +14,7 @@ import           Data.Time
 import           Data.Time.Format.ISO8601
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions (TransactionSubType(..))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Model
+import           ThinkOrSwim.Event
 
 data Mock = Mock
     { _mockIdent      :: API.TransactionId

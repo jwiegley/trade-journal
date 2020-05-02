@@ -15,18 +15,21 @@ import           Control.Lens
 import           Control.Monad.State
 import           Data.Amount
 import           Data.Coerce
-import           Data.Ledger hiding (symbol, quantity, cost, price)
+import           Data.Foldable
 import qualified Data.Ledger as L
+import           Data.Ledger hiding (symbol, quantity, cost, price)
 import qualified Data.Map as M
 import           Data.Maybe (isNothing)
-import           Data.Text as T
+import           Data.Text (Text)
+import qualified Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
+import           Debug.Trace
 import           Prelude hiding (Float, Double, (<>))
-import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (symbol, cost)
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Model
+import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (symbol, cost)
+import           ThinkOrSwim.Event
 import           ThinkOrSwim.Options (Options)
 import           ThinkOrSwim.Types
 
@@ -119,29 +122,46 @@ convertPostings _opts actId t = roundPostings . posts <$>
     effectDesc = \case
         OpenPosition disp _    -> Just $ T.pack $ "Open " ++ show disp
         ClosePosition disp _ _ -> Just $ T.pack $ "Close " ++ show disp
-        TransferEquitiesIn _   -> Just "Transfer"
         _ -> Nothing
 
     act          = transactionAccount actId t
     subtyp       = t^.transactionInfo_.transactionSubType
     isPriced     = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
     gainsRelated = has xamount t && has xinstr t
-    direct       = cashXact || not (has xamount t) || fromEquity
-    maybeNet     = if direct then Nothing else Just (t^.netAmount)
     fromEquity   = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
-    cashXact     = subtyp `elem` [ CashAlternativesPurchase
-                            , CashAlternativesRedemption ]
+    -- cashXact     = subtyp `elem` [ CashAlternativesPurchase
+    --                         , CashAlternativesRedemption ]
+    -- direct       = cashXact || not (has xamount t) || fromEquity
+    -- maybeNet     = if direct then Nothing else Just (t^.netAmount)
 
     cashPost = newPosting (Cash actId) False $
         if t^.netAmount == 0
         then NoAmount
         else DollarAmount (t^.netAmount)
 
-    roundPostings ps | Just net <- maybeNet =
-        let slip = - (net + sumPostings ps)
+    roundPostings ps =
+        let slip = - sumPostings ps
         in ps ++ [ newPosting L.Commissions False (DollarAmount slip)
                  | slip /= 0 && abs slip < 0.02 ]
-    roundPostings ps = ps
+
+-- The idea of this function is to replicate what Ledger will calculate the
+-- sum to be, so that if there's any discrepancy we can add a rounding
+-- adjustment to pass the balancing check.
+sumPostings :: [L.Posting API.TransactionSubType L.CommodityLot] -> Amount 2
+sumPostings = foldl' go 0
+  where
+    norm = normalizeAmount mpfr_RNDNA
+
+    cst l | l^.isVirtual = 0
+          | Just n <- l^?L.amount._DollarAmount = norm n
+          | Just q <- l^?L.amount._CommodityAmount.L.quantity,
+            Just n <- l^?L.amount._CommodityAmount.L.cost.each =
+              let n' | q < 0     = -n
+                     | otherwise = n
+              in norm (coerce n')
+          | otherwise = 0
+
+    go acc pl = acc + cst pl
 
 transactionAccount :: Text -> API.Transaction -> L.Account
 transactionAccount actId t = case t^?xasset of
@@ -156,12 +176,12 @@ mkCommodityLot :: Lot API.Transaction
                -> CommodityLot API.TransactionSubType
 mkCommodityLot t = newCommodityLot @API.TransactionSubType
     & instrument   .~ instr
-    & L.quantity   .~ coerce (t^.quantity)
+    & L.quantity   .~ t^.quantity.coerced
     & L.symbol     .~ t^.symbol
-    & L.cost       ?~ coerce (abs (t^.cost))
+    & L.cost       ?~ abs (t^.cost.coerced)
     & purchaseDate ?~ utctDay (t^.time)
     & refs         .~ [ transactionRef (t^.xact) ]
-    & L.price      .~ fmap coerce (t^?xact.xprice)
+    & L.price      .~ t^?xact.xprice.coerced
   where
     instr = case t^?xact.xasset of
         Just API.Equity           -> L.Equity
@@ -187,7 +207,7 @@ postClosePosition actId meta disp pl o c =
     ++ [ newPosting (transactionAccount actId (o^.xact)) False
            (CommodityAmount $ mkCommodityLot o
               & L.quantity %~ signed
-              & L.price    .~ fmap coerce (c^?xact.xprice)) & meta ]
+              & L.price    .~ c^?xact.xprice.coerced) & meta ]
   where
     signed :: Num a => a -> a
     signed = case disp of Long -> negate; Short -> id
@@ -209,9 +229,8 @@ postingsFromEvent actId meta ev = case ev of
     OpenPosition disp o        ->
         [ newPosting (transactionAccount actId (o^.xact)) False
             (CommodityAmount $ mkCommodityLot o
-               & L.quantity %~ case disp of Long -> id; Short -> negate
-               & L.cost     %~ fmap (+ coerce (o^.fees)))
-              & meta ]
+               & L.quantity %~ case disp of Long -> id; Short -> negate)
+            & meta ]
 
     ClosePosition disp o c ->
         postClosePosition actId meta disp (ev^.loss) o c
@@ -220,21 +239,6 @@ postingsFromEvent actId meta ev = case ev of
     AdjustCostBasis _ _ _      -> []
     RememberWashSaleLoss _ _   -> []
     EstablishEquityCost _ _ _  -> []
-    TransferEquitiesIn o       -> []
-    AssignOption _             -> []
-    ExerciseOption _           -> []
     ExpireOption _             -> []
-
- --            [ post act False (CommodityAmount pl)
-
--- The idea of this function is to replicate what Ledger will calculate the
--- sum to be, so that if there's any discrepancy we can add a rounding
--- adjustment to pass the balancing check.
-sumPostings :: [L.Posting API.TransactionSubType L.CommodityLot] -> Amount 2
-sumPostings _ = 0
--- sumPostings = foldl' go 0
---   where
---     norm      = normalizeAmount mpfr_RNDNA
---     cst l     = sign (l^.L.quantity) (l^.L.cost)
---     go acc pl = acc + norm (coerce (cst pl)) + norm (pl^.loss)
-
+    AssignOption _ _           -> []
+    ExerciseOption _ _         -> []

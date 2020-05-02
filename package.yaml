@@ -41,8 +41,8 @@ library:
     - ThinkOrSwim.API
     - ThinkOrSwim.API.TransactionHistory.GetTransactions
     - ThinkOrSwim.Convert
+    - ThinkOrSwim.Event
     - ThinkOrSwim.Options
-    - ThinkOrSwim.Model
     - ThinkOrSwim.Types
 
 tests:

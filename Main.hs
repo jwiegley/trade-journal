@@ -28,7 +28,7 @@ import           Servant.Client
 import           ThinkOrSwim.API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Convert
-import           ThinkOrSwim.Model
+import           ThinkOrSwim.Event
 import           ThinkOrSwim.Options as Opts
 
 data Holding = Holding

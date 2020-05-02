@@ -10,7 +10,7 @@ import Control.Monad.Trans.State
 import Test.Tasty
 import Test.Tasty.HUnit
 import Text.PrettyPrint hiding (($$), (<>))
-import ThinkOrSwim.Model
+import ThinkOrSwim.Event
 
 {-
 testWashSaleRule :: TestTree

@@ -16,7 +16,7 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module ThinkOrSwim.Model where
+module ThinkOrSwim.Event where
 
 import           Control.Applicative
 import           Control.Lens
@@ -25,7 +25,7 @@ import           Data.Amount
 import           Data.Coerce
 import           Data.Foldable
 import           Data.Map (Map)
-import           Data.Maybe (fromMaybe, maybeToList)
+import           Data.Maybe (maybeToList)
 import           Data.Split
 import           Data.Text (Text, unpack)
 import           Data.Time
@@ -65,16 +65,15 @@ data Event t
     | AdjustCostBasis Disposition (Event t) (Event t)
     | RememberWashSaleLoss Disposition (Event t)
       -- Options
-    | ExerciseOption t
     | ExpireOption t
-    | AssignOption t
+    | AssignOption t t
+    | ExerciseOption t t
       -- Transfer
     | EstablishEquityCost
         { _equityAmount :: Amount 6
         , _equityCost   :: Amount 6
         , _equityDate   :: UTCTime
         }
-    | TransferEquitiesIn t
     deriving (Eq, Ord, Show)
 
 makePrisms ''Event
@@ -126,7 +125,7 @@ instance (Transactional t, Show t) => Show (Lot t) where
     show l@(Lot {..}) =
         show _xact
             ++ " " ++ show _shares
-            ++ " @@ " ++ show (coerce (l^.cost) / _shares)
+            ++ " @@ " ++ show (l^.cost.coerced / _shares)
 
 sliceOf :: (Transactional t, Functor f)
         => Lens' (Lot t) (Amount 6) -> LensLike' f (Lot t) (Amount n)
@@ -200,9 +199,10 @@ newStateChange t = StateChange
 
 foldEvents :: Transactional t
            => Lot t
+           -> ([Event (Lot t)] -> [Event (Lot t)])
            -> (Lot t -> Event (Lot t) -> StateChange (Lot t))
            -> State [Event (Lot t)] [Event (Lot t)]
-foldEvents t k = do
+foldEvents t g k = do
     events <- use id
     let sc' = (\f -> foldl' f (newStateChange t) events) $
             \sc e -> case sc^.leftover of
@@ -211,7 +211,7 @@ foldEvents t k = do
                     k t' e & results      %~ (sc^.results ++)
                            & replacements %~ (sc^.replacements ++)
                            & newEvents    %~ (sc^.newEvents ++)
-        res = maybeToList (intoEvent <$> sc'^.leftover)
+        res = g (maybeToList (intoEvent <$> sc'^.leftover))
     id .= sc'^.replacements ++ sc'^.newEvents ++ res
     pure $ res ++ sc'^.results
 
@@ -219,21 +219,13 @@ washSaleEligible :: Transactional t => t -> Bool
 washSaleEligible t = t^.kind /= TransferOfSecurityOrOptionIn
 
 loss :: Transactional t => Getter (Event t) (Amount 2)
-loss f s = case s of
-    OpenPosition _ _           -> s <$ f 0
-    ClosePosition _ o c        -> s <$ f (coerce (o^.cost + c^.cost) - c^.fees)
-    AdjustCostBasisForOpen _ _ -> s <$ f 0
-    AdjustCostBasis _ _ _      -> s <$ f 0
-    RememberWashSaleLoss _ _   -> s <$ f 0
-    EstablishEquityCost _ _ _  -> s <$ f 0
-    TransferEquitiesIn _       -> s <$ f 0
-    AssignOption _             -> s <$ f 0
-    ExerciseOption _           -> s <$ f 0
-    ExpireOption _             -> s <$ f 0
+loss f s@(ClosePosition _ o c) =
+    s <$ f (coerce (o^.cost + c^.cost) - c^.fees)
+loss f s = s <$ f 0
 
 openPosition :: Transactional t
              => Lot t -> State [Event (Lot t)] [Event (Lot t)]
-openPosition t = foldEvents t $ \t' e -> case e of
+openPosition t = foldEvents t addFees $ \t' e -> case e of
     EstablishEquityCost amt cst dt ->
         if amt < t'^.quantity
         then let res = [ intoEvent (t' & quantity .~ amt
@@ -265,10 +257,18 @@ openPosition t = foldEvents t $ \t' e -> case e of
           , _replacements = [e]
           , _newEvents    = []
           }
+  where
+    addFees [] = []
+    addFees (x:xs) =
+        -- Fees paid to open are borne in the cost basis of the asset
+        (x & _OpenPosition._2.cost -~ t^.fees.coerced.percent part) : xs
+      where
+        -- Thanks to laziness, only evaluated when it works
+        part = x^?!_OpenPosition._2.quantity / t^.quantity
 
 closePosition :: Transactional t
               => Disposition -> Lot t -> State [Event (Lot t)] [Event (Lot t)]
-closePosition disp t = foldEvents t $ \t' e -> case e of
+closePosition disp t = foldEvents t id $ \t' e -> case e of
     OpenPosition ls o | disp == ls ->
         let (s, d) = o `alignLots` t'
             res = maybeToList (ClosePosition disp
