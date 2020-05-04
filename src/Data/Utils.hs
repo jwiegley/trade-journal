@@ -48,6 +48,10 @@ class Render a where
 instance Render a => Render [a] where
     rendered = renderList rendered
 
+instance Render a => Render (Maybe a) where
+    rendered Nothing  = text "Nothing"
+    rendered (Just x) = text "Just" <> space <> rendered x
+
 instance Render Text where
     rendered = text . T.unpack
 

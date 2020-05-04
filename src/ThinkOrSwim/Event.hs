@@ -525,13 +525,13 @@ gainsKeeper opts t = zoom (positionEvents.at (t^.underlying).non []) $ do
             pure res
   where
     matches x =
-        Options.traceAll opts
-      || case Options.traceSymbol opts of
+        opts^.Options.traceAll
+      || case opts^.Options.traceSymbol of
             Nothing  -> False
             Just sym -> x^.symbol == T.pack sym
-      || case Options.traceUnderlying opts of
+      || case opts^.Options.traceUnderlying of
             Nothing  -> False
             Just sym -> x^.underlying == T.pack sym
-      || case Options.traceId opts of
+      || case opts^.Options.traceId of
             Nothing  -> False
             Just i   -> show (x^.ident) == i

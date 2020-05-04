@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -8,19 +9,28 @@
 module Mock where
 
 import           Control.Arrow
+import           Control.Exception
 import           Control.Lens hiding (assign)
 import           Control.Monad.Morph
 import           Control.Monad.State
 import           Data.Amount
+import           Data.Int (Int64)
 import           Data.Maybe (fromMaybe)
+import           Data.Ratio
 import           Data.Text as T
 import           Data.Time
 import           Data.Time.Format.ISO8601
+import           Data.Typeable
 import           Data.Utils
+import           Hedgehog
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
 import           Prelude hiding (Double, Float, (<>))
+import           Test.HUnit.Lang (FailureReason(..))
 import           Test.Tasty
 import           Test.Tasty.HUnit
-import           Text.PrettyPrint
+import           Test.Tasty.Hedgehog
+import           Text.PrettyPrint as P
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
                      (TransactionSubType(..), AssetType(..), Instruction(..))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -43,7 +53,7 @@ data Mock = Mock
     deriving (Eq, Ord, Show)
 
 instance Render Mock where
-    rendered Mock {..} =
+    rendered Mock {..} = parens $
         tshow _mockQuantity
             <> " @@ " <> tshow (_mockCost / _mockQuantity)
             <> " ## " <> doubleQuotes (rendered _mockTime)
@@ -83,33 +93,11 @@ instance Transactional Mock where
                      \(UTCTime _dy tm) ->
                          UTCTime (addDays (- x) (t^.time.to utctDay)) tm
 
-trade :: TransactionSubType -> Instruction -> Text -> Amount 6 -> Amount 6 -> Mock
-trade k i d q c = newMock
-    & mockKind        .~ k
-    & mockInstruction ?~ i
-    & mockQuantity    .~ q
-    & mockCost        .~ c
-    & mockTime        .~ UTCTime day 0
-  where
-    day = fromMaybe (error $ "Failed to parse: " ++ unpack d)
-                    (iso8601ParseM (unpack d))
-
-bto, stc :: Text -> Amount 6 -> Amount 6 -> Mock
-bto = trade BuyTrade Buy
-stc = trade SellTrade Sell
-
-test_gainsKeeper :: IO ()
-test_gainsKeeper = do
-    let res = (`runState` newGainsKeeperState) $ do
-            _ <- gainsKeeper newOptions (bto "2020-03-21" 10 20.00)
-            gainsKeeper newOptions (stc "2020-03-22" 10 30.00)
-    print res
-    print $ res^?_1._head
-
 data MockState = MockState
-    { _mockState  :: GainsKeeperState Mock
-    , _mockSpace  :: Text
-    , _mockNextId :: API.TransactionId
+    { _mockState   :: GainsKeeperState Mock
+    , _mockSpace   :: Text
+    , _mockNextId  :: API.TransactionId
+    , _mockOptions :: Options
     }
     deriving (Eq, Show)
 
@@ -117,19 +105,21 @@ makeLenses ''MockState
 
 newMockState :: Text -> MockState
 newMockState sym = MockState
-    { _mockState  = newGainsKeeperState
-    , _mockSpace  = sym
-    , _mockNextId = 1
+    { _mockState   = newGainsKeeperState
+    , _mockSpace   = sym
+    , _mockNextId  = 1
+    , _mockOptions = newOptions
     }
 
-withMockState :: Text -> StateT MockState IO a -> IO (a, GainsKeeperState Mock)
+withMockState :: Monad m
+              => Text -> StateT MockState m a -> m (a, GainsKeeperState Mock)
 withMockState sym =
     fmap (second _mockState) . flip runStateT (newMockState sym)
 
-withMockState_ :: Text -> StateT MockState IO a -> Assertion
+withMockState_ :: Monad m => Text -> StateT MockState m a -> m ()
 withMockState_ sym action = () <$ withMockState sym action
 
-submit :: Mock -> StateT MockState IO [Event (Lot Mock)]
+submit :: Monad m => Mock -> StateT MockState m [Event (Lot Mock)]
 submit m = do
     nextId <- use mockNextId
     mockNextId += 1
@@ -137,26 +127,38 @@ submit m = do
     let mock = m & mockSymbol     %~ (\x -> if T.null x then sym else x)
                  & mockUnderlying .~ sym
                  & mockIdent      .~ nextId
+    opts <- use mockOptions
     zoom mockState $
         hoist (pure . runIdentity) $
-            gainsKeeper newOptions mock
+            gainsKeeper opts mock
 
-buy :: Amount 6 -> Amount 6 -> StateT MockState IO [Event (Lot Mock)]
-buy = (submit .) . trade BuyTrade Buy "2020-03-01"
+trade :: TransactionSubType -> Instruction -> Text -> Amount 6 -> Amount 6 -> Mock
+trade k i d q c = newMock
+    & mockKind        .~ k
+    & mockInstruction ?~ i
+    & mockQuantity    .~ q
+    & mockCost        .~ c * q
+    & mockTime        .~ UTCTime day 0
+  where
+    day = fromMaybe (error $ "Failed to parse: " ++ unpack d)
+                    (iso8601ParseM (unpack d))
 
-sell :: Amount 6 -> Amount 6 -> StateT MockState IO [Event (Lot Mock)]
-sell = (submit .) . trade SellTrade Sell "2020-03-01"
+buy :: Amount 6 -> Amount 6 -> Mock
+buy = trade BuyTrade Buy "2020-03-01"
 
-assign :: Amount 6 -> Amount 6 -> StateT MockState IO [Event (Lot Mock)]
-assign = (submit .) . trade OptionAssignment Buy "2020-03-01"
+sell :: Amount 6 -> Amount 6 -> Mock
+sell = trade SellTrade Sell "2020-03-01"
+
+assign :: Amount 6 -> Amount 6 -> Mock
+assign = trade OptionAssignment Buy "2020-03-01"
 -- ^ jww (2020-05-04): Should be Buy if a Call, Sell if a Put, and it must
 --   generate two OptionAssignment transactions, one for the option and one
 --   for the equity. Lastly, costs for the option are * multiplier.
 
-expire :: Amount 6 -> Amount 6 -> StateT MockState IO [Event (Lot Mock)]
-expire = (submit .) . trade OptionAssignment Buy "2020-03-01"
+expire :: Amount 6 -> Amount 6 -> Mock
+expire = trade OptionAssignment Buy "2020-03-01"
 
-option :: Text -> StateT MockState IO a -> StateT MockState IO a
+option :: Monad m => Text -> StateT MockState m a -> StateT MockState m a
 option sym action = do
     prev <- use mockSpace
     mockSpace .= sym
@@ -165,23 +167,69 @@ option sym action = do
     pure res
 
 gainsTest :: String -> StateT MockState IO a -> TestTree
-gainsTest label = testCase label . withMockState_ "ZM"
+gainsTest str = testCase str . withMockState_ "ZM"
+
+gainsProperty :: String -> StateT MockState (PropertyT IO) a -> TestTree
+gainsProperty str = testProperty str . property . withMockState_ "ZM"
+
+(^+) :: Mock -> Mock -> Amount n
+x ^+ y = (x^.cost + y^.cost)^.coerced
+
+(^-) :: Mock -> Mock -> Amount n
+x ^- y = (x^.cost - y^.cost)^.coerced
 
 testMock :: TestTree
 testMock = gainsTest "mock-basic" $ do
-    [b] <- buy 100 45.00
-    [s] <- sell 100 50.00
-    lift $ s^.gain @?= (s^.costs + b^.costs)^.coerced
+    let b = buy 100 (-45.00)
+    submit b
+    let s = sell 100 50.00
+    [e] <- submit s
+    e^.gain @?== b ^+ s
 
-tester :: Assertion
-tester = withMockState_ "ZM" $ do
-    [b1] <- buy 100 85.80
-    buy 100 90.00
-    [s1] <- sell 100 92.00
-    lift $ s1^.gain @?= (b1^.costs - s1^.costs)^.coerced
-    option "ZM_032020C95" $ do
-        y <- buy 1 40.00
-        assign 1 1.36
-        expire 1 1.80
-        x <- buy 2 50.00
-        lift $ x @?= y
+amount :: MonadGen m => Range Int64 -> m (Amount n)
+amount range = do
+    d <- Gen.integral range
+    n <- Gen.integral range
+    pure $ Amount (d % n)
+
+wide :: MonadGen m => m (Amount n)
+wide = amount (Range.linear 1 1000)
+
+big :: MonadGen m => m (Amount n)
+big  = amount (Range.linear 100 1000)
+
+little :: MonadGen m => m (Amount n)
+little = amount (Range.linear 1 50)
+
+data MockFailure = MockFailure FailureReason
+    deriving (Eq, Typeable)
+
+instance Show MockFailure where
+    show (MockFailure (Reason msg)) = msg
+    show (MockFailure (ExpectedButGot preface expected actual)) = msg
+      where
+        msg = (case preface of Just str -> str ++ "\n"; Nothing -> "")
+            ++ "expected:\n" ++ expected
+            ++ "\n but got:\n" ++ actual
+
+instance Exception MockFailure
+
+assertEqual'
+  :: (Eq a, Render a, HasCallStack)
+  => String -- ^ The message prefix
+  -> a      -- ^ The expected value
+  -> a      -- ^ The actual value
+  -> Assertion
+assertEqual' preface expected actual =
+    unless (actual == expected) $ do
+        throwIO (MockFailure
+                 (ExpectedButGot
+                    (if Prelude.null preface
+                     then Nothing
+                     else Just preface)
+                    (render ("    " <> rendered expected))
+                    (render ("    " <> rendered actual))))
+
+infix 1 @?==
+(@?==) :: (MonadIO m, Eq a, Render a, HasCallStack) => a -> a -> m ()
+actual @?== expected = liftIO $ assertEqual' "" expected actual

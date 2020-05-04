@@ -5,16 +5,67 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
+
 module Gains where
 
-import Control.Lens
-import Data.Amount
-import Data.Coerce
-import Data.Split
-import Mock
-import Test.Tasty
-import Test.Tasty.HUnit (testCase)
-import ThinkOrSwim.Event
+import           Control.Lens
+import           Control.Monad.Trans.Class
+import           Data.Utils
+import           Hedgehog
+-- import qualified Hedgehog.Gen as Gen
+-- import qualified Hedgehog.Range as Range
+import           Mock
+import           Test.Tasty
+-- import           Test.Tasty.HUnit
+import           Test.Tasty.Hedgehog
+import           ThinkOrSwim.Event
+import           ThinkOrSwim.Options
+
+testGains :: TestTree
+testGains = testGroup "gains"
+    [ testProperty "gains_buy_sell_profit" gains_buy_sell_profit
+    , testProperty "gains_buy_sell_profit_partial" gains_buy_sell_profit_partial
+    ]
+
+gains_buy_sell_profit :: Property
+gains_buy_sell_profit = property $ do
+    (_, st) <- withMockState "ZM" $ do
+        q   <- lift $ forAll wide
+        amt <- lift $ forAll big
+        sub <- lift $ forAll little
+
+        let b = buy q (- amt + sub)
+        submit b
+
+        let s = sell q amt
+        [e] <- submit s
+
+        e^.gain @?== b ^+ s
+
+    st^?positionEvents.ix "ZM" @?== Nothing
+
+gains_buy_sell_profit_partial :: Property
+gains_buy_sell_profit_partial = property $ do
+    (res, st) <- withMockState "ZM" $ do
+        q   <- lift $ forAll wide
+        amt <- lift $ forAll big
+        sub <- lift $ forAll little
+
+        let b = buy (q + 10) (- amt + sub)
+        [a] <- submit b
+
+        -- mockOptions.traceAll .= True
+        let s = sell q amt
+        [e] <- submit s
+
+        e^.gain.coerced @?== q * sub
+
+        pure $ a^?!_OpenPosition._2
+            & quantity .~ 10
+            & cost     .~ 10 * (- amt + sub)
+
+    st^?positionEvents.ix "ZM" @?== Just [ OpenPosition Long res ]
 
 {-
 pl :: Transactional a => Amount 4 -> a -> a -> Amount 2

@@ -19,6 +19,7 @@ import           Data.Ledger.Render as L
 import           Data.Text as T
 import           Data.Text.Encoding as T
 import           Data.Text.IO as T
+import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
 import           GHC.Generics hiding (to)
@@ -52,15 +53,15 @@ main :: IO ()
 main = do
     opts <- getOptions
 
-    th <- case accessKey opts of
-        Nothing -> case jsonData opts of
+    th <- case opts^.accessKey of
+        Nothing -> case opts^.jsonData of
             Nothing   -> error "Neither --access-key nor --json-data provided"
             Just file -> readTransactions file
         Just key ->
-            downloadTransactions (T.pack (Opts.account opts)) (T.pack key)
+            downloadTransactions (opts^.Opts.account.packed) (T.pack key)
                 =<< createManager
 
-    priceData <- case equity opts of
+    priceData <- case opts^.equity of
         Nothing -> pure []
         Just fp -> do
             eres <- Csv.decode Csv.NoHeader <$> BL.readFile fp

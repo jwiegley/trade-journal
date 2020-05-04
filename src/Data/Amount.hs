@@ -44,6 +44,7 @@ import           Data.Profunctor
 import           Data.Ratio
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import           Data.Utils (Render(..))
 import           Foreign.C.String
 import           Foreign.C.Types
 import           Foreign.Marshal.Alloc
@@ -53,6 +54,7 @@ import           GHC.Generics
 import           GHC.TypeLits
 import           Prelude hiding (Float, Double)
 import           System.IO.Unsafe
+import           Text.PrettyPrint (text)
 
 mpfr_RNDN, mpfr_RNDZ, mpfr_RNDU, mpfr_RNDD, mpfr_RNDA, mpfr_RNDF :: CUInt
 mpfr_RNDNA :: CUInt
@@ -103,13 +105,13 @@ showAmount rnd (Amount r) =
         c'mpfr_free_str buf
         return str
 
-instance forall n. KnownNat n => Eq (Amount n) where
+instance KnownNat n => Eq (Amount n) where
     (==) = (==) `on` show
 
-instance forall n. KnownNat n => Show (Amount n) where
+instance KnownNat n => Show (Amount n) where
     show = amountToString
 
-instance forall n. KnownNat n => Read (Amount n) where
+instance KnownNat n => Read (Amount n) where
     readsPrec _d = \case
         '-':xs -> map (\(x, y) -> (negate x, y)) (readNum xs)
         xs     -> readNum xs
@@ -122,6 +124,9 @@ instance forall n. KnownNat n => Read (Amount n) where
                         rem' = dropWhile isDigit den
                     in [(Amount (read (num ++ den') % 10 ^ length den'), rem')]
                 xs -> [(Amount (read num % 1), xs)]
+
+instance KnownNat n => Render (Amount n) where
+    rendered = text . show
 
 instance forall n. KnownNat n => ToJSON (Amount n) where
   toJSON = Number . fromRational . toRational . getAmount

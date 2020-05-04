@@ -698,8 +698,7 @@ infixr 7 <+>
 orderTransactions :: [Transaction] -> [Transaction]
 orderTransactions =
     contractList mergeTransactions
-        . sortBy (comparing (^?xasset) <>
-                  comparing (^?xdate))
+        . sortBy (comparing (^?xasset) <> comparing (^?xdate))
 
 {-
 pairAssignments :: [Transaction] -> [Transaction]

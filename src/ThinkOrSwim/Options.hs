@@ -1,9 +1,11 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module ThinkOrSwim.Options where
 
 import Control.Applicative
+import Control.Lens
 import Data.Data (Data)
 import Data.Typeable (Typeable)
 import Options.Applicative
@@ -19,39 +21,41 @@ thinkorswimSummary =
     "thinkorswim " ++ version ++ ", (C) " ++ copyright ++ " John Wiegley"
 
 data Options = Options
-    { dryRun          :: Bool
-    , verbose         :: Bool
-    , startDate       :: Maybe String
-    , endDate         :: Maybe String
-    , account         :: String
-    , accessKey       :: Maybe String
-    , jsonData        :: Maybe FilePath
-    , equity          :: Maybe FilePath
-    , capitalGains    :: Bool
-    , washSaleRule    :: Bool
-    , traceSymbol     :: Maybe String
-    , traceUnderlying :: Maybe String
-    , traceId         :: Maybe String
-    , traceAll        :: Bool
+    { _dryRun          :: Bool
+    , _verbose         :: Bool
+    , _startDate       :: Maybe String
+    , _endDate         :: Maybe String
+    , _account         :: String
+    , _accessKey       :: Maybe String
+    , _jsonData        :: Maybe FilePath
+    , _equity          :: Maybe FilePath
+    , _capitalGains    :: Bool
+    , _washSaleRule    :: Bool
+    , _traceSymbol     :: Maybe String
+    , _traceUnderlying :: Maybe String
+    , _traceId         :: Maybe String
+    , _traceAll        :: Bool
     }
     deriving (Data, Typeable, Show, Eq)
 
+makeLenses ''Options
+
 newOptions :: Options
 newOptions = Options
-    { dryRun          = False
-    , verbose         = False
-    , startDate       = Nothing
-    , endDate         = Nothing
-    , account         = ""
-    , accessKey       = Nothing
-    , jsonData        = Nothing
-    , equity          = Nothing
-    , capitalGains    = False
-    , washSaleRule    = False
-    , traceSymbol     = Nothing
-    , traceUnderlying = Nothing
-    , traceId         = Nothing
-    , traceAll        = False
+    { _dryRun          = False
+    , _verbose         = False
+    , _startDate       = Nothing
+    , _endDate         = Nothing
+    , _account         = ""
+    , _accessKey       = Nothing
+    , _jsonData        = Nothing
+    , _equity          = Nothing
+    , _capitalGains    = False
+    , _washSaleRule    = False
+    , _traceSymbol     = Nothing
+    , _traceUnderlying = Nothing
+    , _traceId         = Nothing
+    , _traceAll        = False
     }
 
 thinkorswimOpts :: Parser Options

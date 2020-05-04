@@ -52,6 +52,7 @@ tests:
     source-dirs: tests
     dependencies:
       - thinkorswim
+      - HUnit
       - hedgehog
       - mmorph
       - tasty
