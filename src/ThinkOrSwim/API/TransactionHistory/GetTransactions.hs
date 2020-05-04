@@ -34,6 +34,8 @@ import           Data.Time.Format.ISO8601
 import           Data.Utils
 import           Prelude hiding (Float, Double)
 import           System.IO.Unsafe
+import qualified Text.PrettyPrint as P
+import           Text.PrettyPrint hiding ((<>), (<+>))
 import           Text.Show.Pretty
 
 data FixedIncome = FixedIncome
@@ -52,11 +54,11 @@ data PutCall
 makePrisms ''PutCall
 
 instance FromJSON PutCall where
-  parseJSON = withText "putCall" $ \text ->
-    case text of
+  parseJSON = withText "putCall" $ \t ->
+    case t of
       "PUT"  -> pure Put
       "CALL" -> pure Call
-      _ -> fail $ "putCall unexpected: " ++ T.unpack text
+      _ -> fail $ "putCall unexpected: " ++ T.unpack t
 
 data Option = Option
     { _description      :: Text
@@ -76,10 +78,10 @@ data CashEquivalent
 makeLenses ''CashEquivalent
 
 instance FromJSON CashEquivalent where
-  parseJSON = withText "cashEquivalent" $ \text ->
-    case text of
+  parseJSON = withText "cashEquivalent" $ \t ->
+    case t of
       "MONEY_MARKET" -> pure CashMoneyMarket
-      _ -> fail $ "cashEquivalent unexpected: " ++ T.unpack text
+      _ -> fail $ "cashEquivalent unexpected: " ++ T.unpack t
 
 data AssetType
     = Equity
@@ -153,12 +155,12 @@ data PositionEffect
 makePrisms ''PositionEffect
 
 instance FromJSON PositionEffect where
-  parseJSON = withText "positionEffect" $ \text ->
-    case text of
+  parseJSON = withText "positionEffect" $ \t ->
+    case t of
       "OPENING"   -> pure Open
       "CLOSING"   -> pure Close
       "AUTOMATIC" -> pure Automatic
-      _ -> fail $ "positionEffect unexpected: " ++ T.unpack text
+      _ -> fail $ "positionEffect unexpected: " ++ T.unpack t
 
 data Instruction
     = Buy
@@ -168,11 +170,11 @@ data Instruction
 makePrisms ''Instruction
 
 instance FromJSON Instruction where
-  parseJSON = withText "instruction" $ \text ->
-    case text of
+  parseJSON = withText "instruction" $ \t ->
+    case t of
       "BUY"  -> pure Buy
       "SELL" -> pure Sell
-      _ -> fail $ "instruction unexpected: " ++ T.unpack text
+      _ -> fail $ "instruction unexpected: " ++ T.unpack t
 
 type AccountId = Int32
 
@@ -268,13 +270,13 @@ data AchStatus
 makePrisms ''AchStatus
 
 instance FromJSON AchStatus where
-  parseJSON = withText "achStatus" $ \text ->
-    case text of
+  parseJSON = withText "achStatus" $ \t ->
+    case t of
       "Approved" -> pure Approved
       "Rejected" -> pure Rejected
       "Cancel"   -> pure Cancel
       "Error"    -> pure Error_
-      _ -> fail $ "achStatus unexpected: " ++ T.unpack text
+      _ -> fail $ "achStatus unexpected: " ++ T.unpack t
 
 data TransactionType
     = Trade
@@ -292,31 +294,13 @@ data TransactionType
     | MarginCall
     | MoneyMarket
     | SmaAdjustment
-    deriving (Eq, Ord, Enum, Bounded)
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''TransactionType
 
-instance Show TransactionType where
-    show = \case
-      Trade              -> "TRADE"
-      ReceiveAndDeliver  -> "RECEIVE_AND_DELIVER"
-      DividendOrInterest -> "DIVIDEND_OR_INTEREST"
-      AchReceipt         -> "ACH_RECEIPT"
-      AchDisbursement    -> "ACH_DISBURSEMENT"
-      CashReceipt        -> "CASH_RECEIPT"
-      CashDisbursement   -> "CASH_DISBURSEMENT"
-      ElectronicFund     -> "ELECTRONIC_FUND"
-      WireOut            -> "WIRE_OUT"
-      WireIn             -> "WIRE_IN"
-      Journal            -> "JOURNAL"
-      Memorandum         -> "MEMORANDUM"
-      MarginCall         -> "MARGIN_CALL"
-      MoneyMarket        -> "MONEY_MARKET"
-      SmaAdjustment      -> "SMA_ADJUSTMENT"
-
 instance FromJSON TransactionType where
-  parseJSON = withText "transactionType" $ \text ->
-    case text of
+  parseJSON = withText "transactionType" $ \t ->
+    case t of
       "TRADE"                -> pure Trade
       "RECEIVE_AND_DELIVER"  -> pure ReceiveAndDeliver
       "DIVIDEND_OR_INTEREST" -> pure DividendOrInterest
@@ -332,7 +316,7 @@ instance FromJSON TransactionType where
       "MARGIN_CALL"          -> pure MarginCall
       "MONEY_MARKET"         -> pure MoneyMarket
       "SMA_ADJUSTMENT"       -> pure SmaAdjustment
-      _ -> fail $ "transactionType unexpected: " ++ T.unpack text
+      _ -> fail $ "transactionType unexpected: " ++ T.unpack t
 
 type TransactionId = Int64
 
@@ -361,7 +345,7 @@ data TransactionSubType
     | SellTrade                     -- SL
     | ShortSale                     -- SS
     | TradeCorrection               -- TC
-    | TransferOfSecurityOrOptionIn  -- TI
+    | TransferIn                    -- TI
     | WireIncoming                  -- WI
     | TransferFromForexAccount      -- XI
     | TransferToForexAccount        -- XO
@@ -398,14 +382,14 @@ instance Show TransactionSubType where
       SellTrade                     -> "SL" -- "SELL TRADE"
       ShortSale                     -> "SS" -- "SHORT SALE"
       TradeCorrection               -> "TC" -- "TRADE CORRECTION"
-      TransferOfSecurityOrOptionIn  -> "TI" -- "TRANSFER OF SECURITY OR OPTION IN"
+      TransferIn                    -> "TI" -- "TRANSFER OF SECURITY OR OPTION IN"
       WireIncoming                  -> "WI" -- "WIRE INCOMING"
       TransferFromForexAccount      -> "XI" -- "TRANSFER FROM FOREX ACCOUNT"
       TransferToForexAccount        -> "XO" -- "TRANSFER TO FOREX ACCOUNT"
 
 instance FromJSON TransactionSubType where
-  parseJSON = withText "transactionSubType" $ \text ->
-    case text of
+  parseJSON = withText "transactionSubType" $ \t ->
+    case t of
       "AF" -> pure AdrFee
       "BY" -> pure BuyTrade
       "CA" -> pure FreeBalanceInterestAdjustment
@@ -430,11 +414,11 @@ instance FromJSON TransactionSubType where
       "SL" -> pure SellTrade
       "SS" -> pure ShortSale
       "TC" -> pure TradeCorrection
-      "TI" -> pure TransferOfSecurityOrOptionIn
+      "TI" -> pure TransferIn
       "WI" -> pure WireIncoming
       "XI" -> pure TransferFromForexAccount
       "XO" -> pure TransferToForexAccount
-      _ -> fail $ "transactionSubType unexpected: " ++ T.unpack text
+      _ -> fail $ "transactionSubType unexpected: " ++ T.unpack t
 
 data TransactionInfo t = TransactionInfo
     { _transactionId          :: TransactionId
@@ -464,17 +448,20 @@ data Transaction = Transaction
     , _clearingReferenceNumber       :: Maybe Text
     , _type_                         :: TransactionType
     }
-    deriving (Eq, Ord)
+    deriving (Eq, Ord, Show)
 
 makeLenses ''Transaction
 
-instance Show Transaction where
-    show t = "(" ++ show (t^.transactionInfo_.transactionId)
-        ++ " " ++ show (t^.transactionInfo_.transactionSubType)
-        ++ " " ++ show (t^.transactionInfo_.transactionItem_.amount.non 0)
-        ++ " \""
-        ++ iso8601Show (utctDay (t^.transactionInfo_.transactionDate))
-        ++ "\")"
+instance Render Transaction where
+    rendered t =
+          tshow (t^.transactionInfo_.transactionSubType)
+     P.<> space
+     P.<> case t^.transactionInfo_.transactionItem_.amount of
+              Nothing  -> P.empty
+              Just amt -> tshow amt P.<> space
+     P.<> doubleQuotes (rendered (t^.transactionInfo_.transactionDate))
+     P.<> space
+     P.<> tshow (t^.transactionInfo_.transactionId)
 
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
@@ -672,6 +659,9 @@ xamount f t = t & xitem.amount.non 0 %%~ f
 
 xinstr :: Lens' Transaction (Maybe Instrument)
 xinstr = xitem.transactionInstrument
+
+xinstruction :: Lens' Transaction (Maybe Instruction)
+xinstruction = xitem.instruction
 
 xasset :: Traversal' Transaction AssetType
 xasset = xinstr.each.assetType

@@ -2,7 +2,7 @@
 , coqPackages ? "coqPackages_8_11"
 
 , doBenchmark ? false
-, doProfiling ? false
+, doProfiling ? true
 , doStrict    ? true
 
 , rev    ? "b76e3eab1875c897fb00c4a13ee144490c6227fb"

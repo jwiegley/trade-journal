@@ -19,13 +19,12 @@ import           Data.Foldable
 import qualified Data.Ledger as L
 import           Data.Ledger hiding (symbol, quantity, cost, price)
 import qualified Data.Map as M
-import           Data.Maybe (isNothing)
+import           Data.Maybe (isJust, isNothing)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
-import           Debug.Trace
 import           Prelude hiding (Float, Double, (<>))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (symbol, cost)
@@ -78,10 +77,9 @@ convertPostings
     -> API.Transaction
     -> State (GainsKeeperState API.Transaction)
             [L.Posting API.TransactionSubType L.CommodityLot]
-convertPostings _ _ t
-    | t^.transactionInfo_.transactionSubType == TradeCorrection = pure []
-convertPostings _opts actId t = roundPostings . posts <$>
-    if gainsRelated then gainsKeeper t else pure []
+convertPostings _ _ t | t^.xsubType == TradeCorrection = pure []
+convertPostings opts actId t = roundPostings . posts <$>
+    if gainsRelated then gainsKeeper opts t else pure []
   where
     posts cs
         = [ newPosting L.Fees True (DollarAmount (t^.fees_.regFee))
@@ -108,7 +106,7 @@ convertPostings _opts actId t = roundPostings . posts <$>
         & at "XType"        ?~ T.pack (show subtyp)
         & at "XId"          ?~ T.pack (show (t^.xid))
         & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
-        & at "Instruction"  .~ t^?xitem.instruction._Just.to show.packed
+        & at "Instruction"  .~ t^?xinstruction._Just.to show.packed
         & at "CUSIP"        .~ t^?xcusip
         & at "Instrument"   .~ t^?xasset.to assetKind
         & at "Side"         .~ t^?xoption.putCall.to show.packed
@@ -127,8 +125,8 @@ convertPostings _opts actId t = roundPostings . posts <$>
     act          = transactionAccount actId t
     subtyp       = t^.transactionInfo_.transactionSubType
     isPriced     = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
-    gainsRelated = has xamount t && has xinstr t
-    fromEquity   = subtyp `elem` [ TransferOfSecurityOrOptionIn ]
+    gainsRelated = has xamount t && isJust (t^.xinstr)
+    fromEquity   = subtyp `elem` [ TransferIn ]
     -- cashXact     = subtyp `elem` [ CashAlternativesPurchase
     --                         , CashAlternativesRedemption ]
     -- direct       = cashXact || not (has xamount t) || fromEquity
@@ -231,14 +229,6 @@ postingsFromEvent actId meta ev = case ev of
             (CommodityAmount $ mkCommodityLot o
                & L.quantity %~ case disp of Long -> id; Short -> negate)
             & meta ]
-
     ClosePosition disp o c ->
-        postClosePosition actId meta disp (ev^.loss) o c
-
-    AdjustCostBasisForOpen _ _ -> []
-    AdjustCostBasis _ _ _      -> []
-    RememberWashSaleLoss _ _   -> []
-    EstablishEquityCost _ _ _  -> []
-    ExpireOption _             -> []
-    AssignOption _ _           -> []
-    ExerciseOption _ _         -> []
+        postClosePosition actId meta disp (ev^.gain) o c
+    _ -> []

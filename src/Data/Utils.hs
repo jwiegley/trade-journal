@@ -5,9 +5,12 @@ module Data.Utils where
 
 import           Control.Applicative
 import           Control.Lens
+import           Data.Coerce
 import           Data.Foldable
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Data.Time
+import           Data.Time.Format.ISO8601
 import           Debug.Trace (traceM)
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint as P
@@ -15,9 +18,9 @@ import           Text.PrettyPrint as P
 renderM :: Applicative f => Doc -> f ()
 renderM = traceM . render
 
-percent :: Num a => a -> Lens' a a
+percent :: (Num a, Num b, Coercible b a) => a -> Lens' b b
 percent n f s = f part <&> \v -> v + (s - part)
-  where part = s * n
+  where part = s * coerce n
 
 zipped :: Traversal' s a -> Traversal' s b -> Traversal' s (a, b)
 zipped f g k s = case liftA2 (,) (s^?f) (s^?g) of
@@ -38,6 +41,24 @@ renderList f ts =
   where
     go (_, True) x    = (lbrack       <> space <> f x, False)
     go (acc, False) x = (acc $$ comma <> space <> f x, False)
+
+class Render a where
+    rendered :: a -> Doc
+
+instance Render a => Render [a] where
+    rendered = renderList rendered
+
+instance Render Text where
+    rendered = text . T.unpack
+
+instance Render Day where
+    rendered = text . iso8601Show
+
+instance Render UTCTime where
+    rendered = text . iso8601Show . utctDay
+
+tshow :: Show a => a -> Doc
+tshow = text . show
 
 -- A Fold over the individual components of a Text split on a separator.
 --
