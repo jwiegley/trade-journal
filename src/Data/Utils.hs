@@ -15,6 +15,10 @@ import           Debug.Trace (traceM)
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint as P
 
+justify :: [a] -> [Maybe a]
+justify [] = [Nothing]
+justify (x:xs) = Just x:justify xs
+
 renderM :: Applicative f => Doc -> f ()
 renderM = traceM . render
 

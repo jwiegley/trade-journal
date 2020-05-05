@@ -276,8 +276,7 @@ alignLots x y
     diff = abs (xq - yq)
 
 data StateChange t = StateChange
-    { _leftover     :: Maybe t
-    , _results      :: [Event t]
+    { _results      :: [Event t]
     , _replacements :: [Event t]
     , _newEvents    :: [Event t]
     }
@@ -285,16 +284,18 @@ data StateChange t = StateChange
 
 makeLenses ''StateChange
 
-newStateChange :: t -> StateChange t
-newStateChange t = StateChange
-    { _leftover     = Just t
-    , _results      = []
+newStateChange :: StateChange t
+newStateChange = StateChange
+    { _results      = []
     , _replacements = []
     , _newEvents    = []
     }
 
-type EventState t a =
-    StateT [Event (Lot t)] (Except (EventError (Lot t))) a
+type EventStateT s t a = StateT s (Except (EventError t)) a
+
+type HistoryState t a = EventStateT [Event t] t a
+
+type ChangeState t a = EventStateT (StateChange t) t a
 
 isOption :: Transactional t => t -> Bool
 isOption = has (asset._OptionAsset)
@@ -302,7 +303,8 @@ isOption = has (asset._OptionAsset)
 isOptionAssignment :: Transactional t => t -> Bool
 isOptionAssignment t = t^.subkind == OptionAssignment
 
-intoEvent :: Transactional t => Lot t -> EventState t (Event (Lot t))
+intoEvent :: (MonadError (EventError (Lot t)) m, Transactional t)
+          => Lot t -> m (Event (Lot t))
 intoEvent t = case t^.subkind of
     BuyTrade           -> pure $ OpenPosition Long t
     SellTrade
@@ -317,63 +319,54 @@ intoEvent t = case t^.subkind of
 
 foldEvents :: (Transactional t, Render t)
            => Lot t
-           -> (Event (Lot t) -> Event (Lot t))
-           -> (Lot t -> Event (Lot t) -> EventState t (StateChange (Lot t)))
-           -> EventState t [Event (Lot t)]
-foldEvents t g k = do
+           -> (Lot t -> Maybe (Event (Lot t))
+                    -> ChangeState (Lot t) (Maybe (Lot t)))
+           -> HistoryState (Lot t) [Event (Lot t)]
+foldEvents t k = do
     events <- use id
-    sc <- (\f -> foldlM f (newStateChange t) events) $
-        \sc e -> case sc^.leftover of
-            Nothing ->
-                pure $ sc & replacements <>~ [e]
-            Just t' -> do
-                sc' <- k t' e
-                pure $ sc
-                     & leftover      .~ sc'^.leftover
-                     & results      <>~ sc'^.results
-                     & replacements <>~ sc'^.replacements
-                     & newEvents    <>~ sc'^.newEvents
-
-    -- jww (2020-05-04): intoEvent should only be called for newly opened
-    -- positions.
-    traceM $ render $ "sc^.leftover = " <> rendered (sc^.leftover)
-    left <- traverse intoEvent (sc^.leftover)
-    traceM $ render $ "left = " <> rendered left
-    let res = map g (maybeToList left)
-    traceM $ render $ "res = " <> rendered res
-    id .= sc^.replacements ++ sc^.newEvents ++ res
-    pure $ res ++ map g (sc^.results)
+    (ml, sc) <- lift $ flip runStateT newStateChange $
+        (\f -> foldlM f (Just t) (justify events)) $
+            \ml me -> case ml of
+                Nothing -> Nothing <$ case me of
+                    Just e  -> replacements <>= [e]
+                    Nothing -> pure ()
+                Just t' -> k t' me
+    when (has _Just ml) $
+        error $ "foldEvents: unexpected remainder: " ++ show ml
+    id .= sc^.replacements ++ sc^.newEvents
+    pure $ sc^.results
 
 openPosition :: (Transactional t, Render t)
-             => Disposition -> Lot t -> EventState t [Event (Lot t)]
-openPosition disp t = foldEvents t (addFees t) $ \u e -> case e of
-    EstablishEquityCost amt cst dt
+             => Disposition -> Lot t -> HistoryState (Lot t) [Event (Lot t)]
+openPosition disp t = foldEvents t $ \u me -> case me of
+    Just (EstablishEquityCost amt cst dt)
         | not (isOption t || isOptionAssignment t) -> do
-        nev <- intoEvent $
+        nev <- fmap (addFees t) $ intoEvent $
             if amt < u^.quantity
             then u & quantity .~ amt
                    & cost     .~ cst
                    & time     .~ dt
             else u & cost +~ cst^.percent (u^.quantity / amt)
                    & time .~ dt
+
         forM_ (nev^?_OpenPosition._1) $ \ed ->
             unless (disp == ed) $
                 throwError $ DispositionMismatch disp ed
-        pure StateChange
-            { _leftover     = if amt < u^.quantity
-                              then Just (u & quantity -~ amt)
-                              else Nothing
-            , _results      = [nev]
-            , _replacements =
-                [ EstablishEquityCost
-                    (amt - u^.quantity)
-                    (cst^.percent ((amt - u^.quantity) / amt))
-                    dt
-                | amt > u^.quantity ]
-            , _newEvents    = [nev]
-            }
 
-    ev@(ClosePosition ed o c)
+        results      <>= [nev]
+        newEvents    <>= [nev]
+        replacements <>=
+            [ EstablishEquityCost
+                (amt - u^.quantity)
+                (cst^.percent ((amt - u^.quantity) / amt))
+                dt
+            | amt > u^.quantity ]
+
+        pure $ if amt < u^.quantity
+               then Just (u & quantity -~ amt)
+               else Nothing
+
+    Just ev@(ClosePosition ed o c)
         | -- jww (2020-05-03): This restriction shouldn't be needed, if the
           -- option could be considerable as a replacement for the equity.
           o^.symbol == t^.symbol &&
@@ -382,35 +375,30 @@ openPosition disp t = foldEvents t (addFees t) $ \u e -> case e of
         then do
             let (s, _d) = c `alignLots` u
                 part = max 1 (u^.quantity / c^.quantity)
-            pure StateChange
-                { _leftover     = Just $ u
-                    & cost +~ ev^.gain.percent part.coerced
-                , _results      = []
-                , _replacements = ClosePosition ed o
-                    <$> maybeToList (s^?_SplitKept)
-                , _newEvents    = []
-                }
-        else pure $ newStateChange u
+            replacements
+                <>= (ClosePosition ed o <$> maybeToList (s^?_SplitKept))
+            pure $ Just $ u & cost +~ ev^.gain.percent part.coerced
+        else
+            pure $ Just u
 
     -- Opening against an assigned option happens only for a Put.
-    OptionAssigned o c | o^.underlying == u^.symbol -> do
+    Just (OptionAssigned o c) | o^.underlying == u^.symbol -> do
         let (s, _d) = (o & quantity *~ 100) `alignLots` u
             part = max 1 (u^.quantity / (o^.quantity * 100))
-        pure StateChange
-            { _leftover     = Just $
-                u & cost +~ o^.cost.percent part.coerced
-            , _results      = []
-            , _replacements = OptionAssigned
-                <$> maybeToList (s^?_SplitKept) <*> pure c
-            , _newEvents    = []
-            }
+        replacements
+            <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
+                                <*> pure c)
+        pure $ Just $ u & cost +~ o^.cost.percent part.coerced
 
-    _ -> pure StateChange
-            { _leftover     = Just u
-            , _results      = []
-            , _replacements = [e]
-            , _newEvents    = []
-            }
+    Just e -> do
+        replacements <>= [e]
+        pure $ Just u
+
+    Nothing -> do
+        nev <- addFees t <$> intoEvent u
+        results   <>= [nev]
+        newEvents <>= [nev]
+        pure Nothing
 
 -- Fees paid to open are borne in the cost basis of the asset
 addFees :: Transactional t => Lot t -> Event (Lot t) -> Event (Lot t)
@@ -426,46 +414,41 @@ addFees _ x = x
 
 closePosition :: (Transactional t, Render t)
               => (Event (Lot t) -> Bool) -> Lot t
-              -> EventState t [Event (Lot t)]
-closePosition p t = foldEvents t (addFees t) $ \u e -> case e of
-    ev@(OpenPosition ed o) | p ev && o^.symbol == u^.symbol -> do
+              -> HistoryState (Lot t) [Event (Lot t)]
+closePosition p t = foldEvents t $ \u me -> case me of
+    Just ev@(OpenPosition ed o) | p ev && o^.symbol == u^.symbol -> do
         let (s, d) = o `alignLots` u
-            res = maybeToList $
+            res = fmap (addFees t) $ maybeToList $
                 (if u^.subkind == OptionAssignment
                  then OptionAssigned
                  else ClosePosition ed)
                     <$> s^?_SplitUsed <*> d^?_SplitUsed
-        pure StateChange
-             { _leftover     = d^?_SplitKept
-             , _results      = res
-             , _replacements = s^.._SplitKept.to (OpenPosition ed)
-             , _newEvents    =
-                 case res of
-                     [x] | u^.distance o <= 30 && x^.gain < 0 -> res
-                     [x] | has _OptionAssigned x -> res
-                     _ -> []
-             }
+        results      <>= res
+        replacements <>= s^.._SplitKept.to (OpenPosition ed)
+        newEvents    <>= case res of
+            [x] | u^.distance o <= 30 && x^.gain < 0 -> res
+            -- [x] | has _OptionAssigned x -> res
+            _ -> []
+        pure $ d^?_SplitKept
 
     -- Closing against an assigned option happens only for a Call.
-    OptionAssigned o c | o^.underlying == u^.symbol -> do
+    Just (OptionAssigned o c) | o^.underlying == u^.symbol -> do
         let (s, _d) = (o & quantity *~ 100) `alignLots` u
             part = max 1 (u^.quantity / (o^.quantity * 100))
-        pure StateChange
-            { _leftover     = Just $ u
-                & cost +~ o^.cost.percent part.coerced
-            , _results      = []
-            , _replacements = OptionAssigned
-                <$> maybeToList (s^?_SplitKept) <*> pure c
-            , _newEvents    = []
-            }
+        replacements
+            <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
+                                <*> pure c)
+        pure $ Just $ u & cost +~ o^.cost.percent part.coerced
 
-    _ ->
-        pure StateChange
-            { _leftover     = Just u
-            , _results      = []
-            , _replacements = [e]
-            , _newEvents    = []
-            }
+    Just e -> do
+        replacements <>= [e]
+        pure $ Just u
+
+    Nothing -> do
+        nev <- addFees t <$> intoEvent u
+        results   <>= [nev]
+        newEvents <>= [nev]
+        pure Nothing
 
 openIs :: Disposition -> Event (Lot t) -> Bool
 openIs disp ev = ev^?!_OpenPosition._1 == disp
@@ -473,7 +456,7 @@ openIs disp ev = ev^?!_OpenPosition._1 == disp
 dispatchOnKind :: (Transactional t, Render t, Eq t)
                => Lot t
                -> (API.TransactionType, API.TransactionSubType)
-               -> EventState t [Event (Lot t)]
+               -> HistoryState (Lot t) [Event (Lot t)]
 dispatchOnKind t = \case
     -- (DividendOrInterest, AdrFee) -> pure []
     -- (DividendOrInterest, FreeBalanceInterestAdjustment) -> pure []
@@ -531,7 +514,7 @@ dispatchOnKind t = \case
     -- x -> error $ "Unrecognized transaction type+subtype: " ++ show x
 
 processTransaction :: (Transactional t, Render t, Eq t)
-                   => t -> EventState t [Event (Lot t)]
+                   => t -> HistoryState (Lot t) [Event (Lot t)]
 processTransaction = go . mkLot
   where go t = dispatchOnKind t (t^.kind, t^.subkind)
 

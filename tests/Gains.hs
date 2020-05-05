@@ -35,6 +35,7 @@ gains_buy_sell_profit = property $ do
         amt <- lift $ forAll big
         sub <- lift $ forAll little
 
+        mockOptions.traceAll .= True
         let b = buy q (- amt + sub)
         submit b
 
