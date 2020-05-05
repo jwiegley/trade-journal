@@ -83,7 +83,7 @@ data Event t
     = OpenPosition Disposition t
     | ClosePosition Disposition t t
       -- Wash Sales
-    | AdjustCostBasisForOpen Disposition (Event t)
+    | AdjustCostBasisForOpen Disposition (Event t) (Amount 6)
     | AdjustCostBasis Disposition (Event t) (Event t)
     | RememberWashSaleLoss Disposition (Event t)
       -- Options
@@ -138,10 +138,11 @@ instance (Transactional t, Render t) => Render (Event (Lot t)) where
                 <> space <> text (show d)
                 $$ space <> space <> rendered x
                 $$ space <> space <> rendered y
-        AdjustCostBasisForOpen d x ->
+        AdjustCostBasisForOpen d x y ->
             "AdjustCostBasisForOpen"
                 <> space <> text (show d)
                 $$ space <> space <> rendered x
+                <> space <> " ==> " <> space <> rendered y
         AdjustCostBasis d x y ->
             "AdjustCostBasis"
                 <> space <> text (show d)
@@ -375,9 +376,11 @@ openPosition disp t = foldEvents t $ \u me -> case me of
         then do
             let (s, _d) = c `alignLots` u
                 part = max 1 (u^.quantity / c^.quantity)
+                adj  = ev^.gain.percent part.coerced
             replacements
                 <>= (ClosePosition ed o <$> maybeToList (s^?_SplitKept))
-            pure $ Just $ u & cost +~ ev^.gain.percent part.coerced
+            results <>= [ AdjustCostBasisForOpen disp ev adj ]
+            pure $ Just $ u & cost +~ adj
         else
             pure $ Just u
 
@@ -525,15 +528,15 @@ gain f s = s <$ f 0
 
 costs :: Transactional t => Getter (Event t) (Amount 6)
 costs f = \case
-    s@(OpenPosition _ t)            -> s <$ f (totalCost t)
-    s@(ClosePosition _ _ t)         -> s <$ f (totalCost t)
-    s@(AdjustCostBasisForOpen _ ev) -> s <$ f (ev^.costs)
-    s@(AdjustCostBasis _ _ ev)      -> s <$ f (ev^.costs)
-    s@(RememberWashSaleLoss _ ev)   -> s <$ f (ev^.costs)
-    s@(OptionAssigned _ t)          -> s <$ f (totalCost t)
-    s@(ExerciseOption _ t)          -> s <$ f (totalCost t)
-    s@(EstablishEquityCost _ c _)   -> s <$ f c
-    s@(UnrecognizedTransaction t)   -> s <$ f (totalCost t)
+    s@(OpenPosition _ t)              -> s <$ f (totalCost t)
+    s@(ClosePosition _ _ t)           -> s <$ f (totalCost t)
+    s@(AdjustCostBasisForOpen _ ev _) -> s <$ f (ev^.costs)
+    s@(AdjustCostBasis _ _ ev)        -> s <$ f (ev^.costs)
+    s@(RememberWashSaleLoss _ ev)     -> s <$ f (ev^.costs)
+    s@(OptionAssigned _ t)            -> s <$ f (totalCost t)
+    s@(ExerciseOption _ t)            -> s <$ f (totalCost t)
+    s@(EstablishEquityCost _ c _)     -> s <$ f c
+    s@(UnrecognizedTransaction t)     -> s <$ f (totalCost t)
   where
     totalCost t = t^.cost + t^.fees.coerced
 

@@ -239,6 +239,10 @@ postingsFromEvent actId meta ev = case ev of
     ClosePosition disp o c ->
         postClosePosition actId meta disp (ev^.gain) o c
 
+    AdjustCostBasisForOpen _ _ g ->
+        [ newPosting CapitalWashLoss False (DollarAmount (g^.coerced))
+            & meta ]
+
     UnrecognizedTransaction t ->
         [ newPosting Unknown False
             (case t^.cost.coerced of
