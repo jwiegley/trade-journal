@@ -112,6 +112,7 @@ data Account
     | CapitalWashLoss
     | RoundingError
     | OpeningBalances
+    | Unknown
     deriving (Eq, Ord, Show)
 
 makePrisms ''Account

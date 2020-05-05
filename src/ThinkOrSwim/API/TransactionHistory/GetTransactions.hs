@@ -465,18 +465,12 @@ instance Render Transaction where
 
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
-    tritem                  <- obj .: "transactionItem"
+    _transactionItem_       <- obj .: "transactionItem"
     _transactionId          <- obj .: "transactionId"
     _transactionSubType     <- obj .: "transactionSubType"
     _transactionDate        <- obj .: "transactionDate"
     _transactionDescription <- obj .: "description"
     let _transactionInfo_ = TransactionInfo {..}
-        _transactionItem_ = tritem & price %~ \case
-            Just p -> Just p
-            Nothing | _transactionSubType `elem`
-                          [ OptionExpiration
-                          , OptionAssignment ] -> Just 0
-                    | otherwise -> Nothing
 
     _accruedInterest               <- obj .:? "accruedInterest"
     _achStatus                     <- obj .:? "achStatus"
@@ -560,12 +554,11 @@ processTransactions xs = (`execState` newTransactionHistory) $ do
   where
     prepare
         = mapM_ check
-        -- . pairAssignments
         . sortBy (comparing (^?transactionInfo_.transactionDate) <>
                   comparing (^?xunderlying))
       <=< mapM findNames
         . filter (\t -> t^.xsubType `notElem` [ InternalTransfer
-                                        , TradeCorrection ])
+                                     , TradeCorrection ])
         . Prelude.reverse
 
     findNames :: Transaction -> State TransactionHistory Transaction
@@ -669,20 +662,20 @@ xasset = xinstr.each.assetType
 xoption :: Traversal' Transaction Option
 xoption = xinstr.each.assetType._OptionAsset
 
-xsymbol :: Lens' Transaction Text
+xsymbol :: Getter Transaction (Maybe Text)
 xsymbol f t = case t^.xinstr of
-    Nothing ->
-        error $ "Transaction instrument missing for XId " ++ show (t^.xid)
+    Nothing -> t <$ f Nothing
+        -- error $ "Transaction instrument missing for XId " ++ show (t^.xid)
     Just inst -> case inst^.symbol of
-        " " -> f (inst^.cusip) <&> \x -> t & xinstr.each.symbol .~ x
-        s   -> f s <&> \x -> t & xinstr.each.symbol .~ x
+        " " -> t <$ f (Just (inst^.cusip))
+        s   -> t <$ f (Just s)
 
-xcusip :: Traversal' Transaction Text
-xcusip = xinstr.each.cusip
+xcusip :: Getter Transaction (Maybe Text)
+xcusip f s = s <$ f (s^?xinstr._Just.cusip)
 
-xunderlying :: Traversal' Transaction Text
-xunderlying =
-    xinstr.each.failing (assetType._OptionAsset.underlyingSymbol) symbol
+xunderlying :: Getter Transaction (Maybe Text)
+xunderlying f s =
+    s <$ f (s^?xinstr.each.failing (assetType._OptionAsset.underlyingSymbol) symbol)
 
 ------------------------------------------------------------------------------
 
@@ -699,27 +692,6 @@ orderTransactions :: [Transaction] -> [Transaction]
 orderTransactions =
     contractList mergeTransactions
         . sortBy (comparing (^?xasset) <> comparing (^?xdate))
-
-{-
-pairAssignments :: [Transaction] -> [Transaction]
-pairAssignments []  = []
-pairAssignments [x] = [x]
-pairAssignments (x:y:xs)
-    | x^.xtype       == ReceiveAndDeliver &&
-      x^.xsubType    == OptionAssignment  &&
-      y^.xtype       == Trade             &&
-      y^.xsubType    == OptionAssignment  &&
-      x^.xunderlying == y^.xunderlying =
-          (x & settlementDate       .~ y^.settlementDate
-             & transactionOrderId   ?~ assignmentId
-             & transactionOrderDate ?~ x^.xdate)
-        : (y & transactionOrderId   ?~ assignmentId
-             & transactionOrderDate ?~ x^.xdate)
-        : pairAssignments xs
-    | otherwise = x : pairAssignments (y:xs)
-  where
-    assignmentId = "OA" <> T.pack (show (x^.xid))
--}
 
 mergeTransactionItems :: TransactionItem -> TransactionItem
                       -> Maybe TransactionItem

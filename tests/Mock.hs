@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -32,7 +33,8 @@ import           Test.Tasty.HUnit
 import           Test.Tasty.Hedgehog
 import           Text.PrettyPrint as P
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
-                     (TransactionSubType(..), AssetType(..), Instruction(..))
+                     (TransactionType(..), TransactionSubType(..),
+                      AssetType(..), Instruction(..))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Event
 import           ThinkOrSwim.Options
@@ -40,11 +42,12 @@ import           ThinkOrSwim.Options
 data Mock = Mock
     { _mockIdent       :: API.TransactionId
     , _mockTime        :: UTCTime
-    , _mockKind        :: API.TransactionSubType
+    , _mockKind        :: API.TransactionType
+    , _mockSubkind     :: API.TransactionSubType
     , _mockInstruction :: Maybe API.Instruction
-    , _mockCusip       :: Text
-    , _mockSymbol      :: Text
-    , _mockUnderlying  :: Text
+    , _mockCusip       :: Maybe Text
+    , _mockSymbol      :: Maybe Text
+    , _mockUnderlying  :: Maybe Text
     , _mockAsset       :: AssetType
     , _mockQuantity    :: Amount 6
     , _mockCost        :: Amount 6
@@ -64,11 +67,12 @@ newMock :: Mock
 newMock = Mock
     { _mockIdent       = 0
     , _mockTime        = UTCTime (ModifiedJulianDay 0) 0
-    , _mockKind        = BuyTrade
+    , _mockKind        = Trade
+    , _mockSubkind     = BuyTrade
     , _mockInstruction = Nothing
-    , _mockCusip       = ""
-    , _mockSymbol      = ""
-    , _mockUnderlying  = ""
+    , _mockCusip       = Nothing
+    , _mockSymbol      = Nothing
+    , _mockUnderlying  = Nothing
     , _mockAsset       = API.Equity
     , _mockQuantity    = 0
     , _mockCost        = 0
@@ -79,6 +83,7 @@ instance Transactional Mock where
     ident       = mockIdent
     time        = mockTime
     kind        = mockKind
+    subkind     = mockSubkind
     instruction = mockInstruction
     cusip       = mockCusip
     symbol      = mockSymbol
@@ -124,17 +129,24 @@ submit m = do
     nextId <- use mockNextId
     mockNextId += 1
     sym <- use mockSpace
-    let mock = m & mockSymbol     %~ (\x -> if T.null x then sym else x)
-                 & mockUnderlying .~ sym
+    let mock = m & mockSymbol     %~ \case Nothing -> Just sym; x -> x
+                 & mockUnderlying ?~ sym
                  & mockIdent      .~ nextId
     opts <- use mockOptions
     zoom mockState $
         hoist (pure . runIdentity) $
             gainsKeeper opts mock
 
-trade :: TransactionSubType -> Instruction -> Text -> Amount 6 -> Amount 6 -> Mock
-trade k i d q c = newMock
+trade :: TransactionType
+      -> TransactionSubType
+      -> Instruction
+      -> Text
+      -> Amount 6
+      -> Amount 6
+      -> Mock
+trade k s i d q c = newMock
     & mockKind        .~ k
+    & mockSubkind     .~ s
     & mockInstruction ?~ i
     & mockQuantity    .~ q
     & mockCost        .~ c * q
@@ -144,19 +156,19 @@ trade k i d q c = newMock
                     (iso8601ParseM (unpack d))
 
 buy :: Amount 6 -> Amount 6 -> Mock
-buy = trade BuyTrade Buy "2020-03-01"
+buy = trade Trade BuyTrade Buy "2020-03-01"
 
 sell :: Amount 6 -> Amount 6 -> Mock
-sell = trade SellTrade Sell "2020-03-01"
+sell = trade Trade SellTrade Sell "2020-03-01"
 
 assign :: Amount 6 -> Amount 6 -> Mock
-assign = trade OptionAssignment Buy "2020-03-01"
+assign = trade Trade OptionAssignment Buy "2020-03-01"
 -- ^ jww (2020-05-04): Should be Buy if a Call, Sell if a Put, and it must
 --   generate two OptionAssignment transactions, one for the option and one
 --   for the equity. Lastly, costs for the option are * multiplier.
 
 expire :: Amount 6 -> Amount 6 -> Mock
-expire = trade OptionAssignment Buy "2020-03-01"
+expire = trade ReceiveAndDeliver OptionAssignment Buy "2020-03-01"
 
 option :: Monad m => Text -> StateT MockState m a -> StateT MockState m a
 option sym action = do

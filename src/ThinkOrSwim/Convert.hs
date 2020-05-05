@@ -19,7 +19,7 @@ import           Data.Foldable
 import qualified Data.Ledger as L
 import           Data.Ledger hiding (symbol, quantity, cost, price)
 import qualified Data.Map as M
-import           Data.Maybe (isJust, isNothing)
+import           Data.Maybe (catMaybes, fromMaybe, isNothing)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Lens
@@ -38,8 +38,9 @@ convertOrders
     -> State (GainsKeeperState API.Transaction)
             [L.Transaction API.TransactionSubType API.Order L.CommodityLot]
 convertOrders opts hist =
-    Prelude.mapM (convertOrder opts (hist^.ordersMap))
-                 (hist^.settlementList)
+    catMaybes <$>
+        Prelude.mapM (convertOrder opts (hist^.ordersMap))
+                     (hist^.settlementList)
 
 getOrder :: OrdersMap -> Either API.Transaction API.OrderId -> API.Order
 getOrder _ (Left t)    = orderFromTransaction t
@@ -50,7 +51,8 @@ convertOrder
     -> OrdersMap
     -> (Day, Either API.Transaction API.OrderId)
     -> State (GainsKeeperState API.Transaction)
-            (L.Transaction API.TransactionSubType API.Order L.CommodityLot)
+            (Maybe (L.Transaction API.TransactionSubType
+                                  API.Order L.CommodityLot))
 convertOrder opts m (sd, getOrder m -> o) = do
     let _actualDate    = sd
         _effectiveDate = Nothing
@@ -58,12 +60,14 @@ convertOrder opts m (sd, getOrder m -> o) = do
         _payee         = o^.orderDescription
         _xactMetadata  =
             M.empty & at "Type"   ?~ T.pack (show (o^.orderType))
-                    & at "Symbol" .~ case base of "" -> Nothing; s -> Just s
+                    & at "Symbol" .~ base
         _provenance    = o
     _postings <- Prelude.concat <$>
         mapM (convertPostings opts (T.pack (show (o^.orderAccountId))))
              (o^.transactions)
-    pure L.Transaction {..}
+    pure $ case _postings of
+        [] -> Nothing
+        _  -> Just L.Transaction {..}
   where
     base | Prelude.all (== Prelude.head xs) (Prelude.tail xs) = Prelude.head xs
          | otherwise =
@@ -78,8 +82,11 @@ convertPostings
     -> State (GainsKeeperState API.Transaction)
             [L.Posting API.TransactionSubType L.CommodityLot]
 convertPostings _ _ t | t^.xsubType == TradeCorrection = pure []
-convertPostings opts actId t = roundPostings . posts <$>
-    if gainsRelated then gainsKeeper opts t else pure []
+convertPostings opts actId t = do
+    events <- gainsKeeper opts t
+    pure $ case events of
+        [] -> []
+        xs -> roundPostings (posts xs)
   where
     posts cs
         = [ newPosting L.Fees True (DollarAmount (t^.fees_.regFee))
@@ -107,7 +114,7 @@ convertPostings opts actId t = roundPostings . posts <$>
         & at "XId"          ?~ T.pack (show (t^.xid))
         & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
         & at "Instruction"  .~ t^?xinstruction._Just.to show.packed
-        & at "CUSIP"        .~ t^?xcusip
+        & at "CUSIP"        .~ t^.xcusip
         & at "Instrument"   .~ t^?xasset.to assetKind
         & at "Side"         .~ t^?xoption.putCall.to show.packed
         & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
@@ -125,7 +132,6 @@ convertPostings opts actId t = roundPostings . posts <$>
     act          = transactionAccount actId t
     subtyp       = t^.transactionInfo_.transactionSubType
     isPriced     = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
-    gainsRelated = has xamount t && isJust (t^.xinstr)
     fromEquity   = subtyp `elem` [ TransferIn ]
     -- cashXact     = subtyp `elem` [ CashAlternativesPurchase
     --                         , CashAlternativesRedemption ]
@@ -175,8 +181,8 @@ mkCommodityLot :: Lot API.Transaction
 mkCommodityLot t = newCommodityLot @API.TransactionSubType
     & instrument   .~ instr
     & L.quantity   .~ t^.quantity.coerced
-    & L.symbol     .~ t^.symbol
-    & L.cost       ?~ abs (t^.cost.coerced)
+    & L.symbol     .~ fromMaybe "???" (t^.symbol)
+    & L.cost       ?~ t^.cost.coerced.to abs
     & purchaseDate ?~ utctDay (t^.time)
     & refs         .~ [ transactionRef (t^.xact) ]
     & L.price      .~ t^?xact.xprice.coerced
@@ -224,11 +230,19 @@ postingsFromEvent
     -> Event (Lot API.Transaction)
     -> [L.Posting API.TransactionSubType L.CommodityLot]
 postingsFromEvent actId meta ev = case ev of
-    OpenPosition disp o        ->
+    OpenPosition disp o ->
         [ newPosting (transactionAccount actId (o^.xact)) False
             (CommodityAmount $ mkCommodityLot o
                & L.quantity %~ case disp of Long -> id; Short -> negate)
             & meta ]
+
     ClosePosition disp o c ->
         postClosePosition actId meta disp (ev^.gain) o c
+
+    UnrecognizedTransaction t ->
+        [ newPosting Unknown False
+            (case t^.cost.coerced of
+                 n | n == 0    -> NoAmount
+                   | otherwise -> DollarAmount n) & meta ]
+
     _ -> []

@@ -81,6 +81,7 @@ renderAccount = \case
     CapitalWashLoss      -> "Expenses:Capital:Short:Wash"
     RoundingError        -> "Expenses:TD:Rounding"
     OpeningBalances      -> "Equity:TD:Opening Balances"
+    Unknown              -> "Unknown"
 
 renderPosting :: Posting k CommodityLot -> [Text]
 renderPosting Posting {..} =
