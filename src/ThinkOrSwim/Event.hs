@@ -39,7 +39,6 @@ import           Control.Lens
 import           Control.Monad.Except
 import           Control.Monad.Trans.State
 import           Data.Amount
-import           Data.Coerce
 import           Data.Foldable
 import           Data.Map (Map)
 import           Data.Maybe (maybeToList)
@@ -48,7 +47,6 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time
 import           Data.Utils
-import           Debug.Trace
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint as P
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
@@ -88,7 +86,7 @@ data Event t
     | RememberWashSaleLoss Disposition (Event t)
       -- Options
     | OptionAssigned t t
-    | ExerciseOption t t
+    | OptionExercised t t
       -- Transfer
     | EstablishEquityCost
         { _equityAmount :: Amount 6
@@ -156,8 +154,8 @@ instance (Transactional t, Render t) => Render (Event (Lot t)) where
             "OptionAssigned"
                 <> space <> rendered x
                 $$ space <> rendered y
-        ExerciseOption x y ->
-            "ExerciseOption"
+        OptionExercised x y ->
+            "OptionExercised"
                 <> space <> rendered x
                 $$ space <> space <> rendered y
         EstablishEquityCost x y z ->
@@ -229,15 +227,20 @@ instance Transactional t => Transactional (Lot t) where
     distance t  = xact.distance (t^.xact)
 
 instance (Transactional t, Render t) => Render (Lot t) where
+    rendered l | l^.shares == 0 =
+        rendered (l^.symbol.non "")
+            <> space <> rendered (l^.xact)
     rendered l@(Lot {..}) =
         rendered (l^.symbol.non "")
             <> space <> tshow _shares
             <> " @@ " <> tshow (l^.cost.coerced / _shares)
+            <> " + " <> tshow (l^.fees)
             <> space <> rendered _xact
 
 sliceOf :: (Transactional t, Functor f)
         => Lens' (Lot t) (Amount 6) -> LensLike' f (Lot t) (Amount n)
         -> LensLike' f (Lot t) (Amount n)
+sliceOf _ _ f t | t^.xact.quantity == 0 = t <$ f 0
 sliceOf n l f t = t & l.percent (t^.n / t^.xact.quantity) %%~ f
 
 mkLot :: Transactional t => t -> Lot t
@@ -314,8 +317,6 @@ intoEvent t = case t^.subkind of
     ShortSale          -> pure $ OpenPosition Short t
     CloseShortPosition -> throwError $ OpenByCloseShortPosition t
     TransferIn         -> pure $ OpenPosition Long t
-    OptionAssignment   ->
-        pure $ OpenPosition (if t^.cost < 0 then Long else Short) t
     _                  -> throwError $ CannotRenderIntoOpenEvent t
 
 foldEvents :: (Transactional t, Render t)
@@ -369,29 +370,37 @@ openPosition disp t = foldEvents t $ \u me -> case me of
 
     Just ev@(ClosePosition ed o c)
         | -- jww (2020-05-03): This restriction shouldn't be needed, if the
-          -- option could be considerable as a replacement for the equity.
-          o^.symbol == t^.symbol &&
-          not (isOptionAssignment t) ->
+          -- option could be considered as a replacement for the equity.
+          o^.symbol == t^.symbol ->
         if c^.distance o <= 30
         then do
-            let (s, _d) = c `alignLots` u
-                part = max 1 (u^.quantity / c^.quantity)
+            let (s, d) = c `alignLots` u
+                part = d^?!_SplitUsed.quantity / c^.quantity
                 adj  = ev^.gain.percent part.coerced
             replacements
                 <>= (ClosePosition ed o <$> maybeToList (s^?_SplitKept))
             results <>= [ AdjustCostBasisForOpen disp ev adj ]
+            -- We wash three failing closes by adding all of that to the cost
+            -- basis of the opening transaction. Thus, we generate three
+            -- instances of AdjustCostBasisForOpen, but only one OpenPosition.
             pure $ Just $ u & cost +~ adj
         else
             pure $ Just u
 
     -- Opening against an assigned option happens only for a Put.
-    Just (OptionAssigned o c) | o^.underlying == u^.symbol -> do
-        let (s, _d) = (o & quantity *~ 100) `alignLots` u
-            part = max 1 (u^.quantity / (o^.quantity * 100))
+    Just (OptionAssigned o c)
+        | o^.underlying == u^.symbol && isOptionAssignment u -> do
+        let (s, d) = (o & quantity *~ 100) `alignLots` u
+            res    = d ^.. _SplitUsed
+                         . to (cost +~ s^?!_SplitUsed.cost)
+                         . to (OpenPosition Long)
+                         . to (addFees t)
         replacements
             <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
                                 <*> pure c)
-        pure $ Just $ u & cost +~ o^.cost.percent part.coerced
+        results   <>= res
+        newEvents <>= res
+        pure $ d^?_SplitKept
 
     Just e -> do
         replacements <>= [e]
@@ -406,13 +415,9 @@ openPosition disp t = foldEvents t $ \u me -> case me of
 -- Fees paid to open are borne in the cost basis of the asset
 addFees :: Transactional t => Lot t -> Event (Lot t) -> Event (Lot t)
 addFees t x | Just u <- x^?_OpenPosition._2 =
-    trace ("id = " ++ show (u^.ident)
-             ++ ", cost = " ++ show (u^.cost)
-             ++ ", fees = " ++ show (t^.fees.percent (part u))) $
     (x & _OpenPosition._2.cost -~ t^.fees.coerced.percent (part u))
-  where
-    -- Thanks to laziness, only evaluated when needed
-    part u = u^.quantity / t^.quantity
+  -- Thanks to laziness, only evaluated when needed
+  where part u = u^.quantity / t^.quantity
 addFees _ x = x
 
 closePosition :: (Transactional t, Render t)
@@ -423,25 +428,33 @@ closePosition p t = foldEvents t $ \u me -> case me of
         let (s, d) = o `alignLots` u
             res = fmap (addFees t) $ maybeToList $
                 (if u^.subkind == OptionAssignment
-                 then OptionAssigned
+                 then OptionAssigned -- closing an options contract
                  else ClosePosition ed)
                     <$> s^?_SplitUsed <*> d^?_SplitUsed
         results      <>= res
         replacements <>= s^.._SplitKept.to (OpenPosition ed)
         newEvents    <>= case res of
             [x] | u^.distance o <= 30 && x^.gain < 0 -> res
-            -- [x] | has _OptionAssigned x -> res
+            [x] | has _OptionAssigned x -> res
             _ -> []
         pure $ d^?_SplitKept
 
-    -- Closing against an assigned option happens only for a Call.
-    Just (OptionAssigned o c) | o^.underlying == u^.symbol -> do
-        let (s, _d) = (o & quantity *~ 100) `alignLots` u
-            part = max 1 (u^.quantity / (o^.quantity * 100))
+    -- Closing against an assigned option happens only for a Call. If it was a
+    -- covered call, then the case above for matching against an OpenPosition
+    -- will have handled it.
+    Just (OptionAssigned o c)
+        | o^.underlying == u^.symbol && isOptionAssignment u -> do
+        let (s, d) = (o & quantity *~ 100) `alignLots` u
+            res    = d ^.. _SplitUsed
+                         . to (cost +~ s^?!_SplitUsed.cost)
+                         . to (OpenPosition Short)
+                         . to (addFees t)
         replacements
             <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
                                 <*> pure c)
-        pure $ Just $ u & cost +~ o^.cost.percent part.coerced
+        results   <>= res
+        newEvents <>= res
+        pure $ d^?_SplitKept
 
     Just e -> do
         replacements <>= [e]
@@ -491,8 +504,10 @@ dispatchOnKind t = \case
         closePosition (openIs Short) t
     (ReceiveAndDeliver, OptionExpiration) ->
         closePosition (const True) t
-    -- (ReceiveAndDeliver, CashAlternativesPurchase) -> pure []
-    -- (ReceiveAndDeliver, CashAlternativesRedemption) -> pure []
+    (ReceiveAndDeliver, CashAlternativesPurchase) ->
+        pure [ UnrecognizedTransaction $ t & cost .~ t^.quantity ]
+    (ReceiveAndDeliver, CashAlternativesRedemption) ->
+        pure [ UnrecognizedTransaction $ t & cost .~ t^.quantity ]
     (ReceiveAndDeliver, TransferIn) ->
         openPosition Long t
 
@@ -501,9 +516,13 @@ dispatchOnKind t = \case
     (Trade, CloseShortPosition) ->
         closePosition (openIs Short) t
     (Trade, OptionAssignment)
-        | t^.instruction == Just API.Buy -> openPosition Long t
-        | otherwise -> closePosition (openIs Long) t
-    -- (Trade, BondsRedemption) -> pure []
+        | t^.instruction == Just API.Buy ->
+            openPosition Long t
+        | otherwise ->
+            -- jww (2020-05-05): A naked call assigns short stock
+            closePosition (openIs Long) t
+    (Trade, BondsRedemption) ->
+        pure [ UnrecognizedTransaction $ t & cost %~ negate ]
     (Trade, SellTrade) ->
         closePosition (openIs Long) t
     (Trade, ShortSale) ->
@@ -512,7 +531,7 @@ dispatchOnKind t = \case
 
     -- (WireIn, WireIncoming) -> pure []
 
-    _ -> pure [UnrecognizedTransaction t]
+    _ -> pure [ UnrecognizedTransaction t ]
 
     -- x -> error $ "Unrecognized transaction type+subtype: " ++ show x
 
@@ -522,9 +541,15 @@ processTransaction = go . mkLot
   where go t = dispatchOnKind t (t^.kind, t^.subkind)
 
 gain :: Transactional t => Getter (Event t) (Amount 2)
-gain f s@(ClosePosition _ o c) =
-    s <$ f (coerce (o^.cost + c^.cost) - c^.fees)
-gain f s = s <$ f 0
+gain f = \case
+    s@(ClosePosition disp o c) ->
+        s <$ f (signed disp ((o^.cost + c^.cost)^.coerced) - c^.fees)
+    s@(OptionAssigned o c)
+        | o^?asset._OptionAsset.API.putCall == Just API.Call ->
+        s <$ f (signed Short ((o^.cost + c^.cost)^.coerced) - c^.fees)
+    s -> s <$ f 0
+  where
+    signed disp = case disp of Short -> negate; Long -> id
 
 costs :: Transactional t => Getter (Event t) (Amount 6)
 costs f = \case
@@ -534,7 +559,7 @@ costs f = \case
     s@(AdjustCostBasis _ _ ev)        -> s <$ f (ev^.costs)
     s@(RememberWashSaleLoss _ ev)     -> s <$ f (ev^.costs)
     s@(OptionAssigned _ t)            -> s <$ f (totalCost t)
-    s@(ExerciseOption _ t)            -> s <$ f (totalCost t)
+    s@(OptionExercised _ t)           -> s <$ f (totalCost t)
     s@(EstablishEquityCost _ c _)     -> s <$ f c
     s@(UnrecognizedTransaction t)     -> s <$ f (totalCost t)
   where

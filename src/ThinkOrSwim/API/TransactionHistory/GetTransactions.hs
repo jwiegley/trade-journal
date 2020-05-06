@@ -24,7 +24,6 @@ import           Data.Default
 import           Data.Int
 import           Data.List (sortBy)
 import           Data.Map (Map)
-import           Data.Maybe (fromMaybe)
 import           Data.Ord
 import           Data.Semigroup hiding (Option, option)
 import           Data.Text (Text)
@@ -200,12 +199,9 @@ instance FromJSON TransactionItem where
     _instruction           <- obj .:? "instruction"
     -- _parentChildIndicator  <- obj .:? "parentChildIndicator"
     -- _parentOrderKey        <- obj .:? "parentOrderKey"
-    cst                    <- obj .:  "cost"
+    _cost                  <- obj .:  "cost"
     _price                 <- obj .:? "price"
     _amount                <- obj .:? "amount"
-    let _cost = case _transactionInstrument^?_Just.assetType._CashEquivalentAsset of
-            Nothing -> cst
-            Just _ -> fromMaybe 1 _amount
     _accountId             <- obj .:  "accountId"
     pure TransactionItem{..}
 
@@ -639,10 +635,6 @@ xcost = xitem.cost
 
 xprice :: Traversal' Transaction (Amount 6)
 xprice = xitem.price.traverse
-
-xcostPerShare :: Lens' Transaction (Amount 6)
-xcostPerShare f t = f (t^.xcost / t^.xamount) <&> \n ->
-    t & xcost .~ n * t^.xamount
 
 xaccount :: Lens' Transaction AccountId
 xaccount = xitem.accountId

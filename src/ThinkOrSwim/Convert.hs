@@ -207,14 +207,14 @@ postClosePosition :: Text
 postClosePosition actId meta disp pl o c =
     (case mact of
          Nothing  -> []
-         Just act -> [ newPosting act False (DollarAmount (signed pl)) ])
+         Just act -> [ newPosting act False (DollarAmount (sign pl)) ])
     ++ [ newPosting (transactionAccount actId (o^.xact)) False
            (CommodityAmount $ mkCommodityLot o
-              & L.quantity %~ signed
+              & L.quantity %~ sign
               & L.price    .~ c^?xact.xprice.coerced) & meta ]
   where
-    signed :: Num a => a -> a
-    signed = case disp of Long -> negate; Short -> id
+    sign :: Num a => a -> a
+    sign = case disp of Long -> negate; Short -> id
 
     long = utctDay (c^.time) `diffDays` utctDay (o^.time) > 365
     mact | pl > 0 && long = Just CapitalGainLong
@@ -238,6 +238,8 @@ postingsFromEvent actId meta ev = case ev of
 
     ClosePosition disp o c ->
         postClosePosition actId meta disp (ev^.gain) o c
+    OptionAssigned o c ->
+        postClosePosition actId meta Short (ev^.gain) o c
 
     AdjustCostBasisForOpen _ _ g ->
         [ newPosting CapitalWashLoss False (DollarAmount (g^.coerced))
