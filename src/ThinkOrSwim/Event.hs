@@ -30,11 +30,13 @@ module ThinkOrSwim.Event
     , _OpenPosition
     , Disposition(..)
     , Transactional(..)
-    , costs
-    , gain
+    , isCall
+    , isOption
+    , isOptionAssignment
     ) where
 
 import           Control.Applicative
+import           Control.Exception
 import           Control.Lens
 import           Control.Monad.Except
 import           Control.Monad.Trans.State
@@ -80,10 +82,12 @@ affect the history of events having possible future implications:
 data Event t
     = OpenPosition Disposition t
     | ClosePosition Disposition t t
-      -- Wash Sales
+      -- Wash Sales and P/L
     | AdjustCostBasisForOpen Disposition (Event t) (Amount 6)
     | AdjustCostBasis Disposition (Event t) (Event t)
     | RememberWashSaleLoss Disposition (Event t)
+    | CapitalGain Disposition (Amount 6) (Event t)
+    | CapitalLoss Disposition (Amount 6) (Event t)
       -- Options
     | OptionAssigned t t
     | OptionExercised t t
@@ -129,26 +133,36 @@ instance (Transactional t, Render t) => Render (Event (Lot t)) where
     rendered = \case
         OpenPosition d x ->
             "OpenPosition"
-                <> space <> text (show d)
+                <> space <> tshow d
                 $$ space <> space <> rendered x
         ClosePosition d x y ->
             "ClosePosition"
-                <> space <> text (show d)
+                <> space <> tshow d
                 $$ space <> space <> rendered x
                 $$ space <> space <> rendered y
         AdjustCostBasisForOpen d x y ->
             "AdjustCostBasisForOpen"
-                <> space <> text (show d)
+                <> space <> tshow d
                 $$ space <> space <> rendered x
                 <> space <> " ==> " <> space <> rendered y
         AdjustCostBasis d x y ->
             "AdjustCostBasis"
-                <> space <> text (show d)
+                <> space <> tshow d
                 $$ space <> space <> rendered x
                 $$ space <> space <> rendered y
+        CapitalGain d g x ->
+            "CapitalGain"
+                <> space <> tshow d
+                $$ space <> space <> tshow g
+                $$ space <> space <> rendered x
+        CapitalLoss d g x ->
+            "CapitalLoss"
+                <> space <> tshow d
+                $$ space <> space <> tshow g
+                $$ space <> space <> rendered x
         RememberWashSaleLoss d x ->
             "RememberWashSaleLoss"
-                <> space <> text (show d)
+                <> space <> tshow d
                 $$ space <> space <> rendered x
         OptionAssigned x y ->
             "OptionAssigned"
@@ -160,9 +174,9 @@ instance (Transactional t, Render t) => Render (Event (Lot t)) where
                 $$ space <> space <> rendered y
         EstablishEquityCost x y z ->
             "EstablishEquityCost"
-                <> space <> text (show x)
-                <> space <> text (show y)
-                <> space <> text (show z)
+                <> space <> tshow x
+                <> space <> tshow y
+                <> space <> tshow z
         UnrecognizedTransaction t ->
             "UnrecognizedTransaction"
                 $$ space <> rendered t
@@ -307,6 +321,17 @@ isOption = has (asset._OptionAsset)
 isOptionAssignment :: Transactional t => t -> Bool
 isOptionAssignment t = t^.subkind == OptionAssignment
 
+isCall :: Transactional t => t -> Bool
+isCall t = t^?asset._OptionAsset.API.putCall == Just API.Call
+
+-- Fees paid to open are borne in the cost basis of the asset
+addFees :: Transactional t => Lot t -> Event (Lot t) -> Event (Lot t)
+addFees t x | Just u <- x^?_OpenPosition._2 =
+    (x & _OpenPosition._2.cost -~ t^.fees.coerced.percent (part u))
+  -- Thanks to laziness, only evaluated when needed
+  where part u = u^.quantity / t^.quantity
+addFees _ x = x
+
 intoEvent :: (MonadError (EventError (Lot t)) m, Transactional t)
           => Lot t -> m (Event (Lot t))
 intoEvent t = case t^.subkind of
@@ -375,8 +400,7 @@ openPosition disp t = foldEvents t $ \u me -> case me of
         if c^.distance o <= 30
         then do
             let (s, d) = c `alignLots` u
-                part = d^?!_SplitUsed.quantity / c^.quantity
-                adj  = ev^.gain.percent part.coerced
+                adj    = (s^?!_SplitUsed.cost + d^?!_SplitUsed.cost)^.coerced
             replacements
                 <>= (ClosePosition ed o <$> maybeToList (s^?_SplitKept))
             results <>= [ AdjustCostBasisForOpen disp ev adj ]
@@ -388,18 +412,20 @@ openPosition disp t = foldEvents t $ \u me -> case me of
             pure $ Just u
 
     -- Opening against an assigned option happens only for a Put.
-    Just (OptionAssigned o c)
+    Just ev@(OptionAssigned o c)
         | o^.underlying == u^.symbol && isOptionAssignment u -> do
         let (s, d) = (o & quantity *~ 100) `alignLots` u
             res    = d ^.. _SplitUsed
                          . to (cost +~ s^?!_SplitUsed.cost)
-                         . to (OpenPosition Long)
+                         . to (assert (not (isCall o)) $ OpenPosition Long)
                          . to (addFees t)
-        replacements
-            <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
-                                <*> pure c)
-        results   <>= res
-        newEvents <>= res
+            dur | u^.distance o > 365 = Long
+                | otherwise = Short
+        results      <>= [ CapitalGain dur (negate (s^?!_SplitUsed.cost)) ev ]
+                      ++ res
+        newEvents    <>= res
+        replacements <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
+                                         <*> pure c)
         pure $ d^?_SplitKept
 
     Just e -> do
@@ -412,48 +438,48 @@ openPosition disp t = foldEvents t $ \u me -> case me of
         newEvents <>= [nev]
         pure Nothing
 
--- Fees paid to open are borne in the cost basis of the asset
-addFees :: Transactional t => Lot t -> Event (Lot t) -> Event (Lot t)
-addFees t x | Just u <- x^?_OpenPosition._2 =
-    (x & _OpenPosition._2.cost -~ t^.fees.coerced.percent (part u))
-  -- Thanks to laziness, only evaluated when needed
-  where part u = u^.quantity / t^.quantity
-addFees _ x = x
-
 closePosition :: (Transactional t, Render t)
               => (Event (Lot t) -> Bool) -> Lot t
               -> HistoryState (Lot t) [Event (Lot t)]
 closePosition p t = foldEvents t $ \u me -> case me of
     Just ev@(OpenPosition ed o) | p ev && o^.symbol == u^.symbol -> do
         let (s, d) = o `alignLots` u
-            res = fmap (addFees t) $ maybeToList $
-                (if u^.subkind == OptionAssignment
-                 then OptionAssigned -- closing an options contract
-                 else ClosePosition ed)
-                    <$> s^?_SplitUsed <*> d^?_SplitUsed
-        results      <>= res
-        replacements <>= s^.._SplitKept.to (OpenPosition ed)
-        newEvents    <>= case res of
-            [x] | u^.distance o <= 30 && x^.gain < 0 -> res
-            [x] | has _OptionAssigned x -> res
-            _ -> []
-        pure $ d^?_SplitKept
+        forM_ ((,) <$> s^?_SplitUsed <*> d^?_SplitUsed) $ \(su, du) -> do
+            let res | isOptionAssignment u = []
+                    | otherwise = [ ClosePosition ed su du ]
+                adj = s^?!_SplitUsed.cost +
+                      d^?!_SplitUsed.cost - d^?!_SplitUsed.fees.coerced
+                typ | adj > 0   = CapitalGain
+                    | otherwise = CapitalLoss
+                dur | du^.distance su > 365 = Long
+                    | otherwise             = Short
+            results      <>= [ typ dur (adj^.coerced) ev ] ++ res
+            replacements <>= s^.._SplitKept.to (OpenPosition ed)
+            newEvents    <>= if u^.distance o <= 30 && adj < 0 then res else []
+        pure $ if isOptionAssignment u
+               then Just u
+               else d^?_SplitKept
 
     -- Closing against an assigned option happens only for a Call. If it was a
     -- covered call, then the case above for matching against an OpenPosition
     -- will have handled it.
-    Just (OptionAssigned o c)
+    --
+    -- NOTE: Unlike the Put case, this code is only used for assigned calls if
+    -- the assignment does not fully close existing equity positions.
+    Just ev@(OptionAssigned o c)
         | o^.underlying == u^.symbol && isOptionAssignment u -> do
         let (s, d) = (o & quantity *~ 100) `alignLots` u
             res    = d ^.. _SplitUsed
                          . to (cost +~ s^?!_SplitUsed.cost)
-                         . to (OpenPosition Short)
+                         . to (assert (isCall o) $ OpenPosition Short)
                          . to (addFees t)
-        replacements
-            <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
-                                <*> pure c)
-        results   <>= res
-        newEvents <>= res
+            dur | u^.distance o > 365 = Long
+                | otherwise           = Short
+        results      <>= [ CapitalGain dur (s^?!_SplitUsed.cost) ev ]
+                      ++ res
+        newEvents    <>= res
+        replacements <>= (OptionAssigned <$> maybeToList (s^?_SplitKept)
+                                         <*> pure c)
         pure $ d^?_SplitKept
 
     Just e -> do
@@ -539,31 +565,6 @@ processTransaction :: (Transactional t, Render t, Eq t)
                    => t -> HistoryState (Lot t) [Event (Lot t)]
 processTransaction = go . mkLot
   where go t = dispatchOnKind t (t^.kind, t^.subkind)
-
-gain :: Transactional t => Getter (Event t) (Amount 2)
-gain f = \case
-    s@(ClosePosition disp o c) ->
-        s <$ f (signed disp ((o^.cost + c^.cost)^.coerced) - c^.fees)
-    s@(OptionAssigned o c)
-        | o^?asset._OptionAsset.API.putCall == Just API.Call ->
-        s <$ f (signed Short ((o^.cost + c^.cost)^.coerced) - c^.fees)
-    s -> s <$ f 0
-  where
-    signed disp = case disp of Short -> negate; Long -> id
-
-costs :: Transactional t => Getter (Event t) (Amount 6)
-costs f = \case
-    s@(OpenPosition _ t)              -> s <$ f (totalCost t)
-    s@(ClosePosition _ _ t)           -> s <$ f (totalCost t)
-    s@(AdjustCostBasisForOpen _ ev _) -> s <$ f (ev^.costs)
-    s@(AdjustCostBasis _ _ ev)        -> s <$ f (ev^.costs)
-    s@(RememberWashSaleLoss _ ev)     -> s <$ f (ev^.costs)
-    s@(OptionAssigned _ t)            -> s <$ f (totalCost t)
-    s@(OptionExercised _ t)           -> s <$ f (totalCost t)
-    s@(EstablishEquityCost _ c _)     -> s <$ f c
-    s@(UnrecognizedTransaction t)     -> s <$ f (totalCost t)
-  where
-    totalCost t = t^.cost + t^.fees.coerced
 
 data GainsKeeperState t = GainsKeeperState
     { _positionEvents :: Map Text [Event (Lot t)]

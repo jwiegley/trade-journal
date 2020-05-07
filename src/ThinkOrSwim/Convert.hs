@@ -19,7 +19,7 @@ import           Data.Foldable
 import qualified Data.Ledger as L
 import           Data.Ledger hiding (symbol, quantity, cost, price)
 import qualified Data.Map as M
-import           Data.Maybe (catMaybes, fromMaybe, isNothing)
+import           Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Lens
@@ -96,8 +96,8 @@ convertPostings opts actId t = do
        ++ [ newPosting L.Commissions True (DollarAmount (t^.fees_.commission))
           | t^.fees_.commission /= 0 ]
 
-       ++ (flip Prelude.concatMap cs $ \ev ->
-             postingsFromEvent actId (postMetadata %~ meta ev) ev)
+       ++ (flip mapMaybe cs $ \ev ->
+             postingFromEvent actId ev & each.postMetadata %~ meta ev)
 
        ++ [ case t^?xprice of
                 Just _              -> cashPost
@@ -196,59 +196,49 @@ mkCommodityLot t = newCommodityLot @API.TransactionSubType
               CashMoneyMarket)    -> L.MoneyMarket
         Nothing                   -> error "Unexpected"
 
-postClosePosition :: Text
-                  -> (L.Posting API.TransactionSubType L.CommodityLot ->
-                     L.Posting API.TransactionSubType L.CommodityLot)
-                  -> Disposition
-                  -> Amount 2
-                  -> Lot API.Transaction
-                  -> Lot API.Transaction
-                  -> [L.Posting API.TransactionSubType L.CommodityLot]
-postClosePosition actId meta disp pl o c =
-    (case mact of
-         Nothing  -> []
-         Just act -> [ newPosting act False (DollarAmount (sign pl)) ])
-    ++ [ newPosting (transactionAccount actId (o^.xact)) False
-           (CommodityAmount $ mkCommodityLot o
-              & L.quantity %~ sign
-              & L.price    .~ c^?xact.xprice.coerced) & meta ]
-  where
-    sign :: Num a => a -> a
-    sign = case disp of Long -> negate; Short -> id
-
-    long = utctDay (c^.time) `diffDays` utctDay (o^.time) > 365
-    mact | pl > 0 && long = Just CapitalGainLong
-         | pl > 0        = Just CapitalGainShort
-         | pl < 0 && long = Just CapitalLossLong
-         | pl < 0        = Just CapitalLossShort
-         | otherwise     = Nothing
-
-postingsFromEvent
+postingFromEvent
     :: Text
-    -> (L.Posting API.TransactionSubType L.CommodityLot ->
-       L.Posting API.TransactionSubType L.CommodityLot)
     -> Event (Lot API.Transaction)
-    -> [L.Posting API.TransactionSubType L.CommodityLot]
-postingsFromEvent actId meta ev = case ev of
-    OpenPosition disp o ->
-        [ newPosting (transactionAccount actId (o^.xact)) False
-            (CommodityAmount $ mkCommodityLot o
-               & L.quantity %~ case disp of Long -> id; Short -> negate)
-            & meta ]
+    -> Maybe (L.Posting API.TransactionSubType L.CommodityLot)
+postingFromEvent actId ev = case ev of
+    OpenPosition disp o -> Just $
+        newPosting (transactionAccount actId (o^.xact)) False
+          (CommodityAmount $ mkCommodityLot o
+             & L.quantity %~ case disp of Long -> id; Short -> negate)
 
-    ClosePosition disp o c ->
-        postClosePosition actId meta disp (ev^.gain) o c
-    OptionAssigned o c ->
-        postClosePosition actId meta Short (ev^.gain) o c
+    ClosePosition disp o c -> Just $
+        newPosting (transactionAccount actId (o^.xact)) False
+          (CommodityAmount $ mkCommodityLot o
+             & L.quantity %~ case disp of Long -> negate; Short -> id
+             & L.price    .~ c^?xact.xprice.coerced)
 
-    AdjustCostBasisForOpen _ _ g ->
-        [ newPosting CapitalWashLoss False (DollarAmount (g^.coerced))
-            & meta ]
+    OptionAssigned o c -> Just $
+        newPosting (transactionAccount actId (o^.xact)) False
+          (CommodityAmount $ mkCommodityLot o
+             & L.quantity %~ (if isCall o then id else negate)
+             & L.price    .~ if isOption c
+                             then Just 0
+                             else c^?xact.xprice.coerced)
 
-    UnrecognizedTransaction t ->
-        [ newPosting Unknown False
-            (case t^.cost.coerced of
-                 n | n == 0    -> NoAmount
-                   | otherwise -> DollarAmount n) & meta ]
+    AdjustCostBasisForOpen _ _ g -> Just $
+        newPosting CapitalWashLoss False (DollarAmount (g^.coerced))
 
-    _ -> []
+    CapitalGain disp g _ -> Just $
+        newPosting
+          (case disp of Long  -> CapitalGainLong
+                        Short -> CapitalGainShort)
+          False (DollarAmount (g^.coerced.to negate))
+
+    CapitalLoss disp g _ -> Just $
+        newPosting
+          (case disp of Long  -> CapitalLossLong
+                        Short -> CapitalLossShort)
+          False (DollarAmount (g^.coerced.to negate))
+
+    UnrecognizedTransaction t -> Just $
+        newPosting Unknown False
+          (case t^.cost.coerced of
+               n | n == 0    -> NoAmount
+                 | otherwise -> DollarAmount n)
+
+    _ -> Nothing

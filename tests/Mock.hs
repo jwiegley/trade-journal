@@ -195,8 +195,8 @@ testMock = gainsTest "mock-basic" $ do
     let b = buy 100 (-45.00)
     submit b
     let s = sell 100 50.00
-    [e] <- submit s
-    e^.gain @?== b ^+ s
+    [CapitalGain _ g _, _] <- submit s
+    g @?== b ^+ s
 
 amount :: MonadGen m => Range Int64 -> m (Amount n)
 amount range = do
