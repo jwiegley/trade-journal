@@ -125,8 +125,8 @@ convertPostings opts actId t = do
         -- & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed
 
     effectDesc = \case
-        OpenPosition disp _    -> Just $ T.pack $ "Open " ++ show disp
-        ClosePosition disp _ _ -> Just $ T.pack $ "Close " ++ show disp
+        OpenPosition disp _     -> Just $ T.pack $ "Open " ++ show disp
+        PositionClosed disp _ _ -> Just $ T.pack $ "Close " ++ show disp
         _ -> Nothing
 
     act          = transactionAccount actId t
@@ -206,7 +206,7 @@ postingFromEvent actId ev = case ev of
           (CommodityAmount $ mkCommodityLot o
              & L.quantity %~ case disp of Long -> id; Short -> negate)
 
-    ClosePosition disp o c -> Just $
+    PositionClosed disp o c -> Just $
         newPosting (transactionAccount actId (o^.xact)) False
           (CommodityAmount $ mkCommodityLot o
              & L.quantity %~ case disp of Long -> negate; Short -> id
@@ -220,7 +220,7 @@ postingFromEvent actId ev = case ev of
                              then Just 0
                              else c^?xact.xprice.coerced)
 
-    AdjustCostBasisForOpen _ _ g -> Just $
+    WashLossApplied _ _ g -> Just $
         newPosting CapitalWashLoss False (DollarAmount (g^.coerced))
 
     CapitalGain disp g _ -> Just $
