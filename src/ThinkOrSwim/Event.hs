@@ -475,11 +475,13 @@ handleEvent ev@(PositionClosed ed o c) opos@(OpenPosition disp u)
       o^.symbol == u^.symbol =
     if c^.distance o <= 30
     then do
-        let (s, d) = c `alignLots` u
-            adj    = (s^?!_SplitUsed.cost + d^?!_SplitUsed.cost)^.coerced
-        replacements
-            <>= (PositionClosed ed o <$> s^.._SplitKept)
-        results <>= [ WashLossApplied disp ev adj ]
+        let (s, _) = c `alignLots` u
+            adj    = (o^.cost.percent
+                        (s^?!_SplitUsed.quantity / o^.quantity) +
+                      s^?!_SplitUsed.cost -
+                      s^?!_SplitUsed.fees.coerced)^.coerced
+        replacements <>= (PositionClosed ed o <$> s^.._SplitKept)
+        results      <>= [ WashLossApplied disp ev adj ]
         -- We wash failing closes by adding the amount to the cost basis of
         -- the opening transaction. Thus, we generate three instances of
         -- WashLossApplied, but only one OpenPosition.
