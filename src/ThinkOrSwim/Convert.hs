@@ -110,16 +110,16 @@ convertPostings opts actId t = do
           | isNothing (t^?xamount) || fromEquity ]
 
     meta ev m = m
-        & at "XType"        ?~ T.pack (show subtyp)
         & at "XId"          ?~ T.pack (show (t^.xid))
-        & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
-        & at "Instruction"  .~ t^?xinstruction._Just.to show.packed
-        & at "CUSIP"        .~ t^.xcusip
-        & at "Instrument"   .~ t^?xasset.to assetKind
-        & at "Side"         .~ t^?xoption.putCall.to show.packed
-        & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
-        & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
-        & at "Contract"     .~ t^?xoption.description
+        & at "XType"        ?~ T.pack (show subtyp)
+        -- & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
+        -- & at "Instruction"  .~ t^?xinstruction._Just.to show.packed
+        -- & at "CUSIP"        .~ t^.xcusip
+        -- & at "Instrument"   .~ t^?xasset.to assetKind
+        -- & at "Side"         .~ t^?xoption.putCall.to show.packed
+        -- & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
+        -- & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
+        -- & at "Contract"     .~ t^?xoption.description
         & at "Effect"       .~ (effectDesc ev <|>
                                 t^?xitem.positionEffect.each.to show.packed)
         -- & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed

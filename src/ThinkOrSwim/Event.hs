@@ -42,6 +42,7 @@ import           Control.Monad.Except
 import           Control.Monad.Trans.State
 import           Data.Amount
 import           Data.Foldable
+import           Data.List (tails)
 import           Data.Map (Map)
 import           Data.Split
 import           Data.Text (Text)
@@ -85,7 +86,7 @@ data Event t
       -- Wash Sales and P/L
     | WashLossApplied Disposition (Event t) (Amount 6)
     | AdjustCostBasis Disposition (Event t) (Event t)
-    | RememberWashSaleLoss Disposition (Event t)
+    | RememberingWashSaleLoss Disposition (Event t)
     | CapitalGain Disposition (Amount 6) (Event t)
     | CapitalLoss Disposition (Amount 6) (Event t)
       -- Options
@@ -164,8 +165,8 @@ instance (Transactional t, Render t) => Render (Event t) where
                 <> space <> tshow d
                 $$ space <> space <> tshow g
                 $$ space <> space <> rendered x
-        RememberWashSaleLoss d x ->
-            "RememberWashSaleLoss"
+        RememberingWashSaleLoss d x ->
+            "RememberingWashSaleLoss"
                 <> space <> tshow d
                 $$ space <> space <> rendered x
         OptionAssigned x y ->
@@ -297,27 +298,25 @@ alignLots x y
     ycps = y^.cost / yq
     diff = abs (xq - yq)
 
-data StateChange t = StateChange
-    { _results      :: [Event t]
-    , _replacements :: [Event t]
-    , _newEvents    :: [Event t]
-    }
+data StateChange t
+    = Result (Event t)
+    | ReplaceEvent (Event t)
+    | AddEvent (Event t)
     deriving (Eq, Ord, Show)
 
-makeLenses ''StateChange
+makePrisms ''StateChange
 
-newStateChange :: StateChange t
-newStateChange = StateChange
-    { _results      = []
-    , _replacements = []
-    , _newEvents    = []
-    }
+instance (Transactional t, Render t) => Render (StateChange t) where
+    rendered = \case
+        Result e       -> "Result "       <> rendered e
+        ReplaceEvent e -> "ReplaceEvent " <> rendered e
+        AddEvent e     -> "AddEvent "     <> rendered e
 
 type EventStateT s t a = StateT s (Except (EventError t)) a
 
 type HistoryState t a = EventStateT [Event t] t a
 
-type ChangeState t a = EventStateT (StateChange t) t a
+type ChangeState t a = EventStateT [StateChange t] t a
 
 isOption :: Transactional t => t -> Bool
 isOption = has (asset._OptionAsset)
@@ -346,33 +345,37 @@ intoEvent t = case t^.subkind of
     TransferIn         -> pure $ OpenPosition Long t
     _                  -> throwError $ CannotRenderIntoOpenEvent t
 
+withEvents :: [Event t] -> HistoryState t a -> Except (EventError t) a
+withEvents = flip evalStateT
+
 foldEvents :: (Transactional t, Render t, Render a)
-           => a -> (a -> Maybe (Event t) -> ChangeState t (Maybe a))
+           => a
+           -> (a -> [Event t] -> ChangeState t (Maybe a))
            -> HistoryState t [Event t]
 foldEvents t k = do
-    events <- use id
-    (ml, sc) <- lift $ flip runStateT newStateChange $
-        (\f -> foldlM f (Just t) (justify events)) $
-            \ml me -> case ml of
-                Nothing -> Nothing <$ case me of
-                    Just e  -> replacements <>= [e]
-                    Nothing -> pure ()
-                Just t' -> k t' me
+    evs <- use id
+    (ml, sc) <- lift $ flip runStateT [] $
+        (\f -> foldlM f (Just t) (tails evs)) $
+            \ml es -> case ml of
+                Nothing -> Nothing <$ case es of
+                    []    -> pure ()
+                    (e:_) -> change $ ReplaceEvent e
+                Just t' -> k t' es
     when (has _Just ml) $
-        error $ "foldEvents: unexpected remainder: " ++ render (rendered ml)
-    id .= sc^.replacements ++ sc^.newEvents
-    pure $ sc^.results
+        error $ "foldEvents: unexpected remainder: "
+            ++ render (rendered ml)
+    id .= sc^..each._ReplaceEvent ++ sc^..each._AddEvent
+    pure $ sc^..each._Result
 
 applyEvent :: (Transactional t, Render t)
-           => Event t
-           -> HistoryState t [Event t]
-applyEvent ev = foldEvents ev $ \u -> \case
-    Just e -> handleEvent e u
-    Nothing -> do
-        let r = addFees u
-        results   <>= [r]
-        newEvents <>= [r]
-        pure Nothing
+           => Event t -> HistoryState t [Event t]
+applyEvent = foldEvents ?? (flip handleEvent)
+
+changes :: [StateChange t] -> ChangeState t ()
+changes = (id <>=)
+
+change :: StateChange t -> ChangeState t ()
+change = changes . (:[])
 
 eventFromTransaction :: (Transactional t, Render t, Eq t) => t -> Event t
 eventFromTransaction t = case (t^.kind, t^.subkind) of
@@ -438,11 +441,11 @@ eventFromTransaction t = case (t^.kind, t^.subkind) of
     -- x -> error $ "Unrecognized transaction type+subtype: " ++ show x
 
 handleEvent :: (Transactional t, Render t)
-            => Event t                 -- ^ historical event
-            -> Event t                 -- ^ current event
+            => [Event t]        -- ^ historical events
+            -> Event t          -- ^ current event
             -> ChangeState t (Maybe (Event t))
               -- ^ recorded change, and what remains
-handleEvent (EstablishEquityCost amt cst dt) ev@(OpenPosition disp o)
+handleEvent (EstablishEquityCost amt cst dt:_) ev@(OpenPosition disp o)
     | not (isOption o || isOptionAssignment o) = do
     nev <- fmap addFees $ intoEvent $
         if amt < o^.quantity
@@ -455,13 +458,13 @@ handleEvent (EstablishEquityCost amt cst dt) ev@(OpenPosition disp o)
     forM_ (nev^?_OpenPosition._1) $ \ed -> unless (disp == ed) $
         throwError $ DispositionMismatch disp ed
 
-    results      <>= [nev]
-    newEvents    <>= [nev]
-    replacements <>= [ EstablishEquityCost
-                         (amt - quant)
-                         (cst^.percent ((amt - quant) / amt))
-                         dt
-                     | amt > quant ]
+    change $ AddEvent nev
+    change $ Result nev
+    when (amt > quant) $
+        change $ ReplaceEvent (EstablishEquityCost
+                                 (amt - quant)
+                                 (cst^.percent ((amt - quant) / amt))
+                                 dt)
 
     pure $ if amt < quant
            then Just $ ev & _OpenPosition._2.quantity -~ amt
@@ -469,7 +472,7 @@ handleEvent (EstablishEquityCost amt cst dt) ev@(OpenPosition disp o)
   where
     quant = o^.quantity
 
-handleEvent ev@(PositionClosed ed o c) opos@(OpenPosition disp u)
+handleEvent (ev@(PositionClosed ed o c):_) opos@(OpenPosition disp u)
     | -- jww (2020-05-03): This restriction shouldn't be needed, if the
       -- option might be considered as a replacement for the equity.
       o^.symbol == u^.symbol =
@@ -480,8 +483,10 @@ handleEvent ev@(PositionClosed ed o c) opos@(OpenPosition disp u)
                         (s^?!_SplitUsed.quantity / o^.quantity) +
                       s^?!_SplitUsed.cost -
                       s^?!_SplitUsed.fees.coerced)^.coerced
-        replacements <>= (PositionClosed ed o <$> s^.._SplitKept)
-        results      <>= [ WashLossApplied disp ev adj ]
+
+        changes $ ReplaceEvent . PositionClosed ed o <$> s^.._SplitKept
+        change $ Result (WashLossApplied disp ev adj)
+
         -- We wash failing closes by adding the amount to the cost basis of
         -- the opening transaction. Thus, we generate three instances of
         -- WashLossApplied, but only one OpenPosition.
@@ -491,7 +496,7 @@ handleEvent ev@(PositionClosed ed o c) opos@(OpenPosition disp u)
         pure $ Just opos
 
 -- Opening against an assigned option happens only for a Put.
-handleEvent ev@(OptionAssigned o c) (OpenPosition disp u)
+handleEvent (ev@(OptionAssigned o c):_) (OpenPosition disp u)
     | o^.underlying == u^.symbol && isOptionAssignment u = do
     let (s, d) = (o & quantity *~ 100) `alignLots` u
         res    = d ^.. _SplitUsed
@@ -501,14 +506,14 @@ handleEvent ev@(OptionAssigned o c) (OpenPosition disp u)
         dur | u^.distance o > 365 = Long
             | otherwise = Short
 
-    results      <>= [ CapitalGain dur (negate (s^?!_SplitUsed.cost)) ev ]
-                  ++ res
-    newEvents    <>= res
-    replacements <>= (OptionAssigned <$> s^.._SplitKept <*> pure c)
+    changes $ Result
+        <$> ([ CapitalGain dur (negate (s^?!_SplitUsed.cost)) ev ] ++ res)
+    changes $ AddEvent <$> res
+    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
 
     pure $ d^?_SplitKept.to (OpenPosition disp)
 
-handleEvent ev@(OpenPosition ed o) cp@(ClosePosition mdisp u)
+handleEvent (ev@(OpenPosition ed o):evs) cp@(ClosePosition mdisp u)
     | case mdisp of Just disp -> ed == disp; Nothing -> True,
       o^.symbol == u^.symbol = do
     let (s, d) = o `alignLots` u
@@ -521,29 +526,34 @@ handleEvent ev@(OpenPosition ed o) cp@(ClosePosition mdisp u)
                 | otherwise = CapitalLoss
             dur | du^.distance su > 365 = Long
                 | otherwise             = Short
-        results      <>= [ typ dur (adj^.coerced) ev ] ++ res
-        replacements <>= s^.._SplitKept.to (OpenPosition ed)
+
+        changes $ Result <$> ([ typ dur (adj^.coerced) ev ] ++ res)
+        changes $ ReplaceEvent <$> s^.._SplitKept.to (OpenPosition ed)
 
         -- After closing at a loss, and if the loss occurs within 30 days
         -- of its corresponding open, and there is another open within 30
         -- days of the loss, close it and re-open so it's repriced by the
         -- wash loss.
-        when (u^.distance o <= 30) $ do
-            events <- use newEvents
-            inner <- lift $ (`evalStateT` events) $ foldEvents u $ \u' -> \case
-                Just (OpenPosition ed' o')
-                    | ed == ed' && o'^.symbol == u'^.symbol -> do
-                      let (s', d') = o' `alignLots` u'
-                      results <>= s'^.._SplitUsed.to (PositionClosed ed' o')
-                               ++ s'^.._SplitUsed.to (OpenPosition ed')
-                      pure $ d'^?_SplitKept
-                Just _  -> pure $ Just u'
-                Nothing -> pure Nothing
-            renderM $ rendered inner
-            -- jww (2020-05-07): reprice (inner^.results)
-            pure ()
+        when (u^.distance o <= 30 && adj < 0) $ do
+            inner <- lift $ withEvents (reverse evs) $
+                foldEvents u $ \u' -> \case
+                    (OpenPosition ed' o':_)
+                        | ed == ed' && o'^.symbol == u'^.symbol -> do
+                          let (s', d') = o' `alignLots` u'
+                          changes $ Result <$>
+                            (s'^.._SplitUsed.to (PositionClosed ed' o') ++
+                             s'^.._SplitUsed.to (OpenPosition ed'))
+                          pure $ d'^?_SplitKept
+                    [] -> pure Nothing
+                    _  -> pure $ Just u'
 
-        newEvents <>= if u^.distance o <= 30 && adj < 0 then res else []
+            renderM $ "inner: " <> rendered inner
+            -- jww (2020-05-07): reprice (inner^.results)
+            -- jww (2020-05-08): Record the part unused as
+            -- RememberingWashSaleLoss, and render it to Ledger as a comment
+            -- on the transaction.
+            -- jww (2020-05-08): Only add back what remains unhandled.
+            changes $ AddEvent <$> res
 
     pure $ if isOptionAssignment u
            then Just cp
@@ -555,7 +565,7 @@ handleEvent ev@(OpenPosition ed o) cp@(ClosePosition mdisp u)
 --
 -- NOTE: Unlike the Put case, this code is only used for assigned calls if the
 -- assignment does not fully close existing equity positions.
-handleEvent ev@(OptionAssigned o c) (ClosePosition disp u)
+handleEvent (ev@(OptionAssigned o c):_) (ClosePosition disp u)
     | o^.underlying == u^.symbol && isOptionAssignment u = do
     let (s, d) = (o & quantity *~ 100) `alignLots` u
         res    = d ^.. _SplitUsed
@@ -565,16 +575,21 @@ handleEvent ev@(OptionAssigned o c) (ClosePosition disp u)
         dur | u^.distance o > 365 = Long
             | otherwise           = Short
 
-    results      <>= [ CapitalGain dur (s^?!_SplitUsed.cost) ev ]
-                  ++ res
-    newEvents    <>= res
-    replacements <>= (OptionAssigned <$> s^.._SplitKept <*> pure c)
+    changes $ Result <$> [ CapitalGain dur (s^?!_SplitUsed.cost) ev ] ++ res
+    changes $ AddEvent <$> res
+    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
 
     pure $ d^?_SplitKept.to (ClosePosition disp)
 
-handleEvent e u = do
-    replacements <>= [e]
+handleEvent (e:_) u = do
+    change $ ReplaceEvent e
     pure $ Just u
+
+handleEvent [] u = do
+    let r = addFees u
+    change $ AddEvent r
+    change $ Result r
+    pure Nothing
 
 data GainsKeeperState t = GainsKeeperState
     { _positionEvents :: Map Text [Event (Lot t)]
