@@ -19,7 +19,7 @@ import           Data.Foldable
 import qualified Data.Ledger as L
 import           Data.Ledger hiding (symbol, quantity, cost, price)
 import qualified Data.Map as M
-import           Data.Maybe (catMaybes, isNothing, mapMaybe)
+import           Data.Maybe (catMaybes, isNothing)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Lens
@@ -95,7 +95,7 @@ convertPostings opts actId t = do
        ++ [ newPosting L.Commissions True (DollarAmount (t^.fees_.commission))
           | t^.fees_.commission /= 0 ]
 
-       ++ (flip mapMaybe cs $ \ev ->
+       ++ (flip concatMap cs $ \ev ->
              postingFromEvent actId ev & each.postMetadata %~ meta ev)
 
        ++ [ case t^?xprice of
@@ -121,7 +121,6 @@ convertPostings opts actId t = do
         -- & at "Contract"     .~ t^?xoption.description
         & at "Effect"       .~ (effectDesc ev <|>
                                 t^?xitem.positionEffect.each.to show.packed)
-        -- & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed
 
     effectDesc = \case
         OpenPosition disp _ _   -> Just $ T.pack $ "Open " ++ show disp
@@ -198,46 +197,56 @@ mkCommodityLot t = newCommodityLot @API.TransactionSubType
 postingFromEvent
     :: Text
     -> Event (Lot API.Transaction)
-    -> Maybe (L.Posting API.TransactionSubType L.CommodityLot)
+    -> [L.Posting API.TransactionSubType L.CommodityLot]
 postingFromEvent actId ev = case ev of
-    OpenPosition disp _ o -> Just $
-        newPosting (transactionAccount actId (o^.item)) False
-          (CommodityAmount $ mkCommodityLot o
-             & L.quantity %~ case disp of Long -> id; Short -> negate)
+    OpenPosition disp _ o ->
+        [ newPosting (transactionAccount actId (o^.item)) False
+            (CommodityAmount $ mkCommodityLot o
+               & L.quantity %~ case disp of Long -> id; Short -> negate) ]
 
-    PositionClosed disp o c -> Just $
-        newPosting (transactionAccount actId (o^.item)) False
-          (CommodityAmount $ mkCommodityLot o
-             & L.quantity %~ case disp of Long -> negate; Short -> id
-             & L.price    .~ c^?item.xprice.coerced)
+    PositionClosed disp o c ->
+        [ newPosting (transactionAccount actId (o^.item)) False
+            (CommodityAmount $ mkCommodityLot o
+               & L.quantity %~ case disp of Long -> negate; Short -> id
+               & L.price    .~ c^?item.xprice.coerced) ]
 
-    OptionAssigned o c -> Just $
-        newPosting (transactionAccount actId (o^.item)) False
-          (CommodityAmount $ mkCommodityLot o
-             & L.quantity %~ (if isCall o then id else negate)
-             & L.price    .~ if isOption c
-                             then Just 0
-                             else c^?item.xprice.coerced)
+    OptionAssigned o c ->
+        [ newPosting (transactionAccount actId (o^.item)) False
+            (CommodityAmount $ mkCommodityLot o
+               & L.quantity %~ (if isCall o then id else negate)
+               & L.price    .~ if isOption c
+                               then Just 0
+                               else c^?item.xprice.coerced) ]
 
-    WashSale g -> Just $
-        newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced))
+    WashSale Immediate g ->
+        [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
 
-    CapitalGain disp g _ -> Just $
-        newPosting
-          (case disp of Long  -> CapitalGainLong
-                        Short -> CapitalGainShort)
-          False (DollarAmount (g^.coerced.to negate))
+    WashSale Deferred g ->
+        [ newPosting CapitalWashLoss False
+            (DollarAmount (g^.cost.coerced))
+        , newPosting CapitalWashLossDeferred False
+            (DollarAmount (g^.cost.to negate.coerced)) ]
 
-    CapitalLoss disp g _ -> Just $
-        newPosting
-          (case disp of Long  -> CapitalLossLong
-                        Short -> CapitalLossShort)
-          False (DollarAmount (g^.coerced.to negate))
+    WashSale Transferred g ->
+        [ newPosting CapitalWashLossDeferred False
+            (DollarAmount (g^.cost.coerced)) ]
 
-    UnrecognizedTransaction t -> Just $
-        newPosting Unknown False
-          (case t^.cost.coerced of
-               n | n == 0    -> NoAmount
-                 | otherwise -> DollarAmount n)
+    CapitalGain disp g _ ->
+        [ newPosting
+            (case disp of Long  -> CapitalGainLong
+                          Short -> CapitalGainShort)
+            False (DollarAmount (g^.coerced.to negate)) ]
 
-    _ -> Nothing
+    CapitalLoss disp g _ ->
+        [ newPosting
+            (case disp of Long  -> CapitalLossLong
+                          Short -> CapitalLossShort)
+            False (DollarAmount (g^.coerced.to negate)) ]
+
+    UnrecognizedTransaction t ->
+        [ newPosting Unknown False
+            (case t^.cost.coerced of
+                 n | n == 0    -> NoAmount
+                   | otherwise -> DollarAmount n) ]
+
+    _ -> []

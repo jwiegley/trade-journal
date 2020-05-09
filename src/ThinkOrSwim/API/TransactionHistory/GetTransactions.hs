@@ -663,6 +663,8 @@ instance Render Transaction where
         = text (T.unpack (t^.xsymbol.non "")) P.<> space
      P.<> tshow (t^.xsubType) P.<> space
      P.<> tshow (t^.xamount) P.<> space
+     P.<> "@@" P.<> space
+     P.<> tshow (t^.xcost / t^.xamount) P.<> space
      P.<> doubleQuotes (rendered (t^.xdate)) P.<> space
      P.<> tshow (t^.xid)
 

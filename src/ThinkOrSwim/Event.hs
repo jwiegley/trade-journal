@@ -35,6 +35,7 @@ module ThinkOrSwim.Event
     , isOption
     , isOptionAssignment
     , Eligibility(..)
+    , Applicability(..)
     ) where
 
 import           Control.Applicative
@@ -74,6 +75,14 @@ data Eligibility
 
 makePrisms ''Eligibility
 
+data Applicability
+    = Deferred
+    | Transferred
+    | Immediate
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+makePrisms ''Applicability
+
 {-
 Things that can happen which may change the raw sequence of transactions, or
 affect the history of events having possible future implications:
@@ -97,7 +106,7 @@ data Event t
     | CapitalGain Disposition (Amount 6) (Event t)
     | CapitalLoss Disposition (Amount 6) (Event t)
     -- | AdjustCostBasis Disposition (Event t) (Event t)
-    | WashSale (Lot (Event t))
+    | WashSale Applicability (Lot (Event t))
       -- ^ Use 'Lot (Event t)' rather than '(Amount 6) (Event t)' to
       --   support easy splitting of recorded wash sales.
     -- Options
@@ -155,8 +164,9 @@ instance (Transactional t, Render t) => Render (Event t) where
                 <> space <> tshow d
                 $$ space <> space <> rendered x
                 $$ space <> space <> rendered y
-        WashSale x ->
+        WashSale a x ->
             "WashSale"
+                <> space <> tshow a
                 $$ space <> space <> rendered x
         -- AdjustCostBasis d x y ->
         --     "AdjustCostBasis"
@@ -171,7 +181,7 @@ instance (Transactional t, Render t) => Render (Event t) where
         CapitalLoss d g x ->
             "CapitalLoss"
                 <> space <> tshow d
-                $$ space <> space <> tshow g
+                <> space <> tshow g
                 $$ space <> space <> rendered x
         OptionAssigned x y ->
             "OptionAssigned"
@@ -269,7 +279,7 @@ instance Transactional t => Transactional (Lot t) where
 instance Render t => Render (Lot t) where
     rendered Lot {..} = tshow _shares
         <> " @@ " <> tshow (_costOfShares^.coerced / _shares)
-        <> space <> rendered _item
+        $$ nest 2 (rendered _item)
 
 sliceOf :: (Priced t, Functor f)
         => Lens' (Lot t) (Amount 6) -> LensLike' f (Lot t) (Amount n)
@@ -315,7 +325,8 @@ alignLots x y
 data StateChange t
     = Result (Event t)
     | Submit (Event t)
-    | ReplaceEvent (Event t)
+    | ReplaceEvent (Event t) (Event t)
+    | ReturnEvent (Event t)
     | AddEvent (Event t)
     deriving (Eq, Ord, Show)
 
@@ -323,10 +334,11 @@ makePrisms ''StateChange
 
 instance (Transactional t, Render t) => Render (StateChange t) where
     rendered = \case
-        Result e       -> "Result "       <> rendered e
-        Submit e       -> "Submit "       <> rendered e
-        ReplaceEvent e -> "ReplaceEvent " <> rendered e
-        AddEvent e     -> "AddEvent "     <> rendered e
+        Result x         -> "Result"       $$ nest 2 (rendered x)
+        Submit x         -> "Submit"       $$ nest 2 (rendered x)
+        ReplaceEvent x y -> "ReplaceEvent" $$ nest 2 (rendered x $$ rendered y)
+        ReturnEvent x    -> "ReturnEvent"  $$ nest 2 (rendered x)
+        AddEvent x       -> "AddEvent"     $$ nest 2 (rendered x)
 
 type EventStateT s t a = StateT s (Except (EventError t)) a
 
@@ -349,22 +361,10 @@ addFees x | Just u <- x^?_OpenPosition._3 =
     (x & _OpenPosition._3.cost -~ u^.fees.coerced)
 addFees x = x
 
-intoEvent :: (MonadError (EventError t) m, Transactional t)
-          => t -> m (Event t)
-intoEvent t = case t^.subkind of
-    BuyTrade           -> pure $ OpenPosition Long WashSaleEligible t
-    SellTrade
-        | isOption t   -> pure $ OpenPosition Short WashSaleEligible t
-        | otherwise    -> throwError $ OpenBySellTrade t
-    ShortSale          -> pure $ OpenPosition Short WashSaleEligible t
-    CloseShortPosition -> throwError $ OpenByCloseShortPosition t
-    TransferIn         -> pure $ OpenPosition Long WashSaleEligible t
-    _                  -> throwError $ CannotRenderIntoOpenEvent t
-
 foldEvents :: (Transactional t, Render t)
            => Event t
            -> (Event t -> [Event t] -> ChangeState t (Maybe (Event t)))
-           -> HistoryState t [Event t]
+           -> HistoryState t [StateChange t]
 foldEvents t k = do
     evs <- use id
     (ml, sc) <- lift $ flip runStateT [] $
@@ -372,18 +372,12 @@ foldEvents t k = do
             \ml es -> case ml of
                 Nothing -> Nothing <$ case es of
                     []    -> pure ()
-                    (e:_) -> change $ ReplaceEvent e
+                    (e:_) -> change $ ReturnEvent e
                 Just t' -> k t' es
     when (has _Just ml) $
         error $ "foldEvents: unexpected remainder: "
             ++ render (rendered ml)
-    id .= sc^..each._ReplaceEvent ++ sc^..each._AddEvent
-    res <- forM (sc^..each._Submit) $ foldEvents ?? k
-    pure $ sc^..each._Result ++ concat res
-
-applyEvent :: (Transactional t, Render t)
-           => Event t -> HistoryState t [Event t]
-applyEvent = foldEvents ?? (flip handleEvent)
+    pure sc
 
 changes :: [StateChange t] -> ChangeState t ()
 changes = (id <>=)
@@ -459,64 +453,66 @@ handleEvent :: (Transactional t, Render t)
             -> Event t          -- ^ current event
             -> ChangeState t (Maybe (Event t))
               -- ^ recorded change, and what remains
-handleEvent (EstablishEquityCost amt cst dt:_) ev@(OpenPosition disp _ o)
+handleEvent (ee@(EstablishEquityCost amt cst dt):_) ev@(OpenPosition disp _ o)
     | not (isOption o || isOptionAssignment o) = do
-    nev <- fmap addFees $ intoEvent $
-        if amt < o^.quantity
-        then o & quantity .~ amt
-               & cost     .~ cst
-               & time     .~ dt
-        else o & cost     +~ cst^.percent (o^.quantity / amt)
-               & time     .~ dt
+    let nev = addFees $
+            ev & _OpenPosition._2 .~ WashSaleIneligible
+               & _OpenPosition._3 .~
+                   if amt < o^.quantity
+                   then o & quantity .~ amt
+                          & cost     .~ cst
+                          & time     .~ dt
+                   else o & cost     +~ cst^.percent (o^.quantity / amt)
+                          & time     .~ dt
 
     forM_ (nev^?_OpenPosition._1) $ \ed -> unless (disp == ed) $
         throwError $ DispositionMismatch disp ed
 
     when (amt > quant) $
-        change $ ReplaceEvent (EstablishEquityCost
-                                 (amt - quant)
-                                 (cst^.percent ((amt - quant) / amt))
-                                 dt)
+        change $ ReplaceEvent ee (EstablishEquityCost
+                                    (amt - quant)
+                                    (cst^.percent ((amt - quant) / amt))
+                                    dt)
     change $ AddEvent nev
     change $ Result nev
 
     pure $ if amt < quant
-           then Just $ ev &~ do
-                _OpenPosition._2 .= WashSaleIneligible
-                _OpenPosition._3.quantity -= amt
+           then Just $ ev & _OpenPosition._3.quantity -~ amt
            else Nothing
   where
     quant = o^.quantity
 
-handleEvent (WashSale adj:_) opos@(OpenPosition _ _ u)
+handleEvent (ws@(WashSale Deferred adj):_) opos@(OpenPosition _ _ u)
     | adj^?item._PositionClosed._3.symbol == Just (u^.symbol) &&
       adj^?item._PositionClosed._3.distance u.to (<= 30) == Just True = do
     let (s, _) = adj `alignLots` u
 
-    changes $ ReplaceEvent . WashSale <$> s^.._SplitKept
-    changes $ Result . WashSale <$> s^.._SplitUsed
+    changes $ ReplaceEvent ws . WashSale Deferred <$> s^.._SplitKept
+    changes $ Result . WashSale Transferred <$> s^.._SplitUsed
 
     -- We wash failing closes by adding the amount to the cost basis of
     -- the opening transaction. Thus, we generate three instances of
     -- WashLossApplied, but only one OpenPosition.
     pure $ Just $ opos & _OpenPosition._3.cost +~ s^?!_SplitUsed.cost
 
-handleEvent (OpenPosition ed WashSaleEligible u:_) (WashSale adj)
+handleEvent (opos@(OpenPosition ed WashSaleEligible u):_) (WashSale Deferred adj)
     | adj^?item._PositionClosed._3.symbol == Just (u^.symbol) &&
       adj^?item._PositionClosed._3.distance u.to (<= 30) == Just True = do
     let (s, d) = u `alignLots` adj
         rep = s^?!_SplitUsed & cost +~ d^?!_SplitUsed.cost
+        opos' = opos & _OpenPosition._2 .~ WashSaleIneligible
+                     & _OpenPosition._3 .~ rep
 
-    change $ ReplaceEvent $ OpenPosition ed WashSaleIneligible rep
+    change $ ReplaceEvent opos opos'
     changes $ Result <$>
-        (d^.._SplitKept.to WashSale ++
+        (d^.._SplitUsed.to (WashSale Immediate) ++
          s^.._SplitUsed.to (PositionClosed ed (s^?!_SplitUsed)) ++
-         [ OpenPosition ed WashSaleIneligible rep ])
+         [ opos' ])
 
     -- We wash failing closes by adding the amount to the cost basis of
     -- the opening transaction. Thus, we generate three instances of
     -- WashLossApplied, but only one OpenPosition.
-    pure $ WashSale <$> d^?_SplitKept
+    pure $ WashSale Deferred <$> d^?_SplitKept
 
 {-
 handleEvent (ev@(WashSale c adj):_) (ClosePosition disp u)
@@ -539,7 +535,8 @@ handleEvent (ev@(OptionAssigned o c):_) (OpenPosition disp elig u)
     | o^.underlying == u^.symbol && isOptionAssignment u = do
     let (s, d) = (o & quantity *~ 100) `alignLots` u
 
-    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
+    changes $ ReplaceEvent ev
+        <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
 
     let res = d ^.. _SplitUsed
                   . to (cost +~ s^?!_SplitUsed.cost)
@@ -554,7 +551,7 @@ handleEvent (ev@(OptionAssigned o c):_) (OpenPosition disp elig u)
 
     pure $ d^?_SplitKept.to (OpenPosition disp elig)
 
-handleEvent (ev@(OpenPosition ed elig o):_evs) cp@(ClosePosition mdisp u)
+handleEvent (ev@(OpenPosition ed _elig o):_evs) cp@(ClosePosition mdisp u)
     | case mdisp of Just disp -> ed == disp; Nothing -> True,
       o^.symbol == u^.symbol = do
     let (s, d) = o `alignLots` u
@@ -568,17 +565,18 @@ handleEvent (ev@(OpenPosition ed elig o):_evs) cp@(ClosePosition mdisp u)
                 | otherwise = CapitalLoss
             dur | du^.distance su > 365 = Long
                 | otherwise             = Short
+            ev' = ev & _OpenPosition._3 .~ su
 
-        changes $ Result <$> ([ typ dur (adj^.coerced) ev ] ++ res)
-        changes $ ReplaceEvent <$>
+        changes $ Result <$> ([ typ dur (adj^.coerced) ev' ] ++ res)
+        changes $ ReturnEvent <$>
             s^.._SplitKept.to (OpenPosition ed WashSaleIneligible)
 
         -- After closing at a loss, and if the loss occurs within 30 days
         -- of its corresponding open, and there is another open within 30
         -- days of the loss, close it and re-open so it's repriced by the
         -- wash loss.
-        when (u^.distance o <= 30 && adj < 0) $ do
-            changes $ Submit . WashSale . washSale <$> res
+        when (u^.distance o <= 30 && adj < 0) $
+            changes $ Submit . WashSale Deferred . washSale <$> res
 
     pure $ if isOptionAssignment u
            then Just cp
@@ -594,7 +592,8 @@ handleEvent (ev@(OptionAssigned o c):_) (ClosePosition disp u)
     | o^.underlying == u^.symbol && isOptionAssignment u = do
     let (s, d) = (o & quantity *~ 100) `alignLots` u
 
-    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
+    changes $ ReplaceEvent ev
+        <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
 
     let res = d ^.. _SplitUsed
                   . to (cost +~ s^?!_SplitUsed.cost)
@@ -610,7 +609,7 @@ handleEvent (ev@(OptionAssigned o c):_) (ClosePosition disp u)
     pure $ d^?_SplitKept.to (ClosePosition disp)
 
 handleEvent (e:_) u = do
-    change $ ReplaceEvent e
+    change $ ReturnEvent e
     pure $ Just u
 
 handleEvent [] u = do
@@ -638,32 +637,48 @@ runStateExcept (StateT f) = StateT $ \s -> do
         Left err        -> (Left err, s)
         Right (res, s') -> (Right res, s')
 
+handleChanges :: [StateChange t]
+              -> HistoryState t ([Event t], [Event t])
+handleChanges sc = do
+    id .= sc^..each.failing (_ReplaceEvent._2) _ReturnEvent
+       ++ sc^..each._AddEvent
+    pure (sc^..each._Submit, sc^..each._Result)
+
 gainsKeeper :: (Transactional t, Eq t, Render t)
             => Options -> t -> State (GainsKeeperState t) [Event (Lot t)]
 gainsKeeper opts t =
     zoom (positionEvents.at (t^.underlying.non "").non []) $ do
         hist <- use id
-        eres <- runStateExcept (applyEvent event)
         let doc = ""
-                $$ "evn -> " <> rendered event
-                $$ "" $$ "bef -> " <> rendered hist
+                $$ "EVN" <> space <> rendered event
+                $$ "" $$ "bef" <> space <> rendered hist
+        eres <- runStateExcept $ do
+            chg <- applyEvent event
+            (resubmit, res) <- handleChanges chg
+            res' <- forM resubmit $ \ev -> do
+                chg' <- applyEvent ev
+                snd <$> handleChanges chg'
+            hist' <- use id
+            let fin  = res ++ concat res'
+                doc' = "" $$ "chg" <> space <> rendered chg
+                    $$ "" $$ "sub" <> space <> rendered resubmit
+                    $$ "" $$ "AFT" <> space <> rendered hist'
+                    $$ "" $$ "RES" <> space <> rendered fin
+                    $$ "" $$ "--------------------------------------------------"
+            pure (doc', fin)
         case eres of
-            Left err  -> do
+            Left err -> do
                 when (matches t) $
                     renderM $ doc
-                        $$ "" $$ "err => " <> rendered err
+                        $$ "" $$ "ERR" <> space <> rendered err
                         $$ "" $$ "--------------------------------------------------"
                 pure []
-            Right res -> do
-                hist' <- use id
-                when (matches t) $
-                    renderM $ doc
-                        $$ "" $$ "aft => " <> rendered hist'
-                        $$ "" $$ "res => " <> rendered res
-                        $$ "" $$ "--------------------------------------------------"
+            Right (doc', res) -> do
+                when (matches t) $ renderM $ doc $$ doc'
                 pure res
   where
     event = eventFromTransaction (mkLot t)
+    applyEvent = foldEvents ?? (flip handleEvent)
 
     matches x =
         opts^.Options.traceAll

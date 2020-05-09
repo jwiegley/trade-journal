@@ -110,6 +110,7 @@ data Account
     | CapitalLossShort
     | CapitalLossLong
     | CapitalWashLoss
+    | CapitalWashLossDeferred
     | RoundingError
     | OpeningBalances
     | Unknown
