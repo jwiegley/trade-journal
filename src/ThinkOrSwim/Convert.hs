@@ -19,12 +19,11 @@ import           Data.Foldable
 import qualified Data.Ledger as L
 import           Data.Ledger hiding (symbol, quantity, cost, price)
 import qualified Data.Map as M
-import           Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
+import           Data.Maybe (catMaybes, isNothing, mapMaybe)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
-import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double, (<>))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (symbol, cost)
@@ -125,7 +124,7 @@ convertPostings opts actId t = do
         -- & at "WashDeferred" .~ pl^?plLot.washDeferred._Just.to show.packed
 
     effectDesc = \case
-        OpenPosition disp _     -> Just $ T.pack $ "Open " ++ show disp
+        OpenPosition disp _ _   -> Just $ T.pack $ "Open " ++ show disp
         PositionClosed disp _ _ -> Just $ T.pack $ "Close " ++ show disp
         _ -> Nothing
 
@@ -181,13 +180,13 @@ mkCommodityLot :: Lot API.Transaction
 mkCommodityLot t = newCommodityLot @API.TransactionSubType
     & instrument   .~ instr
     & L.quantity   .~ t^.quantity.coerced
-    & L.symbol     .~ fromMaybe "???" (t^.symbol)
+    & L.symbol     .~ t^.symbol.non "???"
     & L.cost       ?~ t^.cost.coerced.to abs
     & purchaseDate ?~ utctDay (t^.time)
-    & refs         .~ [ transactionRef (t^.xact) ]
-    & L.price      .~ t^?xact.xprice.coerced
+    & refs         .~ [ transactionRef (t^.item) ]
+    & L.price      .~ t^?item.xprice.coerced
   where
-    instr = case t^?xact.xasset of
+    instr = case t^?item.xasset of
         Just API.Equity           -> L.Equity
         Just MutualFund           -> L.Equity
         Just (OptionAsset _)      -> L.Option
@@ -201,27 +200,27 @@ postingFromEvent
     -> Event (Lot API.Transaction)
     -> Maybe (L.Posting API.TransactionSubType L.CommodityLot)
 postingFromEvent actId ev = case ev of
-    OpenPosition disp o -> Just $
-        newPosting (transactionAccount actId (o^.xact)) False
+    OpenPosition disp _ o -> Just $
+        newPosting (transactionAccount actId (o^.item)) False
           (CommodityAmount $ mkCommodityLot o
              & L.quantity %~ case disp of Long -> id; Short -> negate)
 
     PositionClosed disp o c -> Just $
-        newPosting (transactionAccount actId (o^.xact)) False
+        newPosting (transactionAccount actId (o^.item)) False
           (CommodityAmount $ mkCommodityLot o
              & L.quantity %~ case disp of Long -> negate; Short -> id
-             & L.price    .~ c^?xact.xprice.coerced)
+             & L.price    .~ c^?item.xprice.coerced)
 
     OptionAssigned o c -> Just $
-        newPosting (transactionAccount actId (o^.xact)) False
+        newPosting (transactionAccount actId (o^.item)) False
           (CommodityAmount $ mkCommodityLot o
              & L.quantity %~ (if isCall o then id else negate)
              & L.price    .~ if isOption c
                              then Just 0
-                             else c^?xact.xprice.coerced)
+                             else c^?item.xprice.coerced)
 
-    WashLossApplied _ _ g -> Just $
-        newPosting CapitalWashLoss False (DollarAmount (g^.coerced))
+    WashSale g -> Just $
+        newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced))
 
     CapitalGain disp g _ -> Just $
         newPosting

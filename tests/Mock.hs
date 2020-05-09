@@ -19,6 +19,7 @@ import           Data.Int (Int64)
 import           Data.Maybe (fromMaybe)
 import           Data.Ratio
 import           Data.Text as T
+import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Data.Typeable
@@ -57,7 +58,8 @@ data Mock = Mock
 
 instance Render Mock where
     rendered Mock {..} = parens $
-        tshow _mockQuantity
+        P.text (_mockSymbol^.non "".unpacked)
+            <> space <> tshow _mockQuantity
             <> " @@ " <> tshow (_mockCost / _mockQuantity)
             <> " ## " <> doubleQuotes (rendered _mockTime)
 
@@ -79,6 +81,10 @@ newMock = Mock
     , _mockFees        = 0
     }
 
+instance Priced Mock where
+    quantity = mockQuantity
+    cost     = mockCost
+
 instance Transactional Mock where
     ident       = mockIdent
     time        = mockTime
@@ -89,14 +95,12 @@ instance Transactional Mock where
     symbol      = mockSymbol
     underlying  = mockUnderlying
     asset       = mockAsset
-    quantity    = mockQuantity
-    cost        = mockCost
     fees        = mockFees
     distance t f s =
-        f (abs ((t^.mockTime.to utctDay) `diffDays` (s^.mockTime.to utctDay)))
-            <&> \x -> s & time %~
-                     \(UTCTime _dy tm) ->
-                         UTCTime (addDays (- x) (t^.time.to utctDay)) tm
+        f (abs ((t^.mockTime.to utctDay) `diffDays`
+                (s^.mockTime.to utctDay))) <&> \x ->
+            s & time %~ \(UTCTime _dy tm) ->
+                  UTCTime (addDays (- x) (t^.time.to utctDay)) tm
 
 data MockState = MockState
     { _mockState   :: GainsKeeperState Mock

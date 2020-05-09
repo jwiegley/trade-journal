@@ -20,7 +20,6 @@ import           Test.Tasty
 import           Test.Tasty.Hedgehog
 import           ThinkOrSwim.Event
 import           ThinkOrSwim.Options
-import           Text.Show.Pretty
 
 testGains :: TestTree
 testGains = testGroup "gains"
@@ -35,7 +34,7 @@ gains_buy_sell_profit = property $ do
         amt <- lift $ forAll big
         sub <- lift $ forAll little
 
-        mockOptions.traceAll .= True
+        -- mockOptions.traceAll .= True
         let b = buy q (- amt + sub)
         submit b
 
@@ -62,8 +61,9 @@ gains_buy_sell_profit_partial = property $ do
 
         g @?== q * sub
 
-        pure $ a^?!_OpenPosition._2
+        pure $ a^?!_OpenPosition._3
             & quantity .~ 10
             & cost     .~ 10 * (- amt + sub)
 
-    st^?positionEvents.ix "ZM" @?== Just [ OpenPosition Long res ]
+    st^?positionEvents.ix "ZM"
+        @?== Just [ OpenPosition Long WashSaleIneligible res ]

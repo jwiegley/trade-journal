@@ -24,15 +24,17 @@ module ThinkOrSwim.Event
     , Lot
     , shares
     , costOfShares
-    , xact
+    , item
     , trail
     , Event(..)
     , _OpenPosition
     , Disposition(..)
+    , Priced(..)
     , Transactional(..)
     , isCall
     , isOption
     , isOptionAssignment
+    , Eligibility(..)
     ) where
 
 import           Control.Applicative
@@ -65,6 +67,13 @@ data Disposition
 
 makePrisms ''Disposition
 
+data Eligibility
+    = WashSaleEligible
+    | WashSaleIneligible
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+makePrisms ''Eligibility
+
 {-
 Things that can happen which may change the raw sequence of transactions, or
 affect the history of events having possible future implications:
@@ -79,19 +88,21 @@ affect the history of events having possible future implications:
 - shares bought/sold due to option exercise
 - short/long-term loss/gain due to option expiration of long/short call/put
 -}
+
 data Event t
-    = OpenPosition Disposition t
+    = OpenPosition Disposition Eligibility t
     | ClosePosition (Maybe Disposition) t
     | PositionClosed Disposition t t
-      -- Wash Sales and P/L
-    | WashLossApplied Disposition (Event t) (Amount 6)
-    | AdjustCostBasis Disposition (Event t) (Event t)
-    | RememberingWashSaleLoss Disposition (Event t)
+    -- P/L and Wash Sales
     | CapitalGain Disposition (Amount 6) (Event t)
     | CapitalLoss Disposition (Amount 6) (Event t)
-      -- Options
+    -- | AdjustCostBasis Disposition (Event t) (Event t)
+    | WashSale (Lot (Event t))
+      -- ^ Use 'Lot (Event t)' rather than '(Amount 6) (Event t)' to
+      --   support easy splitting of recorded wash sales.
+    -- Options
     | OptionAssigned t t
-    | OptionExercised t t
+    -- | OptionExercised t t
       -- Transfer
     | EstablishEquityCost
         { _equityAmount :: Amount 6
@@ -110,8 +121,6 @@ data EventError t
     | DispositionMismatch Disposition Disposition
     | CannotFindOpen t
     deriving (Eq, Ord, Show)
-
-makePrisms ''Event
 
 instance (Transactional t, Render t) => Render (EventError t) where
     rendered = \case
@@ -132,9 +141,10 @@ instance (Transactional t, Render t) => Render (EventError t) where
 
 instance (Transactional t, Render t) => Render (Event t) where
     rendered = \case
-        OpenPosition d x ->
+        OpenPosition d e x ->
             "OpenPosition"
                 <> space <> tshow d
+                <> space <> tshow e
                 $$ space <> space <> rendered x
         ClosePosition d x ->
             "ClosePosition"
@@ -145,16 +155,14 @@ instance (Transactional t, Render t) => Render (Event t) where
                 <> space <> tshow d
                 $$ space <> space <> rendered x
                 $$ space <> space <> rendered y
-        WashLossApplied d x y ->
-            "WashLossApplied"
-                <> space <> tshow d
+        WashSale x ->
+            "WashSale"
                 $$ space <> space <> rendered x
-                <> space <> " ==> " <> space <> rendered y
-        AdjustCostBasis d x y ->
-            "AdjustCostBasis"
-                <> space <> tshow d
-                $$ space <> space <> rendered x
-                $$ space <> space <> rendered y
+        -- AdjustCostBasis d x y ->
+        --     "AdjustCostBasis"
+        --         <> space <> tshow d
+        --         $$ space <> space <> rendered x
+        --         $$ space <> space <> rendered y
         CapitalGain d g x ->
             "CapitalGain"
                 <> space <> tshow d
@@ -165,18 +173,14 @@ instance (Transactional t, Render t) => Render (Event t) where
                 <> space <> tshow d
                 $$ space <> space <> tshow g
                 $$ space <> space <> rendered x
-        RememberingWashSaleLoss d x ->
-            "RememberingWashSaleLoss"
-                <> space <> tshow d
-                $$ space <> space <> rendered x
         OptionAssigned x y ->
             "OptionAssigned"
                 <> space <> rendered x
                 $$ space <> rendered y
-        OptionExercised x y ->
-            "OptionExercised"
-                <> space <> rendered x
-                $$ space <> space <> rendered y
+        -- OptionExercised x y ->
+        --     "OptionExercised"
+        --         <> space <> rendered x
+        --         $$ space <> space <> rendered y
         EstablishEquityCost x y z ->
             "EstablishEquityCost"
                 <> space <> tshow x
@@ -186,7 +190,11 @@ instance (Transactional t, Render t) => Render (Event t) where
             "UnrecognizedTransaction"
                 $$ space <> rendered t
 
-class Show t => Transactional t where
+class Priced t where
+    quantity :: Lens' t (Amount 6)
+    cost     :: Lens' t (Amount 6)
+
+class (Priced t, Show t) => Transactional t where
     ident       :: Getter t API.TransactionId
     time        :: Lens' t UTCTime
     kind        :: Getter t API.TransactionType
@@ -196,10 +204,12 @@ class Show t => Transactional t where
     cusip       :: Getter t (Maybe Text)
     underlying  :: Getter t (Maybe Text)
     asset       :: Traversal' t AssetType
-    quantity    :: Lens' t (Amount 6)
-    cost        :: Lens' t (Amount 6)
     fees        :: Getter t (Amount 2)
     distance    :: t -> Lens' t Integer
+
+instance Priced API.Transaction where
+    quantity = API.xamount
+    cost     = API.xcost
 
 instance Transactional API.Transaction where
     ident          = API.xid
@@ -211,8 +221,6 @@ instance Transactional API.Transaction where
     symbol         = API.xsymbol
     underlying     = API.xunderlying
     asset          = API.xasset
-    quantity       = API.xamount
-    cost           = API.xcost
     fees f s       = s <$ f (sumOf (API.xfees) s)
     distance t f s =
         f (abs ((t^.time.to utctDay) `diffDays` (s^.time.to utctDay)))
@@ -223,55 +231,61 @@ instance Transactional API.Transaction where
 data Lot t = Lot
     { _shares       :: Amount 6
     , _costOfShares :: Amount 6
-    , _xact         :: t
+    , _item         :: t
     , _trail        :: [Event (Lot t)]
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''Lot
+makePrisms ''Event
+makePrisms ''EventError
+
+washSale :: Transactional t => Event t -> Lot (Event t)
+washSale ev@(PositionClosed _ o c) = Lot
+    { _shares       = c^.quantity
+    , _costOfShares = o^.cost + c^.cost - c^.fees.coerced
+    , _item         = ev
+    , _trail        = []
+    }
+washSale ev = error $ "Cannot apply wash sale to: " ++ show ev
+
+instance Priced (Lot t) where
+    quantity    = shares
+    cost        = costOfShares
 
 instance Transactional t => Transactional (Lot t) where
-    ident       = xact.ident
-    time        = xact.time
-    kind        = xact.kind
-    subkind     = xact.subkind
-    instruction = xact.instruction
-    cusip       = xact.cusip
-    symbol      = xact.symbol
-    underlying  = xact.underlying
-    asset       = xact.asset
-    quantity    = shares
-    fees        = shares `sliceOf` (xact.fees)
-    cost        = costOfShares
-    distance t  = xact.distance (t^.xact)
+    ident       = item.ident
+    time        = item.time
+    kind        = item.kind
+    subkind     = item.subkind
+    instruction = item.instruction
+    cusip       = item.cusip
+    symbol      = item.symbol
+    underlying  = item.underlying
+    asset       = item.asset
+    fees        = shares `sliceOf` (item.fees)
+    distance t  = item.distance (t^.item)
 
-instance (Transactional t, Render t) => Render (Lot t) where
-    rendered l | l^.shares == 0 =
-        rendered (l^.symbol.non "")
-            <> space <> rendered (l^.xact)
-    rendered l@(Lot {..}) =
-        rendered (l^.symbol.non "")
-            <> space <> tshow _shares
-            <> " @@ " <> tshow (l^.cost.coerced / _shares)
-            <> " + " <> tshow (l^.fees)
-            <> space <> rendered _xact
+instance Render t => Render (Lot t) where
+    rendered Lot {..} = tshow _shares
+        <> " @@ " <> tshow (_costOfShares^.coerced / _shares)
+        <> space <> rendered _item
 
-sliceOf :: (Transactional t, Functor f)
+sliceOf :: (Priced t, Functor f)
         => Lens' (Lot t) (Amount 6) -> LensLike' f (Lot t) (Amount n)
         -> LensLike' f (Lot t) (Amount n)
-sliceOf _ _ f t | t^.xact.quantity == 0 = t <$ f 0
-sliceOf n l f t = t & l.percent (t^.n / t^.xact.quantity) %%~ f
+sliceOf _ _ f t | t^.item.quantity == 0 = t <$ f 0
+sliceOf n l f t = t & l.percent (t^.n / t^.item.quantity) %%~ f
 
-mkLot :: Transactional t => t -> Lot t
+mkLot :: Priced t => t -> Lot t
 mkLot t = Lot
     { _shares       = t^.quantity
     , _costOfShares = t^.cost
-    , _xact         = t
+    , _item         = t
     , _trail        = []
     }
 
-alignLots :: (Transactional a, Transactional b)
-          => a -> b -> (Split a, Split b)
+alignLots :: (Priced a, Priced b) => a -> b -> (Split a, Split b)
 alignLots x y
     | xq == 0 && yq == 0 = ( None x, None y )
     | xq == 0  = ( None x, All  y )
@@ -300,6 +314,7 @@ alignLots x y
 
 data StateChange t
     = Result (Event t)
+    | Submit (Event t)
     | ReplaceEvent (Event t)
     | AddEvent (Event t)
     deriving (Eq, Ord, Show)
@@ -309,6 +324,7 @@ makePrisms ''StateChange
 instance (Transactional t, Render t) => Render (StateChange t) where
     rendered = \case
         Result e       -> "Result "       <> rendered e
+        Submit e       -> "Submit "       <> rendered e
         ReplaceEvent e -> "ReplaceEvent " <> rendered e
         AddEvent e     -> "AddEvent "     <> rendered e
 
@@ -329,28 +345,25 @@ isCall t = t^?asset._OptionAsset.API.putCall == Just API.Call
 
 -- Fees paid to open are borne in the cost basis of the asset
 addFees :: Transactional t => Event t -> Event t
-addFees x | Just u <- x^?_OpenPosition._2 =
-    (x & _OpenPosition._2.cost -~ u^.fees.coerced)
+addFees x | Just u <- x^?_OpenPosition._3 =
+    (x & _OpenPosition._3.cost -~ u^.fees.coerced)
 addFees x = x
 
 intoEvent :: (MonadError (EventError t) m, Transactional t)
           => t -> m (Event t)
 intoEvent t = case t^.subkind of
-    BuyTrade           -> pure $ OpenPosition Long t
+    BuyTrade           -> pure $ OpenPosition Long WashSaleEligible t
     SellTrade
-        | isOption t   -> pure $ OpenPosition Short t
+        | isOption t   -> pure $ OpenPosition Short WashSaleEligible t
         | otherwise    -> throwError $ OpenBySellTrade t
-    ShortSale          -> pure $ OpenPosition Short t
+    ShortSale          -> pure $ OpenPosition Short WashSaleEligible t
     CloseShortPosition -> throwError $ OpenByCloseShortPosition t
-    TransferIn         -> pure $ OpenPosition Long t
+    TransferIn         -> pure $ OpenPosition Long WashSaleEligible t
     _                  -> throwError $ CannotRenderIntoOpenEvent t
 
-withEvents :: [Event t] -> HistoryState t a -> Except (EventError t) a
-withEvents = flip evalStateT
-
-foldEvents :: (Transactional t, Render t, Render a)
-           => a
-           -> (a -> [Event t] -> ChangeState t (Maybe a))
+foldEvents :: (Transactional t, Render t)
+           => Event t
+           -> (Event t -> [Event t] -> ChangeState t (Maybe (Event t)))
            -> HistoryState t [Event t]
 foldEvents t k = do
     evs <- use id
@@ -365,7 +378,8 @@ foldEvents t k = do
         error $ "foldEvents: unexpected remainder: "
             ++ render (rendered ml)
     id .= sc^..each._ReplaceEvent ++ sc^..each._AddEvent
-    pure $ sc^..each._Result
+    res <- forM (sc^..each._Submit) $ foldEvents ?? k
+    pure $ sc^..each._Result ++ concat res
 
 applyEvent :: (Transactional t, Render t)
            => Event t -> HistoryState t [Event t]
@@ -414,15 +428,15 @@ eventFromTransaction t = case (t^.kind, t^.subkind) of
     (ReceiveAndDeliver, CashAlternativesRedemption) ->
         UnrecognizedTransaction $ t & cost .~ t^.quantity
     (ReceiveAndDeliver, TransferIn) ->
-        OpenPosition Long t
+        OpenPosition Long WashSaleIneligible t
 
     (Trade, BuyTrade) ->
-        OpenPosition Long t
+        OpenPosition Long WashSaleEligible t
     (Trade, CloseShortPosition) ->
         ClosePosition (Just Short) t
     (Trade, OptionAssignment)
         | t^.instruction == Just API.Buy ->
-            OpenPosition Long t
+            OpenPosition Long WashSaleEligible t
         | otherwise ->
             -- jww (2020-05-05): A naked call assigns short stock
             ClosePosition (Just Long) t
@@ -431,7 +445,7 @@ eventFromTransaction t = case (t^.kind, t^.subkind) of
     (Trade, SellTrade) ->
         ClosePosition (Just Long) t
     (Trade, ShortSale) ->
-        OpenPosition Short t
+        OpenPosition Short WashSaleEligible t
     -- (Trade, TradeCorrection) -> pure []
 
     -- (WireIn, WireIncoming) -> pure []
@@ -445,7 +459,7 @@ handleEvent :: (Transactional t, Render t)
             -> Event t          -- ^ current event
             -> ChangeState t (Maybe (Event t))
               -- ^ recorded change, and what remains
-handleEvent (EstablishEquityCost amt cst dt:_) ev@(OpenPosition disp o)
+handleEvent (EstablishEquityCost amt cst dt:_) ev@(OpenPosition disp _ o)
     | not (isOption o || isOptionAssignment o) = do
     nev <- fmap addFees $ intoEvent $
         if amt < o^.quantity
@@ -458,65 +472,93 @@ handleEvent (EstablishEquityCost amt cst dt:_) ev@(OpenPosition disp o)
     forM_ (nev^?_OpenPosition._1) $ \ed -> unless (disp == ed) $
         throwError $ DispositionMismatch disp ed
 
-    change $ AddEvent nev
-    change $ Result nev
     when (amt > quant) $
         change $ ReplaceEvent (EstablishEquityCost
                                  (amt - quant)
                                  (cst^.percent ((amt - quant) / amt))
                                  dt)
+    change $ AddEvent nev
+    change $ Result nev
 
     pure $ if amt < quant
-           then Just $ ev & _OpenPosition._2.quantity -~ amt
+           then Just $ ev &~ do
+                _OpenPosition._2 .= WashSaleIneligible
+                _OpenPosition._3.quantity -= amt
            else Nothing
   where
     quant = o^.quantity
 
-handleEvent (ev@(PositionClosed ed o c):_) opos@(OpenPosition disp u)
-    | -- jww (2020-05-03): This restriction shouldn't be needed, if the
-      -- option might be considered as a replacement for the equity.
-      o^.symbol == u^.symbol =
-    if c^.distance o <= 30
-    then do
-        let (s, _) = c `alignLots` u
-            adj    = (o^.cost.percent
-                        (s^?!_SplitUsed.quantity / o^.quantity) +
-                      s^?!_SplitUsed.cost -
-                      s^?!_SplitUsed.fees.coerced)^.coerced
+handleEvent (WashSale adj:_) opos@(OpenPosition _ _ u)
+    | adj^?item._PositionClosed._3.symbol == Just (u^.symbol) &&
+      adj^?item._PositionClosed._3.distance u.to (<= 30) == Just True = do
+    let (s, _) = adj `alignLots` u
 
-        changes $ ReplaceEvent . PositionClosed ed o <$> s^.._SplitKept
-        change $ Result (WashLossApplied disp ev adj)
+    changes $ ReplaceEvent . WashSale <$> s^.._SplitKept
+    changes $ Result . WashSale <$> s^.._SplitUsed
 
-        -- We wash failing closes by adding the amount to the cost basis of
-        -- the opening transaction. Thus, we generate three instances of
-        -- WashLossApplied, but only one OpenPosition.
-        pure $ Just $ opos & _OpenPosition._2.cost +~ adj
-    else
-        -- This drops the PositionClosed from the history.
-        pure $ Just opos
+    -- We wash failing closes by adding the amount to the cost basis of
+    -- the opening transaction. Thus, we generate three instances of
+    -- WashLossApplied, but only one OpenPosition.
+    pure $ Just $ opos & _OpenPosition._3.cost +~ s^?!_SplitUsed.cost
+
+handleEvent (OpenPosition ed WashSaleEligible u:_) (WashSale adj)
+    | adj^?item._PositionClosed._3.symbol == Just (u^.symbol) &&
+      adj^?item._PositionClosed._3.distance u.to (<= 30) == Just True = do
+    let (s, d) = u `alignLots` adj
+        rep = s^?!_SplitUsed & cost +~ d^?!_SplitUsed.cost
+
+    change $ ReplaceEvent $ OpenPosition ed WashSaleIneligible rep
+    changes $ Result <$>
+        (d^.._SplitKept.to WashSale ++
+         s^.._SplitUsed.to (PositionClosed ed (s^?!_SplitUsed)) ++
+         [ OpenPosition ed WashSaleIneligible rep ])
+
+    -- We wash failing closes by adding the amount to the cost basis of
+    -- the opening transaction. Thus, we generate three instances of
+    -- WashLossApplied, but only one OpenPosition.
+    pure $ WashSale <$> d^?_SplitKept
+
+{-
+handleEvent (ev@(WashSale c adj):_) (ClosePosition disp u)
+    | o^.symbol == u^.symbol && c^.distance u <= 30 = do
+    inner <- lift $ withEvents (reverse evs) $
+        foldEvents cp $ \cp'@(ClosePosition mdisp' u') -> \case
+            (OpenPosition ed' o':_)
+                | ed == ed' && o'^.symbol == u'^.symbol -> do
+                  let (s', d') = o' `alignLots` u'
+                  changes $ Result <$>
+                  pure $ ClosePosition mdisp' <$> d'^?_SplitKept
+            [] -> pure Nothing
+            _  -> pure $ Just cp'
+
+    renderM $ "inner: " <> rendered inner
+-}
 
 -- Opening against an assigned option happens only for a Put.
-handleEvent (ev@(OptionAssigned o c):_) (OpenPosition disp u)
+handleEvent (ev@(OptionAssigned o c):_) (OpenPosition disp elig u)
     | o^.underlying == u^.symbol && isOptionAssignment u = do
     let (s, d) = (o & quantity *~ 100) `alignLots` u
-        res    = d ^.. _SplitUsed
-                     . to (cost +~ s^?!_SplitUsed.cost)
-                     . to (assert (not (isCall o)) $ OpenPosition Long)
-                     . to addFees
+
+    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
+
+    let res = d ^.. _SplitUsed
+                  . to (cost +~ s^?!_SplitUsed.cost)
+                  . to (assert (not (isCall o)) $ OpenPosition Long elig)
+                  . to addFees
         dur | u^.distance o > 365 = Long
             | otherwise = Short
 
+    changes $ AddEvent <$> res
     changes $ Result
         <$> ([ CapitalGain dur (negate (s^?!_SplitUsed.cost)) ev ] ++ res)
-    changes $ AddEvent <$> res
-    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
 
-    pure $ d^?_SplitKept.to (OpenPosition disp)
+    pure $ d^?_SplitKept.to (OpenPosition disp elig)
 
-handleEvent (ev@(OpenPosition ed o):evs) cp@(ClosePosition mdisp u)
+handleEvent (ev@(OpenPosition ed elig o):_evs) cp@(ClosePosition mdisp u)
     | case mdisp of Just disp -> ed == disp; Nothing -> True,
       o^.symbol == u^.symbol = do
     let (s, d) = o `alignLots` u
+
     forM_ ((,) <$> s^?_SplitUsed <*> d^?_SplitUsed) $ \(su, du) -> do
         let res | isOptionAssignment u = []
                 | otherwise = [ PositionClosed ed su du ]
@@ -528,32 +570,15 @@ handleEvent (ev@(OpenPosition ed o):evs) cp@(ClosePosition mdisp u)
                 | otherwise             = Short
 
         changes $ Result <$> ([ typ dur (adj^.coerced) ev ] ++ res)
-        changes $ ReplaceEvent <$> s^.._SplitKept.to (OpenPosition ed)
+        changes $ ReplaceEvent <$>
+            s^.._SplitKept.to (OpenPosition ed WashSaleIneligible)
 
         -- After closing at a loss, and if the loss occurs within 30 days
         -- of its corresponding open, and there is another open within 30
         -- days of the loss, close it and re-open so it's repriced by the
         -- wash loss.
         when (u^.distance o <= 30 && adj < 0) $ do
-            inner <- lift $ withEvents (reverse evs) $
-                foldEvents u $ \u' -> \case
-                    (OpenPosition ed' o':_)
-                        | ed == ed' && o'^.symbol == u'^.symbol -> do
-                          let (s', d') = o' `alignLots` u'
-                          changes $ Result <$>
-                            (s'^.._SplitUsed.to (PositionClosed ed' o') ++
-                             s'^.._SplitUsed.to (OpenPosition ed'))
-                          pure $ d'^?_SplitKept
-                    [] -> pure Nothing
-                    _  -> pure $ Just u'
-
-            renderM $ "inner: " <> rendered inner
-            -- jww (2020-05-07): reprice (inner^.results)
-            -- jww (2020-05-08): Record the part unused as
-            -- RememberingWashSaleLoss, and render it to Ledger as a comment
-            -- on the transaction.
-            -- jww (2020-05-08): Only add back what remains unhandled.
-            changes $ AddEvent <$> res
+            changes $ Submit . WashSale . washSale <$> res
 
     pure $ if isOptionAssignment u
            then Just cp
@@ -568,16 +593,19 @@ handleEvent (ev@(OpenPosition ed o):evs) cp@(ClosePosition mdisp u)
 handleEvent (ev@(OptionAssigned o c):_) (ClosePosition disp u)
     | o^.underlying == u^.symbol && isOptionAssignment u = do
     let (s, d) = (o & quantity *~ 100) `alignLots` u
-        res    = d ^.. _SplitUsed
-                     . to (cost +~ s^?!_SplitUsed.cost)
-                     . to (assert (isCall o) $ OpenPosition Short)
-                     . to addFees
+
+    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
+
+    let res = d ^.. _SplitUsed
+                  . to (cost +~ s^?!_SplitUsed.cost)
+                  . to (assert (isCall o) $
+                          OpenPosition Short WashSaleEligible)
+                  . to addFees
         dur | u^.distance o > 365 = Long
             | otherwise           = Short
 
-    changes $ Result <$> [ CapitalGain dur (s^?!_SplitUsed.cost) ev ] ++ res
     changes $ AddEvent <$> res
-    changes $ ReplaceEvent <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
+    changes $ Result <$> [ CapitalGain dur (s^?!_SplitUsed.cost) ev ] ++ res
 
     pure $ d^?_SplitKept.to (ClosePosition disp)
 
@@ -615,14 +643,9 @@ gainsKeeper :: (Transactional t, Eq t, Render t)
 gainsKeeper opts t =
     zoom (positionEvents.at (t^.underlying.non "").non []) $ do
         hist <- use id
-        eres <- runStateExcept (processTransaction t)
+        eres <- runStateExcept (applyEvent event)
         let doc = ""
-                $$ "xct -> " <> rendered (t^.symbol.non "")
-                             <> space <> rendered t
-                             <> space <> "@@"
-                             <> space <> tshow (if t^.quantity == 0
-                                                then 0
-                                                else t^.cost / t^.quantity)
+                $$ "evn -> " <> rendered event
                 $$ "" $$ "bef -> " <> rendered hist
         case eres of
             Left err  -> do
@@ -640,7 +663,7 @@ gainsKeeper opts t =
                         $$ "" $$ "--------------------------------------------------"
                 pure res
   where
-    processTransaction = applyEvent . eventFromTransaction . mkLot
+    event = eventFromTransaction (mkLot t)
 
     matches x =
         opts^.Options.traceAll

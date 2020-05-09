@@ -448,17 +448,6 @@ data Transaction = Transaction
 
 makeLenses ''Transaction
 
-instance Render Transaction where
-    rendered t =
-          tshow (t^.transactionInfo_.transactionSubType)
-     P.<> space
-     P.<> case t^.transactionInfo_.transactionItem_.amount of
-              Nothing  -> P.empty
-              Just amt -> tshow amt P.<> space
-     P.<> doubleQuotes (rendered (t^.transactionInfo_.transactionDate))
-     P.<> space
-     P.<> tshow (t^.transactionInfo_.transactionId)
-
 instance FromJSON Transaction where
   parseJSON = withObject "transaction" $ \obj -> do
     _transactionItem_       <- obj .: "transactionItem"
@@ -668,6 +657,14 @@ xcusip f s = s <$ f (s^?xinstr._Just.cusip)
 xunderlying :: Getter Transaction (Maybe Text)
 xunderlying f s =
     s <$ f (s^?xinstr.each.failing (assetType._OptionAsset.underlyingSymbol) symbol)
+
+instance Render Transaction where
+    rendered t
+        = text (T.unpack (t^.xsymbol.non "")) P.<> space
+     P.<> tshow (t^.xsubType) P.<> space
+     P.<> tshow (t^.xamount) P.<> space
+     P.<> doubleQuotes (rendered (t^.xdate)) P.<> space
+     P.<> tshow (t^.xid)
 
 ------------------------------------------------------------------------------
 
