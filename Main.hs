@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -8,46 +9,46 @@
 
 module Main where
 
-import           Control.Lens
-import           Control.Monad.State
-import           Data.Aeson
-import           Data.Amount
-import           Data.ByteString.Lazy as BL
-import qualified Data.Csv as Csv
-import           Data.Foldable
-import           Data.Ledger.Render as L
-import           Data.Text as T
-import           Data.Text.Encoding as T
-import           Data.Text.IO as T
-import           Data.Text.Lens
-import           Data.Time
-import           Data.Time.Format.ISO8601
-import           GHC.Generics hiding (to)
-import           Network.HTTP.Client
-import           Network.HTTP.Client.TLS
-import           Servant.Client
-import           ThinkOrSwim.API
-import           ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Convert
-import           ThinkOrSwim.Event
-import           ThinkOrSwim.Options as Opts
+import Control.Lens
+import Control.Monad.State
+import Data.Aeson
+import Data.Amount
+import Data.ByteString.Lazy as BL
+import Data.Int (Int64)
+import Data.Ledger.Render as L
+import Data.Map (Map, assocs)
+import Data.Text as T
+import Data.Text.IO as T
+import Data.Text.Lens
+import Data.Time
+import GHC.Generics hiding (to)
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
+import Servant.Client
+import ThinkOrSwim.API
+import ThinkOrSwim.API.TransactionHistory.GetTransactions as API hiding (symbol, amount, price)
+import ThinkOrSwim.Convert
+import ThinkOrSwim.Event hiding (symbol)
+import ThinkOrSwim.Options as Opts
 
 data Holding = Holding
-    { holdSymbol :: Text
-    , holdAmount :: Amount 6
-    , holdPrice  :: Amount 6
-    , holdDate   :: Day
+    { amount :: Amount 6
+    , price  :: Amount 6
+    , date   :: Day
     }
-    deriving (Generic, Show)
+    deriving (Generic, Show, FromJSON)
 
-instance Csv.FromField Day where
-    parseField = iso8601ParseM . T.unpack . T.decodeUtf8
+data Config = Config
+    { holdings :: Map Text [Holding]
+    , splits   :: Map Text [Amount 6]
+    }
+    deriving (Generic, Show, FromJSON)
 
-instance Csv.ToField Day where
-    toField = T.encodeUtf8 . T.pack . iso8601Show
-
-instance Csv.FromRecord Holding
-instance Csv.ToRecord Holding
+newConfig :: Config
+newConfig = Config
+    { holdings = mempty
+    , splits   = mempty
+    }
 
 main :: IO ()
 main = do
@@ -61,21 +62,22 @@ main = do
             downloadTransactions (opts^.Opts.account.packed) (T.pack key)
                 =<< createManager
 
-    priceData <- case opts^.equity of
-        Nothing -> pure []
+    config <- case opts^.equity of
+        Nothing -> pure newConfig
         Just fp -> do
-            eres <- Csv.decode Csv.NoHeader <$> BL.readFile fp
+            eres <- eitherDecode <$> BL.readFile fp
             case eres of
-                Left err -> error $ "Failed to decode equity CSV: " ++ err
-                Right holdings -> pure $ toList holdings
+                Left err  -> error $ "Failed to decode config: " ++ err
+                Right cfg -> pure cfg
 
     let ts = flip evalState newGainsKeeperState $ do
-            forM_ priceData $ \h ->
-                positionEvents.at (holdSymbol h).non []
-                    <>= [ EstablishEquityCost
-                            (holdAmount h)
-                            (- (holdPrice h * holdAmount h))
-                            (UTCTime (holdDate h) 0) ]
+            forM_ (assocs (holdings config)) $ \(sym, hs) ->
+                forM_ hs $ \h ->
+                    positionEvents.at sym.non []
+                        <>= [ EstablishEquityCost
+                                (amount h)
+                                (- (price h * amount h))
+                                (UTCTime (date h) 0) ]
             convertOrders opts th
 
     Prelude.putStrLn "; -*- ledger -*-\n"

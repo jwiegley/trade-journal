@@ -29,32 +29,29 @@ module Data.Amount
     , sign
     ) where
 
-import           Control.Monad
-import           Data.Aeson
-import           Data.Char (isDigit)
-import           Data.Coerce
-import qualified Data.Csv as Csv
-import           Data.Data
-import           Data.Default
-import           Data.Function (on)
-import           Data.Int (Int64)
-import           Data.List (intercalate)
-import           Data.List.Split
-import           Data.Profunctor
-import           Data.Ratio
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import           Data.Utils (Render(..))
-import           Foreign.C.String
-import           Foreign.C.Types
-import           Foreign.Marshal.Alloc
-import           Foreign.Ptr
-import           Foreign.Storable
-import           GHC.Generics
-import           GHC.TypeLits
-import           Prelude hiding (Float, Double)
-import           System.IO.Unsafe
-import           Text.PrettyPrint (text)
+import Control.Monad
+import Data.Aeson
+import Data.Char (isDigit)
+import Data.Coerce
+import Data.Data
+import Data.Default
+import Data.Function (on)
+import Data.Int (Int64)
+import Data.List (intercalate)
+import Data.List.Split
+import Data.Profunctor
+import Data.Ratio
+import Data.Utils (Render(..))
+import Foreign.C.String
+import Foreign.C.Types
+import Foreign.Marshal.Alloc
+import Foreign.Ptr
+import Foreign.Storable
+import GHC.Generics
+import GHC.TypeLits
+import Prelude hiding (Float, Double)
+import System.IO.Unsafe
+import Text.PrettyPrint (text)
 
 mpfr_RNDN, mpfr_RNDZ, mpfr_RNDU, mpfr_RNDD, mpfr_RNDA, mpfr_RNDF :: CUInt
 mpfr_RNDNA :: CUInt
@@ -76,20 +73,6 @@ newtype Amount (dec :: Nat) = Amount { getAmount :: Ratio Int64 }
 
 instance Default (Amount n) where
     def = 0
-
-instance KnownNat n => Csv.FromField (Amount n) where
-    parseField = pure . read . T.unpack . T.decodeUtf8
-
-instance KnownNat n => Csv.ToField (Amount n) where
-    toField = T.encodeUtf8 . T.pack . show
-
--- instance KnownNat n => Csv.FromRecord (Amount n) where
---     parseRecord v
---         | length v == 1 = read <$> v Csv..! 0
---         | otherwise     = mzero
-
--- instance KnownNat n => Csv.ToRecord (Amount n) where
---     toRecord n = Csv.record [Csv.toField (show n)]
 
 showAmount :: forall n. KnownNat n => CUInt -> Amount n -> String
 showAmount rnd (Amount r) =

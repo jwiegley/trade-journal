@@ -18,13 +18,16 @@ import           Data.Coerce
 import           Data.Foldable
 import qualified Data.Ledger as L
 import           Data.Ledger hiding (symbol, quantity, cost, price)
+import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe (catMaybes, isNothing)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
+import           Data.Utils
 import           Prelude hiding (Float, Double, (<>))
+import           Text.PrettyPrint
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (symbol, cost)
 import           ThinkOrSwim.Event
@@ -95,8 +98,7 @@ convertPostings opts actId t = do
        ++ [ newPosting L.Commissions True (DollarAmount (t^.fees_.commission))
           | t^.fees_.commission /= 0 ]
 
-       ++ (flip concatMap cs $ \ev ->
-             postingFromEvent actId ev & each.postMetadata %~ meta ev)
+       ++ concatMap (postingFromEvent actId) cs
 
        ++ [ case t^?xprice of
                 Just _              -> cashPost
@@ -108,29 +110,9 @@ convertPostings opts actId t = do
        ++ [ newPosting OpeningBalances False NoAmount
           | isNothing (t^?xamount) || fromEquity ]
 
-    meta ev m = m
-        & at "XId"          ?~ T.pack (show (t^.xid))
-        & at "XType"        ?~ T.pack (show subtyp)
-        -- & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
-        -- & at "Instruction"  .~ t^?xinstruction._Just.to show.packed
-        -- & at "CUSIP"        .~ t^.xcusip
-        -- & at "Instrument"   .~ t^?xasset.to assetKind
-        -- & at "Side"         .~ t^?xoption.putCall.to show.packed
-        -- & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
-        -- & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
-        -- & at "Contract"     .~ t^?xoption.description
-        & at "Effect"       .~ (effectDesc ev <|>
-                                t^?xitem.positionEffect.each.to show.packed)
-
-    effectDesc = \case
-        OpenPosition disp _ _   -> Just $ T.pack $ "Open " ++ show disp
-        PositionClosed disp _ _ -> Just $ T.pack $ "Close " ++ show disp
-        _ -> Nothing
-
     act          = transactionAccount actId t
-    subtyp       = t^.transactionInfo_.transactionSubType
-    isPriced     = t^.netAmount /= 0 || subtyp `elem` [ OptionExpiration ]
-    fromEquity   = subtyp `elem` [ TransferIn ]
+    isPriced     = t^.netAmount /= 0 || t^.xsubType `elem` [ OptionExpiration ]
+    fromEquity   = t^.xsubType `elem` [ TransferIn ]
     -- cashXact     = subtyp `elem` [ CashAlternativesPurchase
     --                         , CashAlternativesRedemption ]
     -- direct       = cashXact || not (has xamount t) || fromEquity
@@ -203,12 +185,13 @@ postingFromEvent actId ev = case ev of
         [ newPosting (transactionAccount actId (o^.item)) False
             (CommodityAmount $ mkCommodityLot o
                & L.quantity %~ case disp of Long -> id; Short -> negate) ]
-
+          & each.postMetadata %~ metadata ev o
     PositionClosed disp o c ->
         [ newPosting (transactionAccount actId (o^.item)) False
             (CommodityAmount $ mkCommodityLot o
                & L.quantity %~ case disp of Long -> negate; Short -> id
                & L.price    .~ c^?item.xprice.coerced) ]
+          & each.postMetadata %~ metadata ev c
 
     OptionAssigned o c ->
         [ newPosting (transactionAccount actId (o^.item)) False
@@ -217,36 +200,70 @@ postingFromEvent actId ev = case ev of
                & L.price    .~ if isOption c
                                then Just 0
                                else c^?item.xprice.coerced) ]
+          & each.postMetadata %~ metadata ev c
 
     WashSale Immediate g ->
         [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
-
+          & each.postMetadata %~ metadata ev (g^?!item._PositionClosed._3)
     WashSale Deferred g ->
         [ newPosting CapitalWashLoss False
             (DollarAmount (g^.cost.coerced))
         , newPosting CapitalWashLossDeferred False
             (DollarAmount (g^.cost.to negate.coerced)) ]
-
+          & each.postMetadata %~ metadata ev (g^?!item._PositionClosed._3)
     WashSale Transferred g ->
         [ newPosting CapitalWashLossDeferred False
             (DollarAmount (g^.cost.coerced)) ]
+          & each.postMetadata %~ metadata ev (g^?!item._PositionClosed._3)
 
-    CapitalGain disp g _ ->
+    CapitalGain disp g c ->
         [ newPosting
             (case disp of Long  -> CapitalGainLong
                           Short -> CapitalGainShort)
             False (DollarAmount (g^.coerced.to negate)) ]
-
-    CapitalLoss disp g _ ->
+          & each.postMetadata %~ metadata ev
+              (c^?!failing (_PositionClosed._3)
+                           (error $ "Expected closed position: "
+                              ++ render (rendered c)))
+    CapitalLoss disp g c ->
         [ newPosting
             (case disp of Long  -> CapitalLossLong
                           Short -> CapitalLossShort)
             False (DollarAmount (g^.coerced.to negate)) ]
+          & each.postMetadata %~ metadata ev
+              (c^?!failing (_PositionClosed._3)
+                           (error $ "Expected closed position: "
+                              ++ render (rendered c)))
 
     UnrecognizedTransaction t ->
         [ newPosting Unknown False
             (case t^.cost.coerced of
                  n | n == 0    -> NoAmount
                    | otherwise -> DollarAmount n) ]
+          & each.postMetadata %~ metadata ev t
 
     _ -> []
+
+metadata :: Event (Lot API.Transaction)
+         -> Lot API.Transaction
+         -> Map Text Text
+         -> Map Text Text
+metadata ev x m = m
+    & at "XId"          ?~ T.pack (show (x^.item.xid))
+    & at "XType"        ?~ T.pack (show (x^.item.xsubType))
+    -- & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
+    -- & at "Instruction"  .~ t^?xinstruction._Just.to show.packed
+    -- & at "CUSIP"        .~ t^.xcusip
+    -- & at "Instrument"   .~ t^?xasset.to assetKind
+    -- & at "Side"         .~ t^?xoption.putCall.to show.packed
+    -- & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
+    -- & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
+    -- & at "Contract"     .~ t^?xoption.description
+    & at "Effect"       .~ (effectDesc ev <|>
+                            x^?item.xitem.positionEffect.each.to show.packed)
+  where
+    effectDesc = \case
+        OpenPosition disp _ _   -> Just $ T.pack $ "Open " ++ show disp
+        PositionClosed disp _ _ -> Just $ T.pack $ "Close " ++ show disp
+        _ -> Nothing
+

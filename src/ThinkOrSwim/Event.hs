@@ -28,6 +28,7 @@ module ThinkOrSwim.Event
     , trail
     , Event(..)
     , _OpenPosition
+    , _PositionClosed
     , Disposition(..)
     , Priced(..)
     , Transactional(..)
@@ -551,7 +552,7 @@ handleEvent (ev@(OptionAssigned o c):_) (OpenPosition disp elig u)
 
     pure $ d^?_SplitKept.to (OpenPosition disp elig)
 
-handleEvent (ev@(OpenPosition ed _elig o):_evs) cp@(ClosePosition mdisp u)
+handleEvent (OpenPosition ed _elig o:_evs) cp@(ClosePosition mdisp u)
     | case mdisp of Just disp -> ed == disp; Nothing -> True,
       o^.symbol == u^.symbol = do
     let (s, d) = o `alignLots` u
@@ -565,9 +566,9 @@ handleEvent (ev@(OpenPosition ed _elig o):_evs) cp@(ClosePosition mdisp u)
                 | otherwise = CapitalLoss
             dur | du^.distance su > 365 = Long
                 | otherwise             = Short
-            ev' = ev & _OpenPosition._3 .~ su
+            pc  = PositionClosed ed su du
 
-        changes $ Result <$> ([ typ dur (adj^.coerced) ev' ] ++ res)
+        changes $ Result <$> ([ typ dur (adj^.coerced) pc ] ++ res)
         changes $ ReturnEvent <$>
             s^.._SplitKept.to (OpenPosition ed WashSaleIneligible)
 
