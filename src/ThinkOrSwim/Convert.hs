@@ -190,17 +190,19 @@ postingFromEvent actId ev = case ev of
         [ newPosting (transactionAccount actId (o^.item)) False
             (CommodityAmount $ mkCommodityLot o
                & L.quantity %~ case disp of Long -> negate; Short -> id
-               & L.price    .~ c^?item.xprice.coerced) ]
-          & each.postMetadata %~ metadata ev c
-
-    OptionAssigned o c ->
-        [ newPosting (transactionAccount actId (o^.item)) False
-            (CommodityAmount $ mkCommodityLot o
-               & L.quantity %~ (if isCall o then id else negate)
-               & L.price    .~ if isOption c
+               & L.price    .~ if isOptionAssignment c
                                then Just 0
                                else c^?item.xprice.coerced) ]
           & each.postMetadata %~ metadata ev c
+
+    -- OptionAssigned (Just o) c ->
+    --     [ newPosting (transactionAccount actId (o^.item)) False
+    --         (CommodityAmount $ mkCommodityLot o
+    --            & L.quantity %~ (if isCall o then id else negate)
+    --            & L.price    .~ if isOption c
+    --                            then Just 0
+    --                            else c^?item.xprice.coerced) ]
+    --       & each.postMetadata %~ metadata ev c
 
     WashSale Immediate g ->
         [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
@@ -223,8 +225,7 @@ postingFromEvent actId ev = case ev of
             False (DollarAmount (g^.coerced.to negate)) ]
           & each.postMetadata %~ metadata ev
               (c^?!failing (_PositionClosed._3)
-                           (error $ "Expected closed position: "
-                              ++ render (rendered c)))
+                           (_OptionAssigned._2))
     CapitalLoss disp g c ->
         [ newPosting
             (case disp of Long  -> CapitalLossLong
@@ -243,6 +244,7 @@ postingFromEvent actId ev = case ev of
           & each.postMetadata %~ metadata ev t
 
     _ -> []
+    -- _ -> error $ "Failed to convert event: " ++ render (rendered ev)
 
 metadata :: Event (Lot API.Transaction)
          -> Lot API.Transaction

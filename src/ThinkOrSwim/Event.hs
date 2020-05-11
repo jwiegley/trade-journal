@@ -29,6 +29,7 @@ module ThinkOrSwim.Event
     , Event(..)
     , _OpenPosition
     , _PositionClosed
+    , _OptionAssigned
     , Disposition(..)
     , Priced(..)
     , Transactional(..)
@@ -40,13 +41,12 @@ module ThinkOrSwim.Event
     ) where
 
 import           Control.Applicative
-import           Control.Exception
 import           Control.Lens
 import           Control.Monad.Except
 import           Control.Monad.Trans.State
 import           Data.Amount
 import           Data.Foldable
-import           Data.List (tails)
+import           Data.List (tails, isInfixOf)
 import           Data.Map (Map)
 import           Data.Split
 import           Data.Text (Text)
@@ -68,6 +68,10 @@ data Disposition
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Disposition
+
+inverseDisposition :: Disposition -> Disposition
+inverseDisposition Long = Short
+inverseDisposition Short = Long
 
 data Eligibility
     = WashSaleEligible
@@ -111,7 +115,7 @@ data Event t
       -- ^ Use 'Lot (Event t)' rather than '(Amount 6) (Event t)' to
       --   support easy splitting of recorded wash sales.
     -- Options
-    | OptionAssigned t t
+    | OptionAssigned (Maybe t) t
     -- | OptionExercised t t
       -- Transfer
     | EstablishEquityCost
@@ -119,6 +123,7 @@ data Event t
         , _equityCost   :: Amount 6
         , _equityDate   :: UTCTime
         }
+    | SplitTransaction API.TransactionId [Amount 6]
     -- | InterestPaid t
     -- | DividendPaid t
     | UnrecognizedTransaction t
@@ -197,6 +202,10 @@ instance (Transactional t, Render t) => Render (Event t) where
                 <> space <> tshow x
                 <> space <> tshow y
                 <> space <> tshow z
+        SplitTransaction x xs ->
+            "SplitTransaction"
+                <> space <> tshow x
+                <> space <> renderList tshow xs
         UnrecognizedTransaction t ->
             "UnrecognizedTransaction"
                 $$ space <> rendered t
@@ -328,6 +337,7 @@ data StateChange t
     | Submit (Event t)
     | ReplaceEvent (Event t) (Event t)
     | ReturnEvent (Event t)
+    | InsertEvent (Event t)
     | AddEvent (Event t)
     deriving (Eq, Ord, Show)
 
@@ -339,6 +349,7 @@ instance (Transactional t, Render t) => Render (StateChange t) where
         Submit x         -> "Submit"       $$ nest 2 (rendered x)
         ReplaceEvent x y -> "ReplaceEvent" $$ nest 2 (rendered x $$ rendered y)
         ReturnEvent x    -> "ReturnEvent"  $$ nest 2 (rendered x)
+        InsertEvent x    -> "InsertEvent"  $$ nest 2 (rendered x)
         AddEvent x       -> "AddEvent"     $$ nest 2 (rendered x)
 
 type EventStateT s t a = StateT s (Except (EventError t)) a
@@ -415,7 +426,7 @@ eventFromTransaction t = case (t^.kind, t^.subkind) of
     -- purchasing, or the gain/loss if selling. This equity transfer is a
     -- (Trade, OptionAssignment) transaction and follows this event.
     (ReceiveAndDeliver, OptionAssignment) ->
-        ClosePosition (Just Short) t
+        OptionAssigned Nothing t
     (ReceiveAndDeliver, OptionExpiration) ->
         ClosePosition Nothing t
     (ReceiveAndDeliver, CashAlternativesPurchase) ->
@@ -429,12 +440,8 @@ eventFromTransaction t = case (t^.kind, t^.subkind) of
         OpenPosition Long WashSaleEligible t
     (Trade, CloseShortPosition) ->
         ClosePosition (Just Short) t
-    (Trade, OptionAssignment)
-        | t^.instruction == Just API.Buy ->
-            OpenPosition Long WashSaleEligible t
-        | otherwise ->
-            -- jww (2020-05-05): A naked call assigns short stock
-            ClosePosition (Just Long) t
+    (Trade, OptionAssignment) ->
+        OptionAssigned Nothing t
     (Trade, BondsRedemption) ->
         UnrecognizedTransaction $ t & cost %~ negate
     (Trade, SellTrade) ->
@@ -496,6 +503,75 @@ handleEvent (ws@(WashSale Deferred adj):_) opos@(OpenPosition _ _ u)
     -- WashLossApplied, but only one OpenPosition.
     pure $ Just $ opos & _OpenPosition._3.cost +~ s^?!_SplitUsed.cost
 
+{-
+-- Opening against an assigned option happens only for a Put.
+handleEvent (ev@(OptionAssigned (Just o) c):_) (OpenPosition disp elig u)
+    | o^.underlying == u^.symbol && isOptionAssignment u = do
+    let (s, d) = (o & quantity *~ 100) `alignLots` u
+
+    changes $ ReplaceEvent ev
+        <$> (OptionAssigned <$> s^.._SplitKept.to Just <*> pure c)
+
+    let res = d ^.. _SplitUsed
+                  . to (cost +~ s^?!_SplitUsed.cost)
+                  . to (assert (not (isCall o)) $ OpenPosition Long elig)
+                  . to addFees
+        dur | u^.distance o > 365 = Long
+            | otherwise           = Short
+
+    changes $ AddEvent <$> res
+    changes $ Result
+        <$> [ CapitalGain dur (negate (s^?!_SplitUsed.cost)) ev ] ++ res
+
+    pure $ d^?_SplitKept.to (OpenPosition disp elig)
+
+-- Closing against an assigned option happens only for a Call. If it was a
+-- covered call, then the case above for matching against an OpenPosition will
+-- have handled it.
+--
+-- NOTE: Unlike the Put case, this code is only used for assigned calls if the
+-- assignment does not fully close existing equity positions.
+handleEvent (ev@(OptionAssigned (Just o) c):_) (ClosePosition disp u)
+    | o^.underlying == u^.symbol && isOptionAssignment u = do
+    let (s, d) = o `alignLots` u
+
+    changes $ ReplaceEvent ev
+        <$> (OptionAssigned <$> s^.._SplitKept.to Just <*> pure c)
+
+    let res = d ^.. _SplitUsed
+                  . to (cost +~ s^?!_SplitUsed.cost)
+                  . to (assert (isCall o) $
+                          OpenPosition Short WashSaleEligible)
+                  . to addFees
+        dur | u^.distance o > 365 = Long
+            | otherwise           = Short
+
+    changes $ AddEvent <$> res
+    changes $ Result <$> [ CapitalGain dur (s^?!_SplitUsed.cost) ev ] ++ res
+
+    pure $ d^?_SplitKept.to (ClosePosition disp)
+-}
+
+-- If the option being assigned is a put, then this is either an opening
+-- purchase of shares, or closing of a short position.
+--
+-- If the option being assigned is a call, then this is either a closing of
+-- shares purchased earlier, or the opening of a short position.
+handleEvent (ev@(OptionAssigned (Just o) c):_) (OptionAssigned Nothing u)
+    | o^.underlying == u^.symbol = do
+    let (s, d) = (o & quantity *~ 100) `alignLots` u
+    changes $ ReplaceEvent ev
+        <$> (OptionAssigned <$> s^.._SplitKept.to Just <*> pure c)
+    let adj = d^?!_SplitUsed & cost +~ s^?!_SplitUsed.cost
+        dur | c^.distance o > 365 = Long
+            | otherwise           = Short
+    change $ Result $ CapitalGain dur (s^?!_SplitUsed.cost.to negate) ev
+    change $ Submit $ ClosePosition (Just disp) adj
+    pure $ d^?_SplitKept.to (OptionAssigned Nothing)
+  where
+    disp | isCall o  = Long
+         | otherwise = Short
+
 handleEvent (opos@(OpenPosition ed WashSaleEligible u):_) (WashSale Deferred adj)
     | adj^?item._PositionClosed._3.symbol == Just (u^.symbol) &&
       adj^?item._PositionClosed._3.distance u.to (<= 30) == Just True = do
@@ -515,103 +591,54 @@ handleEvent (opos@(OpenPosition ed WashSaleEligible u):_) (WashSale Deferred adj
     -- WashLossApplied, but only one OpenPosition.
     pure $ WashSale Deferred <$> d^?_SplitKept
 
-{-
-handleEvent (ev@(WashSale c adj):_) (ClosePosition disp u)
-    | o^.symbol == u^.symbol && c^.distance u <= 30 = do
-    inner <- lift $ withEvents (reverse evs) $
-        foldEvents cp $ \cp'@(ClosePosition mdisp' u') -> \case
-            (OpenPosition ed' o':_)
-                | ed == ed' && o'^.symbol == u'^.symbol -> do
-                  let (s', d') = o' `alignLots` u'
-                  changes $ Result <$>
-                  pure $ ClosePosition mdisp' <$> d'^?_SplitKept
-            [] -> pure Nothing
-            _  -> pure $ Just cp'
-
-    renderM $ "inner: " <> rendered inner
--}
-
--- Opening against an assigned option happens only for a Put.
-handleEvent (ev@(OptionAssigned o c):_) (OpenPosition disp elig u)
-    | o^.underlying == u^.symbol && isOptionAssignment u = do
-    let (s, d) = (o & quantity *~ 100) `alignLots` u
-
-    changes $ ReplaceEvent ev
-        <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
-
-    let res = d ^.. _SplitUsed
-                  . to (cost +~ s^?!_SplitUsed.cost)
-                  . to (assert (not (isCall o)) $ OpenPosition Long elig)
-                  . to addFees
-        dur | u^.distance o > 365 = Long
-            | otherwise = Short
-
-    changes $ AddEvent <$> res
-    changes $ Result
-        <$> ([ CapitalGain dur (negate (s^?!_SplitUsed.cost)) ev ] ++ res)
-
-    pure $ d^?_SplitKept.to (OpenPosition disp elig)
-
-handleEvent (OpenPosition ed _elig o:_evs) cp@(ClosePosition mdisp u)
-    | case mdisp of Just disp -> ed == disp; Nothing -> True,
+handleEvent (OpenPosition ed elig o:_evs) pos
+    | Just disp <-
+        pos^?failing (_ClosePosition._1.non ed) (\f s -> s <$ f Short),
+      Just u <- pos^?failing (_ClosePosition._2) (_OptionAssigned._2),
+      ed == disp,
       o^.symbol == u^.symbol = do
     let (s, d) = o `alignLots` u
 
     forM_ ((,) <$> s^?_SplitUsed <*> d^?_SplitUsed) $ \(su, du) -> do
-        let res | isOptionAssignment u = []
-                | otherwise = [ PositionClosed ed su du ]
+        let res = PositionClosed ed su du
             adj = s^?!_SplitUsed.cost +
                   d^?!_SplitUsed.cost - d^?!_SplitUsed.fees.coerced
             typ | adj > 0   = CapitalGain
                 | otherwise = CapitalLoss
             dur | du^.distance su > 365 = Long
                 | otherwise             = Short
-            pc  = PositionClosed ed su du
 
-        changes $ Result <$> ([ typ dur (adj^.coerced) pc ] ++ res)
+        changes $ Result <$> [ typ dur (adj^.coerced) res, res ]
         changes $ ReturnEvent <$>
             s^.._SplitKept.to (OpenPosition ed WashSaleIneligible)
+
+        when (has _OptionAssigned pos) $
+            change $ AddEvent $ pos & _OptionAssigned._1 ?~ o
 
         -- After closing at a loss, and if the loss occurs within 30 days
         -- of its corresponding open, and there is another open within 30
         -- days of the loss, close it and re-open so it's repriced by the
         -- wash loss.
-        when (u^.distance o <= 30 && adj < 0) $
-            changes $ Submit . WashSale Deferred . washSale <$> res
+        when (u^.distance o <= 30 && adj < 0 && elig == WashSaleEligible) $
+            change $ Submit $ WashSale Deferred $ washSale res
 
-    pure $ if isOptionAssignment u
-           then Just cp
-           else d^?_SplitKept.to (ClosePosition mdisp)
-
--- Closing against an assigned option happens only for a Call. If it was a
--- covered call, then the case above for matching against an OpenPosition will
--- have handled it.
---
--- NOTE: Unlike the Put case, this code is only used for assigned calls if the
--- assignment does not fully close existing equity positions.
-handleEvent (ev@(OptionAssigned o c):_) (ClosePosition disp u)
-    | o^.underlying == u^.symbol && isOptionAssignment u = do
-    let (s, d) = (o & quantity *~ 100) `alignLots` u
-
-    changes $ ReplaceEvent ev
-        <$> (OptionAssigned <$> s^.._SplitKept <*> pure c)
-
-    let res = d ^.. _SplitUsed
-                  . to (cost +~ s^?!_SplitUsed.cost)
-                  . to (assert (isCall o) $
-                          OpenPosition Short WashSaleEligible)
-                  . to addFees
-        dur | u^.distance o > 365 = Long
-            | otherwise           = Short
-
-    changes $ AddEvent <$> res
-    changes $ Result <$> [ CapitalGain dur (s^?!_SplitUsed.cost) ev ] ++ res
-
-    pure $ d^?_SplitKept.to (ClosePosition disp)
+    pure $ d^?_SplitKept <&> \k ->
+        pos & _ClosePosition._2  .~ k
+            & _OptionAssigned._2 .~ k
 
 handleEvent (e:_) u = do
     change $ ReturnEvent e
     pure $ Just u
+
+handleEvent [] (ClosePosition disp u) = do
+    let r = addFees $
+            OpenPosition (case disp of
+                              Just d -> inverseDisposition d
+                              _ -> Long)
+                         WashSaleEligible u
+    change $ AddEvent r
+    change $ Result r
+    pure Nothing
 
 handleEvent [] u = do
     let r = addFees u
@@ -641,7 +668,8 @@ runStateExcept (StateT f) = StateT $ \s -> do
 handleChanges :: [StateChange t]
               -> HistoryState t ([Event t], [Event t])
 handleChanges sc = do
-    id .= sc^..each.failing (_ReplaceEvent._2) _ReturnEvent
+    id .= sc^..each._InsertEvent
+       ++ sc^..each.failing (_ReplaceEvent._2) _ReturnEvent
        ++ sc^..each._AddEvent
     pure (sc^..each._Submit, sc^..each._Result)
 
@@ -691,4 +719,4 @@ gainsKeeper opts t =
             Just sym -> x^.underlying == Just (T.pack sym)
       || case opts^.Options.traceId of
             Nothing  -> False
-            Just i   -> show (x^.ident) == i
+            Just i   -> show (x^.ident) `isInfixOf` i

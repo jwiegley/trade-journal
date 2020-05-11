@@ -42,8 +42,9 @@
 
 (defconst tos-base-url "https://api.tdameritrade.com/v1")
 
+(defconst tos-user-id "jwiegley")
 (defconst tos-client-id
-  (lookup-password "developer.tdameritrade.com.client-id" "jwiegley" 80))
+  (lookup-password "developer.tdameritrade.com.client-id" tos-user-id 80))
 
 (defvar tos-refresh-token nil)
 (defvar tos-access-token nil
@@ -90,6 +91,9 @@ Access tokens are only valid for 30 minutes.")
                       "client_id=%s&"
                       "redirect_uri=http%%3A%%2F%%2F127.0.0.1:9595")
               (with-temp-buffer
+                (with-temp-buffer
+                  (insert (lookup-password "ameritrade.com" tos-user-id 80))
+                  (copy-region-as-kill (point-min) (point-max)))
                 (insert (read-string "URL response from tdameritrade.com: "))
                 (goto-char (point-min))
                 (search-forward "code=")
@@ -112,23 +116,51 @@ Access tokens are only valid for 30 minutes.")
              'access_token
              (request-response-data
               (request
-               (format "%s/oauth2/token" tos-base-url)
-               :sync t
-               :type "POST"
-               :headers
-               '(("Content-Type" . "application/x-www-form-urlencoded"))
-               :data
-               (format
-                (concat "grant_type=refresh_token&"
-                        "refresh_token=%s&"
-                        "access_type=offline&"
-                        "code=&"
-                        "client_id=%s&"
-                        "redirect_uri=http%%3A%%2F%%2F127.0.0.1:9595")
-                (url-hexify-string tos-refresh-token)
-                (url-hexify-string tos-client-id))
-               :parser 'json-read))))
+                (format "%s/oauth2/token" tos-base-url)
+                :sync t
+                :type "POST"
+                :headers
+                '(("Content-Type" . "application/x-www-form-urlencoded"))
+                :data
+                (format
+                 (concat "grant_type=refresh_token&"
+                         "refresh_token=%s&"
+                         "access_type=offline&"
+                         "code=&"
+                         "client_id=%s&"
+                         "redirect_uri=http%%3A%%2F%%2F127.0.0.1:9595")
+                 (url-hexify-string tos-refresh-token)
+                 (url-hexify-string tos-client-id))
+                :parser 'json-read))))
            (current-time)))
     (car tos-access-token)))
+
+(defun thinkorswim-get-quote (symbol)
+  (let ((result
+         (cdar
+          (request-response-data
+           (request
+             (format "%s/marketdata/quotes" tos-base-url)
+             :sync t
+             :type "GET"
+             :headers
+             `(("Authorization" . ,(concat "Bearer " (tos-get-access-token))))
+             :params
+             `(("apikey" . ,tos-client-id)
+               ("symbol" . ,symbol))
+             :parser 'json-read)))))
+    (list :bid (cdr (assq 'bidPriceInDouble result))
+          :ask (cdr (assq 'askPriceInDouble result))
+          :last (cdr (assq 'lastPriceInDouble result))
+          :mark (cdr (assq 'mark result))
+          :high (cdr (assq 'highPriceInDouble result))
+          :low (cdr (assq 'lowPriceInDouble result))
+          :open (cdr (assq 'openPriceInDouble result))
+          :close (cdr (assq 'closePriceInDouble result)))))
+
+(defun thinkorswim-get-quote-mark (symbol)
+  (plist-get (thinkorswim-get-quote symbol) :mark))
+
+(setq stock-quote-data-functions '(thinkorswim-get-quote-mark))
 
 (provide 'thinkorswim)
