@@ -19,7 +19,6 @@ import           Test.Tasty
 -- import           Test.Tasty.HUnit
 import           Test.Tasty.Hedgehog
 import           ThinkOrSwim.Event
-import           ThinkOrSwim.Options
 
 testGains :: TestTree
 testGains = testGroup "gains"

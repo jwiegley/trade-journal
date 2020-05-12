@@ -14,7 +14,6 @@ import Control.Monad.State
 import Data.Aeson
 import Data.Amount
 import Data.ByteString.Lazy as BL
-import Data.Int (Int64)
 import Data.Ledger.Render as L
 import Data.Map (Map, assocs)
 import Data.Text as T
@@ -26,7 +25,8 @@ import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 import Servant.Client
 import ThinkOrSwim.API
-import ThinkOrSwim.API.TransactionHistory.GetTransactions as API hiding (symbol, amount, price)
+import ThinkOrSwim.API.TransactionHistory.GetTransactions as API
+         hiding (symbol, amount, price)
 import ThinkOrSwim.Convert
 import ThinkOrSwim.Event hiding (symbol)
 import ThinkOrSwim.Options as Opts

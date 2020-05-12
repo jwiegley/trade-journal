@@ -58,9 +58,10 @@ newCommodityLot = CommodityLot
     }
 
 data PostingAmount k (lot :: * -> *)
-    = NoAmount
+    = NullAmount
     | DollarAmount (Amount 2)
     | CommodityAmount (lot k)
+    | MetadataOnly
     deriving (Eq, Ord, Show)
 
 makePrisms ''PostingAmount

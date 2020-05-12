@@ -29,7 +29,8 @@ import           Prelude hiding (Float, Double)
 import           Text.Printf
 
 renderPostingAmount :: PostingAmount k CommodityLot -> [Text]
-renderPostingAmount NoAmount = [""]
+renderPostingAmount MetadataOnly = error "unexpected MetadataOnly"
+renderPostingAmount NullAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
 renderPostingAmount (CommodityAmount l@(CommodityLot {..}))
     = map T.pack
@@ -79,7 +80,7 @@ renderPosting Posting {..} =
         (if _isVirtual then "(" <> act <> ")" else act)
         (head xs)
         (case xs of _:y:_ -> " " <> y; _ -> "")
-    ]
+    | _amount /= MetadataOnly ]
     ++ renderMetadata _postMetadata
   where
     act = renderAccount _account

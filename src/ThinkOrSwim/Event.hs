@@ -47,7 +47,6 @@ import           Control.Monad.Except
 import           Control.Monad.Trans.State
 import           Data.Amount
 import           Data.Foldable
-import           Data.Int (Int64)
 import           Data.List (tails, isInfixOf, intersperse)
 import           Data.Map (Map)
 import           Data.Split
@@ -302,7 +301,7 @@ data Lot t = Lot
     deriving (Eq, Ord, Show)
 
 makePrisms ''RefType
-makeLenses ''Ref
+-- makeLenses ''Ref
 makeLenses ''Lot
 makePrisms ''Event
 makePrisms ''EventError
@@ -654,14 +653,15 @@ handleEvent (opos@(OpenPosition ed WashSaleEligible u):_) (WashSale Deferred adj
     -- WashLossApplied, but only one OpenPosition.
     pure $ WashSale Deferred <$> d^?_SplitKept
 
-handleEvent (OpenPosition ed elig o:_evs) pos
+handleEvent (OpenPosition ed _elig o:_evs) pos
     | Just disp <-
         pos^?failing (_ClosePosition._1.non ed)
                      (failing (_OpenOrClosePosition._1)
                               (\f s -> s <$ f Short)),
-      Just u <- pos^?failing (_ClosePosition._2)
-                            (failing (_OpenOrClosePosition._2)
-                                     (_OptionAssigned._2)),
+      Just u <-
+        pos^?failing (_ClosePosition._2)
+                     (failing (_OpenOrClosePosition._2)
+                              (_OptionAssigned._2)),
       ed == disp,
       o^.symbol == u^.symbol = do
     let (s, d) = o `alignLots` u
@@ -686,7 +686,7 @@ handleEvent (OpenPosition ed elig o:_evs) pos
         -- of its corresponding open, and there is another open within 30
         -- days of the loss, close it and re-open so it's repriced by the
         -- wash loss.
-        when (u^.distance o <= 30 && adj < 0 && elig == WashSaleEligible) $
+        when (u^.distance o <= 30 && adj < 0) $
             change $ Submit $ WashSale Deferred $ washSale res
 
     pure $ d^?_SplitKept <&> \k ->

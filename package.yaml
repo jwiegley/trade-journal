@@ -4,6 +4,10 @@ license:    BSD3
 author:     John Wiegley
 maintainer: johnw@newartisans.com
 
+ghc-options:
+  - -Wall
+  - -Werror
+
 dependencies:
   - base
   - aeson

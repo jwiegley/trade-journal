@@ -25,6 +25,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
+import           Data.Time.Format.ISO8601
 import           Data.Utils
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
@@ -32,7 +33,6 @@ import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions hiding (symbol, cost)
 import           ThinkOrSwim.Event
 import           ThinkOrSwim.Options (Options)
-import           ThinkOrSwim.Types
 
 convertOrders
     :: Options
@@ -103,11 +103,11 @@ convertPostings opts actId t = do
        ++ [ case t^?xprice of
                 Just _              -> cashPost
                 Nothing | isPriced  -> cashPost
-                        | otherwise -> newPosting act False NoAmount
+                        | otherwise -> newPosting act False NullAmount
           | case t^?xprice of
                 Just _  -> isPriced
                 Nothing -> not fromEquity ]
-       ++ [ newPosting OpeningBalances False NoAmount
+       ++ [ newPosting OpeningBalances False NullAmount
           | isNothing (t^?xamount) || fromEquity ]
 
     act          = transactionAccount actId t
@@ -120,7 +120,7 @@ convertPostings opts actId t = do
 
     cashPost = newPosting (Cash actId) False $
         if t^.netAmount == 0
-        then NoAmount
+        then NullAmount
         else DollarAmount (t^.netAmount)
 
     roundPostings ps =
@@ -195,28 +195,14 @@ postingFromEvent actId ev = case ev of
                                else c^?item.xprice.coerced) ]
           & each.postMetadata %~ metadata ev c
 
-    -- OptionAssigned (Just o) c ->
-    --     [ newPosting (transactionAccount actId (o^.item)) False
-    --         (CommodityAmount $ mkCommodityLot o
-    --            & L.quantity %~ (if isCall o then id else negate)
-    --            & L.price    .~ if isOption c
-    --                            then Just 0
-    --                            else c^?item.xprice.coerced) ]
-    --       & each.postMetadata %~ metadata ev c
-
     WashSale Immediate g ->
         [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
           & each.postMetadata %~ metadata ev (g^?!item._PositionClosed._3)
     WashSale Deferred g ->
-        [ newPosting CapitalWashLoss False
-            (DollarAmount (g^.cost.coerced))
-        , newPosting CapitalWashLossDeferred False
-            (DollarAmount (g^.cost.to negate.coerced)) ]
-          & each.postMetadata %~ metadata ev (g^?!item._PositionClosed._3)
-    WashSale Transferred g ->
-        [ newPosting CapitalWashLossDeferred False
-            (DollarAmount (g^.cost.coerced)) ]
-          & each.postMetadata %~ metadata ev (g^?!item._PositionClosed._3)
+        [ newPosting CapitalWashLossDeferred False MetadataOnly
+            & postMetadata.at "WashDeferred" ?~
+                ("$" ++ show (g^.cost.to negate))^.packed ]
+    WashSale Transferred _ -> []
 
     CapitalGain disp g c ->
         [ newPosting
@@ -239,7 +225,7 @@ postingFromEvent actId ev = case ev of
     UnrecognizedTransaction t ->
         [ newPosting Unknown False
             (case t^.cost.coerced of
-                 n | n == 0    -> NoAmount
+                 n | n == 0    -> NullAmount
                    | otherwise -> DollarAmount n) ]
           & each.postMetadata %~ metadata ev t
 
@@ -253,14 +239,14 @@ metadata :: Event (Lot API.Transaction)
 metadata ev x m = m
     & at "XId"          ?~ T.pack (show (x^.item.xid))
     & at "XType"        ?~ T.pack (show (x^.item.xsubType))
-    -- & at "XDate"        ?~ T.pack (iso8601Show (t^.xdate))
-    -- & at "Instruction"  .~ t^?xinstruction._Just.to show.packed
-    -- & at "CUSIP"        .~ t^.xcusip
-    -- & at "Instrument"   .~ t^?xasset.to assetKind
-    -- & at "Side"         .~ t^?xoption.putCall.to show.packed
-    -- & at "Strike"       .~ t^?xoption.strikePrice._Just.to thousands.packed
-    -- & at "Expiration"   .~ t^?xoption.expirationDate.to (T.pack . iso8601Show)
-    -- & at "Contract"     .~ t^?xoption.description
+    & at "XDate"        ?~ T.pack (iso8601Show (x^.item.xdate))
+    & at "Instruction"  .~ x^?item.xinstruction._Just.to show.packed
+    & at "CUSIP"        .~ x^.item.xcusip
+    & at "Instrument"   .~ x^?item.xasset.to assetKind
+    & at "Side"         .~ x^?item.xoption.putCall.to show.packed
+    & at "Strike"       .~ x^?item.xoption.strikePrice._Just.to thousands.packed
+    & at "Expiration"   .~ x^?item.xoption.expirationDate.to (T.pack . iso8601Show)
+    & at "Contract"     .~ x^?item.xoption.description
     & at "Effect"       .~ (effectDesc ev <|>
                             x^?item.xitem.positionEffect.each.to show.packed)
   where
