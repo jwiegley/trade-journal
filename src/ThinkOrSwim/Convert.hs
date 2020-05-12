@@ -164,7 +164,7 @@ mkCommodityLot t = newCommodityLot @API.TransactionSubType
     & L.symbol     .~ t^.symbol.non "???"
     & L.cost       ?~ t^.cost.coerced.to abs
     & purchaseDate ?~ utctDay (t^.time)
-    & refs         .~ [ transactionRef (t^.item) ]
+    & L.note       ?~ T.pack (render (renderRefList (t^.trail)))
     & L.price      .~ t^?item.xprice.coerced
   where
     instr = case t^?item.xasset of

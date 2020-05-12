@@ -637,6 +637,9 @@ xinstr = xitem.transactionInstrument
 xinstruction :: Lens' Transaction (Maybe Instruction)
 xinstruction = xitem.instruction
 
+xeffect :: Lens' Transaction (Maybe PositionEffect)
+xeffect = xitem.positionEffect
+
 xasset :: Traversal' Transaction AssetType
 xasset = xinstr.each.assetType
 

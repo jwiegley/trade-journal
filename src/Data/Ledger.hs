@@ -16,39 +16,11 @@ module Data.Ledger where
 import           Control.Lens
 import           Data.Amount
 import           Data.Default
-import           Data.Int
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Text (Text)
 import           Data.Time
 import           Prelude hiding (Float, Double)
-
-type LotId = Int64
-
-data RefType
-    = WashSaleRule (Amount 6)
-      -- ^ A wash sale rule increases the cost basis of an equity purchase by
-      --   adding previous capital losses, taking those losses off the books.
-
-    | RollingOrder (Amount 6)
-      -- ^ In a rolling order, the closing of one option is followed by the
-      --   opening of another, and any credit or debit is carried across.
-      --
-      --   NOTE: GainsKeeper does not do this, and records one as an immediate
-      --   loss/gain
-    | OpeningOrder
-    | ExistingEquity
-    deriving (Eq, Ord, Show)
-
-makePrisms ''RefType
-
-data Ref = Ref
-    { _refType :: RefType
-    , _refId   :: LotId
-    }
-    deriving (Eq, Ord, Show)
-
-makeLenses ''Ref
 
 data Instrument
     = Equity
@@ -67,7 +39,7 @@ data CommodityLot k = CommodityLot
     , _symbol       :: Text
     , _cost         :: Maybe (Amount 4)
     , _purchaseDate :: Maybe Day
-    , _refs         :: [Ref]
+    , _note         :: Maybe Text
     , _price        :: Maybe (Amount 4)
     }
     deriving (Eq, Ord, Show)
@@ -81,7 +53,7 @@ newCommodityLot = CommodityLot
     , _symbol       = "???"
     , _cost         = Nothing
     , _purchaseDate = Nothing
-    , _refs         = []
+    , _note         = Nothing
     , _price        = Nothing
     }
 

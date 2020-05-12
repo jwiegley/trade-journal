@@ -38,6 +38,7 @@ module ThinkOrSwim.Event
     , isOptionAssignment
     , Eligibility(..)
     , Applicability(..)
+    , renderRefList
     ) where
 
 import           Control.Applicative
@@ -46,7 +47,8 @@ import           Control.Monad.Except
 import           Control.Monad.Trans.State
 import           Data.Amount
 import           Data.Foldable
-import           Data.List (tails, isInfixOf)
+import           Data.Int (Int64)
+import           Data.List (tails, isInfixOf, intersperse)
 import           Data.Map (Map)
 import           Data.Split
 import           Data.Text (Text)
@@ -69,9 +71,9 @@ data Disposition
 
 makePrisms ''Disposition
 
-inverseDisposition :: Disposition -> Disposition
-inverseDisposition Long = Short
-inverseDisposition Short = Long
+invertDisposition :: Disposition -> Disposition
+invertDisposition Long = Short
+invertDisposition Short = Long
 
 data Eligibility
     = WashSaleEligible
@@ -106,6 +108,7 @@ affect the history of events having possible future implications:
 data Event t
     = OpenPosition Disposition Eligibility t
     | ClosePosition (Maybe Disposition) t
+    | OpenOrClosePosition Disposition t
     | PositionClosed Disposition t t
     -- P/L and Wash Sales
     | CapitalGain Disposition (Amount 6) (Event t)
@@ -165,6 +168,10 @@ instance (Transactional t, Render t) => Render (Event t) where
             "ClosePosition"
                 <> space <> tshow d
                 $$ space <> space <> rendered x
+        OpenOrClosePosition d x ->
+            "OpenOrClosePosition"
+                <> space <> tshow d
+                $$ space <> space <> rendered x
         PositionClosed d x y ->
             "PositionClosed"
                 <> space <> tshow d
@@ -220,6 +227,7 @@ class (Priced t, Show t) => Transactional t where
     kind        :: Getter t API.TransactionType
     subkind     :: Getter t API.TransactionSubType
     instruction :: Getter t (Maybe API.Instruction)
+    effect      :: Getter t (Maybe API.PositionEffect)
     symbol      :: Getter t (Maybe Text)
     cusip       :: Getter t (Maybe Text)
     underlying  :: Getter t (Maybe Text)
@@ -236,7 +244,8 @@ instance Transactional API.Transaction where
     time           = API.xdate
     kind           = API.xtype
     subkind        = API.xsubType
-    instruction    = API.xitem.API.instruction
+    instruction    = API.xinstruction
+    effect         = API.xeffect
     cusip          = API.xcusip
     symbol         = API.xsymbol
     underlying     = API.xunderlying
@@ -248,14 +257,52 @@ instance Transactional API.Transaction where
                      \(UTCTime _dy tm) ->
                          UTCTime (addDays (- x) (t^.time.to utctDay)) tm
 
+data RefType
+    = WashSaleRule (Amount 6)
+      -- ^ A wash sale rule increases the cost basis of an equity purchase by
+      --   adding previous capital losses, taking those losses off the books.
+
+    | RollingOrder (Amount 6)
+      -- ^ In a rolling order, the closing of one option is followed by the
+      --   opening of another, and any credit or debit is carried across.
+      --
+      --   NOTE: GainsKeeper does not do this, and records one as an immediate
+      --   loss/gain
+    | OpeningOrder
+    | ExistingEquity
+    deriving (Eq, Ord, Show)
+
+data Ref = Ref
+    { _refType :: RefType
+    , _refId   :: API.TransactionId
+    }
+    deriving (Eq, Ord, Show)
+
+instance Render Ref where
+    rendered Ref {..} = case _refType of
+        WashSaleRule wash ->
+            "W$" <> tshow wash <> "/" <> tshow _refId
+        RollingOrder roll ->
+            "R$" <> tshow roll <> "/" <> tshow _refId
+        OpeningOrder   -> "" <> tshow _refId
+        ExistingEquity -> "Equity"
+
+transactionRef :: Transactional t => t -> Ref
+transactionRef t = Ref OpeningOrder (t^.ident)
+
+renderRefList :: [Ref] -> Doc
+renderRefList = mconcat . intersperse "," . map rendered
+
 data Lot t = Lot
     { _shares       :: Amount 6
     , _costOfShares :: Amount 6
     , _item         :: t
-    , _trail        :: [Event (Lot t)]
+    , _trail        :: [Ref]
     }
     deriving (Eq, Ord, Show)
 
+makePrisms ''RefType
+makeLenses ''Ref
 makeLenses ''Lot
 makePrisms ''Event
 makePrisms ''EventError
@@ -279,6 +326,7 @@ instance Transactional t => Transactional (Lot t) where
     kind        = item.kind
     subkind     = item.subkind
     instruction = item.instruction
+    effect      = item.effect
     cusip       = item.cusip
     symbol      = item.symbol
     underlying  = item.underlying
@@ -436,16 +484,28 @@ eventFromTransaction t = case (t^.kind, t^.subkind) of
     (ReceiveAndDeliver, TransferIn) ->
         OpenPosition Long WashSaleIneligible t
 
-    (Trade, BuyTrade) ->
-        OpenPosition Long WashSaleEligible t
+    (Trade, BuyTrade)
+        | Just API.Open <- t^.effect ->
+          OpenPosition Long WashSaleEligible t
+        | Just API.Close <- t^.effect ->
+          ClosePosition (Just Short) t
+        | otherwise ->
+          OpenOrClosePosition Short t
+
+    (Trade, SellTrade)
+        | Just API.Open <- t^.effect ->
+          OpenPosition Short WashSaleEligible t
+        | Just API.Close <- t^.effect ->
+          ClosePosition (Just Long) t
+        | otherwise ->
+          OpenOrClosePosition Long t
+
     (Trade, CloseShortPosition) ->
         ClosePosition (Just Short) t
     (Trade, OptionAssignment) ->
         OptionAssigned Nothing t
     (Trade, BondsRedemption) ->
         UnrecognizedTransaction $ t & cost %~ negate
-    (Trade, SellTrade) ->
-        ClosePosition (Just Long) t
     (Trade, ShortSale) ->
         OpenPosition Short WashSaleEligible t
     -- (Trade, TradeCorrection) -> pure []
@@ -566,7 +626,10 @@ handleEvent (ev@(OptionAssigned (Just o) c):_) (OptionAssigned Nothing u)
         dur | c^.distance o > 365 = Long
             | otherwise           = Short
     change $ Result $ CapitalGain dur (s^?!_SplitUsed.cost.to negate) ev
-    change $ Submit $ ClosePosition (Just disp) adj
+    -- If it is a call, the "action" is to open a short position or close an
+    -- existing long position; if a put, then open a long position or close an
+    -- existing short position.
+    change $ Submit $ OpenOrClosePosition disp adj
     pure $ d^?_SplitKept.to (OptionAssigned Nothing)
   where
     disp | isCall o  = Long
@@ -593,8 +656,12 @@ handleEvent (opos@(OpenPosition ed WashSaleEligible u):_) (WashSale Deferred adj
 
 handleEvent (OpenPosition ed elig o:_evs) pos
     | Just disp <-
-        pos^?failing (_ClosePosition._1.non ed) (\f s -> s <$ f Short),
-      Just u <- pos^?failing (_ClosePosition._2) (_OptionAssigned._2),
+        pos^?failing (_ClosePosition._1.non ed)
+                     (failing (_OpenOrClosePosition._1)
+                              (\f s -> s <$ f Short)),
+      Just u <- pos^?failing (_ClosePosition._2)
+                            (failing (_OpenOrClosePosition._2)
+                                     (_OptionAssigned._2)),
       ed == disp,
       o^.symbol == u^.symbol = do
     let (s, d) = o `alignLots` u
@@ -623,19 +690,22 @@ handleEvent (OpenPosition ed elig o:_evs) pos
             change $ Submit $ WashSale Deferred $ washSale res
 
     pure $ d^?_SplitKept <&> \k ->
-        pos & _ClosePosition._2  .~ k
-            & _OptionAssigned._2 .~ k
+        pos & _ClosePosition._2       .~ k
+            & _OpenOrClosePosition._2 .~ k
+            & _OptionAssigned._2      .~ k
 
 handleEvent (e:_) u = do
     change $ ReturnEvent e
     pure $ Just u
 
-handleEvent [] (ClosePosition disp u) = do
-    let r = addFees $
-            OpenPosition (case disp of
-                              Just d -> inverseDisposition d
-                              _ -> Long)
-                         WashSaleEligible u
+handleEvent [] (ClosePosition _ u) = do
+    throwError $ CannotFindOpen u
+
+-- This action will close any open position that matches, but if none does, it
+-- means we should open a position with the inverse disposition.
+handleEvent [] (OpenOrClosePosition disp u) = do
+    let r = addFees $ OpenPosition (invertDisposition disp)
+                                   WashSaleEligible u
     change $ AddEvent r
     change $ Result r
     pure Nothing
@@ -697,16 +767,14 @@ gainsKeeper opts t =
             pure (doc', fin)
         case eres of
             Left err -> do
-                when (matches t) $
-                    renderM $ doc
-                        $$ "" $$ "ERR" <> space <> rendered err
-                        $$ "" $$ "--------------------------------------------------"
-                pure []
+                error $ render $ doc
+                    $$ "" $$ "ERR" <> space <> rendered err
+                    $$ "" $$ "--------------------------------------------------"
             Right (doc', res) -> do
                 when (matches t) $ renderM $ doc $$ doc'
                 pure res
   where
-    event = eventFromTransaction (mkLot t)
+    event = eventFromTransaction (mkLot t & trail .~ [transactionRef t])
     applyEvent = foldEvents ?? (flip handleEvent)
 
     matches x =

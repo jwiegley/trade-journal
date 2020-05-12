@@ -35,7 +35,7 @@ import           Test.Tasty.Hedgehog
 import           Text.PrettyPrint as P
 import           ThinkOrSwim.API.TransactionHistory.GetTransactions
                      (TransactionType(..), TransactionSubType(..),
-                      AssetType(..), Instruction(..))
+                      AssetType(..), Instruction(..), PositionEffect(..))
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
 import           ThinkOrSwim.Event
 import           ThinkOrSwim.Options
@@ -46,6 +46,7 @@ data Mock = Mock
     , _mockKind        :: API.TransactionType
     , _mockSubkind     :: API.TransactionSubType
     , _mockInstruction :: Maybe API.Instruction
+    , _mockEffect      :: Maybe API.PositionEffect
     , _mockCusip       :: Maybe Text
     , _mockSymbol      :: Maybe Text
     , _mockUnderlying  :: Maybe Text
@@ -72,6 +73,7 @@ newMock = Mock
     , _mockKind        = Trade
     , _mockSubkind     = BuyTrade
     , _mockInstruction = Nothing
+    , _mockEffect      = Nothing
     , _mockCusip       = Nothing
     , _mockSymbol      = Nothing
     , _mockUnderlying  = Nothing
@@ -91,6 +93,7 @@ instance Transactional Mock where
     kind        = mockKind
     subkind     = mockSubkind
     instruction = mockInstruction
+    effect      = mockEffect
     cusip       = mockCusip
     symbol      = mockSymbol
     underlying  = mockUnderlying
@@ -144,14 +147,16 @@ submit m = do
 trade :: TransactionType
       -> TransactionSubType
       -> Instruction
+      -> PositionEffect
       -> Text
       -> Amount 6
       -> Amount 6
       -> Mock
-trade k s i d q c = newMock
+trade k s i e d q c = newMock
     & mockKind        .~ k
     & mockSubkind     .~ s
     & mockInstruction ?~ i
+    & mockEffect      ?~ e
     & mockQuantity    .~ q
     & mockCost        .~ c * q
     & mockTime        .~ UTCTime day 0
@@ -160,19 +165,19 @@ trade k s i d q c = newMock
                     (iso8601ParseM (unpack d))
 
 buy :: Amount 6 -> Amount 6 -> Mock
-buy = trade Trade BuyTrade Buy "2020-03-01"
+buy = trade Trade BuyTrade Buy Open "2020-03-01"
 
 sell :: Amount 6 -> Amount 6 -> Mock
-sell = trade Trade SellTrade Sell "2020-03-01"
+sell = trade Trade SellTrade Sell Close "2020-03-01"
 
 assign :: Amount 6 -> Amount 6 -> Mock
-assign = trade Trade OptionAssignment Buy "2020-03-01"
+assign = trade Trade OptionAssignment Buy Close "2020-03-01"
 -- ^ jww (2020-05-04): Should be Buy if a Call, Sell if a Put, and it must
 --   generate two OptionAssignment transactions, one for the option and one
 --   for the equity. Lastly, costs for the option are * multiplier.
 
 expire :: Amount 6 -> Amount 6 -> Mock
-expire = trade ReceiveAndDeliver OptionAssignment Buy "2020-03-01"
+expire = trade ReceiveAndDeliver OptionAssignment Buy Close "2020-03-01"
 
 option :: Monad m => Text -> StateT MockState m a -> StateT MockState m a
 option sym action = do

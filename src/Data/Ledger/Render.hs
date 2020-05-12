@@ -28,17 +28,6 @@ import           Data.Time.Format.ISO8601
 import           Prelude hiding (Float, Double)
 import           Text.Printf
 
-renderRefs :: [Ref] -> Text
-renderRefs = T.intercalate "," . map go
-  where
-    go r = case r^.refType of
-        WashSaleRule wash ->
-            "W$" <> T.pack (show wash) <> "/" <> T.pack (show (r^.refId))
-        RollingOrder roll ->
-            "R$" <> T.pack (show roll) <> "/" <> T.pack (show (r^.refId))
-        OpeningOrder   -> "" <> T.pack (show (r^.refId))
-        ExistingEquity -> "Equity"
-
 renderPostingAmount :: PostingAmount k CommodityLot -> [Text]
 renderPostingAmount NoAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
@@ -52,9 +41,9 @@ renderPostingAmount (CommodityAmount l@(CommodityLot {..}))
               (maybe "" (T.pack . printf " {$%s}" . thousands . abs)
                         (perShareCost l))
               (maybe "" (T.pack . printf " [%s]" . iso8601Show) _purchaseDate)
-              (case _refs of
-                   [] -> ""
-                   xs -> (T.pack . printf " (%s)" . renderRefs) xs)
+              (case _note of
+                   Nothing -> ""
+                   Just txt -> (T.pack . printf " (%s)") txt)
               (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
           ]
   where
