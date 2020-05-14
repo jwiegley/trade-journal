@@ -74,6 +74,7 @@ haskellPackages.developPackage rec {
       haskellPackages.cabal-install
       haskellPackages.hpack
       haskellPackages.hoogle
+      haskellPackages.hasktags
       coq
       coq.ocaml
       coq.camlp5

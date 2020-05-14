@@ -26,7 +26,6 @@ import qualified Data.Text as T
 import           Data.Text.Lens
 import           Data.Time
 import           Data.Time.Format.ISO8601
-import           Data.Utils
 import           Prelude hiding (Float, Double, (<>))
 import           Text.PrettyPrint
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
@@ -165,7 +164,9 @@ mkCommodityLot t = newCommodityLot @API.TransactionSubType
     & L.cost       ?~ t^.cost.coerced.to abs
     & purchaseDate ?~ utctDay (t^.time)
     & L.note       ?~ T.pack (render (renderRefList (t^.trail)))
-    & L.price      .~ t^?item.xprice.coerced
+    & L.price      .~ fmap (* (if isOption t then 100 else 1))
+                           (t^?item.xprice.coerced)
+
   where
     instr = case t^?item.xasset of
         Just API.Equity           -> L.Equity
@@ -182,45 +183,32 @@ postingFromEvent
     -> [L.Posting API.TransactionSubType L.CommodityLot]
 postingFromEvent actId ev = case ev of
     OpenPosition disp _ o ->
-        [ newPosting (transactionAccount actId (o^.item)) False
-            (CommodityAmount $ mkCommodityLot o
-               & L.quantity %~ case disp of Long -> id; Short -> negate) ]
-          & each.postMetadata %~ metadata ev o
+        openPos disp o & each.postMetadata %~ metadata ev o
     PositionClosed disp o c ->
-        [ newPosting (transactionAccount actId (o^.item)) False
-            (CommodityAmount $ mkCommodityLot o
-               & L.quantity %~ case disp of Long -> negate; Short -> id
-               & L.price    .~ if isOptionAssignment c
-                               then Just 0
-                               else c^?item.xprice.coerced) ]
-          & each.postMetadata %~ metadata ev c
+        posClosed disp o c & each.postMetadata %~ metadata ev c
+    WashTransaction (OpenPosition disp _ o) ->
+        openPos disp o
+    WashTransaction (PositionClosed disp o c) ->
+        posClosed disp o c
 
     WashSale Immediate g ->
         [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
-          & each.postMetadata %~ metadata ev (g^?!item._PositionClosed._3)
     WashSale Deferred g ->
         [ newPosting CapitalWashLossDeferred False MetadataOnly
             & postMetadata.at "WashDeferred" ?~
                 ("$" ++ show (g^.cost.to negate))^.packed ]
     WashSale Transferred _ -> []
 
-    CapitalGain disp g c ->
+    CapitalGain disp g _ ->
         [ newPosting
             (case disp of Long  -> CapitalGainLong
                           Short -> CapitalGainShort)
             False (DollarAmount (g^.coerced.to negate)) ]
-          & each.postMetadata %~ metadata ev
-              (c^?!failing (_PositionClosed._3)
-                           (_OptionAssigned._2))
-    CapitalLoss disp g c ->
+    CapitalLoss disp g _ ->
         [ newPosting
             (case disp of Long  -> CapitalLossLong
                           Short -> CapitalLossShort)
             False (DollarAmount (g^.coerced.to negate)) ]
-          & each.postMetadata %~ metadata ev
-              (c^?!failing (_PositionClosed._3)
-                           (error $ "Expected closed position: "
-                              ++ render (rendered c)))
 
     UnrecognizedTransaction t ->
         [ newPosting Unknown False
@@ -231,6 +219,20 @@ postingFromEvent actId ev = case ev of
 
     _ -> []
     -- _ -> error $ "Failed to convert event: " ++ render (rendered ev)
+  where
+    openPos disp o =
+        [ newPosting (transactionAccount actId (o^.item)) False
+            (CommodityAmount $ mkCommodityLot o
+               & L.quantity %~ case disp of Long -> id; Short -> negate) ]
+    posClosed disp o c =
+        [ newPosting (transactionAccount actId (o^.item)) False
+            (CommodityAmount $ mkCommodityLot o
+               & L.quantity %~ case disp of Long -> negate; Short -> id
+               & L.price    .~
+                   if isOptionAssignment c
+                   then Just 0
+                   else fmap (* (if isOption c then 100 else 1))
+                             (c^?item.xprice.coerced)) ]
 
 metadata :: Event (Lot API.Transaction)
          -> Lot API.Transaction

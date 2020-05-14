@@ -143,8 +143,8 @@ Access tokens are only valid for 30 minutes.")
              (format "%s/marketdata/quotes" tos-base-url)
              :sync t
              :type "GET"
-             :headers
-             `(("Authorization" . ,(concat "Bearer " (tos-get-access-token))))
+             ;; :headers
+             ;; `(("Authorization" . ,(concat "Bearer " (tos-get-access-token))))
              :params
              `(("apikey" . ,tos-client-id)
                ("symbol" . ,symbol))

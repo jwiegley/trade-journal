@@ -114,6 +114,7 @@ data Event t
     | CapitalLoss Disposition (Amount 6) (Event t)
     -- | AdjustCostBasis Disposition (Event t) (Event t)
     | WashSale Applicability (Lot (Event t))
+    | WashTransaction (Event t)
       -- ^ Use 'Lot (Event t)' rather than '(Amount 6) (Event t)' to
       --   support easy splitting of recorded wash sales.
     -- Options
@@ -179,6 +180,9 @@ instance (Transactional t, Render t) => Render (Event t) where
         WashSale a x ->
             "WashSale"
                 <> space <> tshow a
+                $$ space <> space <> rendered x
+        WashTransaction x ->
+            "WashTransaction"
                 $$ space <> space <> rendered x
         -- AdjustCostBasis d x y ->
         --     "AdjustCostBasis"
@@ -645,8 +649,9 @@ handleEvent (opos@(OpenPosition ed WashSaleEligible u):_) (WashSale Deferred adj
     change $ ReplaceEvent opos opos'
     changes $ Result <$>
         (d^.._SplitUsed.to (WashSale Immediate) ++
-         s^.._SplitUsed.to (PositionClosed ed (s^?!_SplitUsed)) ++
-         [ opos' ])
+         s^.._SplitUsed.to (WashTransaction .
+                            PositionClosed ed (s^?!_SplitUsed)) ++
+         [ WashTransaction opos' ])
 
     -- We wash failing closes by adding the amount to the cost basis of
     -- the opening transaction. Thus, we generate three instances of
