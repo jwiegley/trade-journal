@@ -11,7 +11,7 @@ module Main where
 
 import Control.Lens
 import Control.Monad.State
-import Data.Aeson
+import Data.Aeson hiding ((.=))
 import Data.Amount
 import Data.ByteString.Lazy as BL
 import Data.Ledger.Render as L
@@ -41,6 +41,7 @@ data Holding = Holding
 data Config = Config
     { holdings :: Map Text [Holding]
     , splits   :: Map Text [Amount 6]
+    , rounding :: Map Text (Amount 2)
     }
     deriving (Generic, Show, FromJSON)
 
@@ -48,6 +49,7 @@ newConfig :: Config
 newConfig = Config
     { holdings = mempty
     , splits   = mempty
+    , rounding   = mempty
     }
 
 main :: IO ()
@@ -78,6 +80,7 @@ main = do
                                 (amount h)
                                 (- (price h * amount h))
                                 (UTCTime (date h) 0) ]
+            roundingEntries .= rounding config
             convertOrders opts th
 
     Prelude.putStrLn "; -*- ledger -*-\n"

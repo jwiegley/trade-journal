@@ -21,6 +21,7 @@ module ThinkOrSwim.Event
     , GainsKeeperState(..)
     , newGainsKeeperState
     , positionEvents
+    , roundingEntries
     , Lot
     , shares
     , costOfShares
@@ -129,6 +130,7 @@ data Event t
     | SplitTransaction API.TransactionId [Amount 6]
     -- | InterestPaid t
     -- | DividendPaid t
+    | RoundedTransaction (Amount 2)
     | UnrecognizedTransaction t
     deriving (Eq, Ord, Show)
 
@@ -216,6 +218,9 @@ instance (Transactional t, Render t) => Render (Event t) where
             "SplitTransaction"
                 <> space <> tshow x
                 <> space <> renderList tshow xs
+        RoundedTransaction rnd ->
+            "RoundedTransaction"
+                <> space <> rendered rnd
         UnrecognizedTransaction t ->
             "UnrecognizedTransaction"
                 $$ space <> rendered t
@@ -722,7 +727,8 @@ handleEvent [] u = do
     pure Nothing
 
 data GainsKeeperState t = GainsKeeperState
-    { _positionEvents :: Map Text [Event (Lot t)]
+    { _positionEvents  :: Map Text [Event (Lot t)]
+    , _roundingEntries :: Map Text (Amount 2)
     }
     deriving (Eq, Ord, Show)
 
@@ -730,7 +736,8 @@ makeLenses ''GainsKeeperState
 
 newGainsKeeperState :: GainsKeeperState t
 newGainsKeeperState = GainsKeeperState
-    { _positionEvents = mempty
+    { _positionEvents  = mempty
+    , _roundingEntries = mempty
     }
 
 runStateExcept :: StateT s (Except e) a -> State s (Either e a)
@@ -750,7 +757,8 @@ handleChanges sc = do
 
 gainsKeeper :: (Transactional t, Eq t, Render t)
             => Options -> t -> State (GainsKeeperState t) [Event (Lot t)]
-gainsKeeper opts t =
+gainsKeeper opts t = do
+    mround <- preuse (roundingEntries.ix (T.pack (show (t^.ident))))
     zoom (positionEvents.at (t^.underlying.non "").non []) $ do
         hist <- use id
         let doc = ""
@@ -777,7 +785,7 @@ gainsKeeper opts t =
                     $$ "" $$ "--------------------------------------------------"
             Right (doc', res) -> do
                 when (matches t) $ renderM $ doc $$ doc'
-                pure res
+                pure $ res ++ mround^..traverse.to RoundedTransaction
   where
     event = eventFromTransaction (mkLot t & trail .~ [transactionRef t])
     applyEvent = foldEvents ?? (flip handleEvent)

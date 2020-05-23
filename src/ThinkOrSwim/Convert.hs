@@ -124,7 +124,7 @@ convertPostings opts actId t = do
 
     roundPostings ps =
         let slip = - sumPostings ps
-        in ps ++ [ newPosting L.Commissions False (DollarAmount slip)
+        in ps ++ [ newPosting L.RoundingError False (DollarAmount slip)
                  | slip /= 0 && abs slip < 0.02 ]
 
 -- The idea of this function is to replicate what Ledger will calculate the
@@ -136,6 +136,7 @@ sumPostings = foldl' go 0
     norm = normalizeAmount mpfr_RNDNA
 
     cst l | l^.isVirtual = 0
+          | l^.L.account == L.RoundingError = 0
           | Just n <- l^?L.amount._DollarAmount = norm n
           | Just q <- l^?L.amount._CommodityAmount.L.quantity,
             Just n <- l^?L.amount._CommodityAmount.L.cost.each =
@@ -193,11 +194,12 @@ postingFromEvent actId ev = case ev of
 
     WashSale Immediate g ->
         [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
+    WashSale Transferred g ->
+        [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
     WashSale Deferred g ->
         [ newPosting CapitalWashLossDeferred False MetadataOnly
             & postMetadata.at "WashDeferred" ?~
                 ("$" ++ show (g^.cost.to negate))^.packed ]
-    WashSale Transferred _ -> []
 
     CapitalGain disp g _ ->
         [ newPosting
@@ -209,6 +211,9 @@ postingFromEvent actId ev = case ev of
             (case disp of Long  -> CapitalLossLong
                           Short -> CapitalLossShort)
             False (DollarAmount (g^.coerced.to negate)) ]
+
+    RoundedTransaction rnd ->
+        [ newPosting L.RoundingError False (DollarAmount rnd) ]
 
     UnrecognizedTransaction t ->
         [ newPosting Unknown False
