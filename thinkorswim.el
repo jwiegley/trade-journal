@@ -43,8 +43,7 @@
 (defconst tos-base-url "https://api.tdameritrade.com/v1")
 
 (defconst tos-user-id "jwiegley")
-(defconst tos-client-id
-  (lookup-password "developer.tdameritrade.com.client-id" tos-user-id 80))
+(defvar tos-client-id nil)
 
 (defvar tos-refresh-token nil)
 (defvar tos-access-token nil
