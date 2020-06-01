@@ -24,7 +24,7 @@ import           Data.Time
 import           Data.Time.Format.ISO8601
 import           Data.Typeable
 import           Data.Utils
-import           Hedgehog
+import           Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import           Prelude hiding (Double, Float, (<>))
@@ -61,7 +61,9 @@ instance Render Mock where
     rendered Mock {..} = parens $
         P.text (_mockSymbol^.non "".unpacked)
             <> space <> tshow _mockQuantity
-            <> " @@ " <> tshow (_mockCost / _mockQuantity)
+            <> " @@ " <> tshow (if _mockQuantity == 0
+                                then 0
+                                else _mockCost / _mockQuantity)
             <> " ## " <> doubleQuotes (rendered _mockTime)
 
 makeLenses ''Mock
@@ -131,7 +133,7 @@ withMockState sym =
 withMockState_ :: Monad m => Text -> StateT MockState m a -> m ()
 withMockState_ sym action = () <$ withMockState sym action
 
-submit :: Monad m => Mock -> StateT MockState m [Event (Lot Mock)]
+submit :: Monad m => Mock -> StateT MockState m [Action (Lot Mock)]
 submit m = do
     nextId <- use mockNextId
     mockNextId += 1

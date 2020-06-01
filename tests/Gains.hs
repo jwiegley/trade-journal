@@ -65,4 +65,4 @@ gains_buy_sell_profit_partial = property $ do
             & cost     .~ 10 * (- amt + sub)
 
     st^?positionEvents.ix "ZM"
-        @?== Just [ OpenPosition Long WashSaleIneligible res ]
+        @?== Just [ PositionOpened Long WashSaleIneligible res ]

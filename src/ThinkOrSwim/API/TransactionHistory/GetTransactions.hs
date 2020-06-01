@@ -667,7 +667,9 @@ instance Render Transaction where
      P.<> tshow (t^.xsubType) P.<> space
      P.<> tshow (t^.xamount) P.<> space
      P.<> "@@" P.<> space
-     P.<> tshow (t^.xcost / t^.xamount) P.<> space
+     P.<> tshow (if t^.xamount == 0
+                 then 0
+                 else t^.xcost / t^.xamount) P.<> space
      P.<> doubleQuotes (rendered (t^.xdate)) P.<> space
      P.<> tshow (t^.xid)
 

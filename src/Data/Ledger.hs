@@ -80,8 +80,10 @@ data Account
     | Commissions
     | CapitalGainShort
     | CapitalGainLong
+    | CapitalGainCollectible
     | CapitalLossShort
     | CapitalLossLong
+    | CapitalLossCollectible
     | CapitalWashLoss
     | CapitalWashLossDeferred
     | RoundingError

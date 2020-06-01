@@ -97,7 +97,7 @@ convertPostings opts actId t = do
        ++ [ newPosting L.Commissions True (DollarAmount (t^.fees_.commission))
           | t^.fees_.commission /= 0 ]
 
-       ++ concatMap (postingFromEvent actId) cs
+       ++ concatMap (postingFromAction actId) cs
 
        ++ [ case t^?xprice of
                 Just _              -> cashPost
@@ -178,72 +178,68 @@ mkCommodityLot t = newCommodityLot @API.TransactionSubType
               CashMoneyMarket)    -> L.MoneyMarket
         Nothing                   -> error "Unexpected"
 
-postingFromEvent
+postingFromAction
     :: Text
-    -> Event (Lot API.Transaction)
+    -> Action (Lot API.Transaction)
     -> [L.Posting API.TransactionSubType L.CommodityLot]
-postingFromEvent actId ev = case ev of
+postingFromAction actId act = case act of
     OpenPosition disp _ o ->
-        openPos disp o & each.postMetadata %~ metadata ev o
-    PositionClosed disp o c ->
-        posClosed disp o c & each.postMetadata %~ metadata ev c
-    WashTransaction (OpenPosition disp _ o) ->
-        openPos disp o
-    WashTransaction (PositionClosed disp o c) ->
-        posClosed disp o c
+        openPos disp o & each.postMetadata %~ metadata act o
+    ClosePosition disp c ->
+        posClosed disp c & each.postMetadata %~ metadata act c
 
-    WashSale Immediate g ->
+    WashLoss g ->
         [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
-    WashSale Transferred g ->
-        [ newPosting CapitalWashLoss False (DollarAmount (g^.cost.coerced)) ]
-    WashSale Deferred g ->
+    WashDeferred g ->
         [ newPosting CapitalWashLossDeferred False MetadataOnly
             & postMetadata.at "WashDeferred" ?~
                 ("$" ++ show (g^.cost.to negate))^.packed ]
 
     CapitalGain disp g _ ->
         [ newPosting
-            (case disp of Long  -> CapitalGainLong
-                          Short -> CapitalGainShort)
+            (case disp of LongTerm    -> CapitalGainLong
+                          ShortTerm   -> CapitalGainShort
+                          Collectible -> CapitalGainCollectible)
             False (DollarAmount (g^.coerced.to negate)) ]
     CapitalLoss disp g _ ->
         [ newPosting
-            (case disp of Long  -> CapitalLossLong
-                          Short -> CapitalLossShort)
+            (case disp of LongTerm    -> CapitalLossLong
+                          ShortTerm   -> CapitalLossShort
+                          Collectible -> CapitalLossCollectible)
             False (DollarAmount (g^.coerced.to negate)) ]
 
-    RoundedTransaction rnd ->
+    RoundTransaction rnd ->
         [ newPosting L.RoundingError False (DollarAmount rnd) ]
 
-    UnrecognizedTransaction t ->
+    Unrecognized t ->
         [ newPosting Unknown False
             (case t^.cost.coerced of
                  n | n == 0    -> NullAmount
                    | otherwise -> DollarAmount n) ]
-          & each.postMetadata %~ metadata ev t
+          & each.postMetadata %~ metadata act t
 
     _ -> []
-    -- _ -> error $ "Failed to convert event: " ++ render (rendered ev)
+    -- _ -> error $ "Failed to convert event: " ++ render (rendered act)
   where
     openPos disp o =
         [ newPosting (transactionAccount actId (o^.item)) False
             (CommodityAmount $ mkCommodityLot o
                & L.quantity %~ case disp of Long -> id; Short -> negate) ]
-    posClosed disp o c =
-        [ newPosting (transactionAccount actId (o^.item)) False
-            (CommodityAmount $ mkCommodityLot o
-               & L.quantity %~ case disp of Long -> negate; Short -> id
+    posClosed disp c =
+        [ newPosting (transactionAccount actId (c^.item)) False
+            (CommodityAmount $ mkCommodityLot c
+               & L.quantity %~ case disp of Long -> id; Short -> negate
                & L.price    .~
                    if isOptionAssignment c
                    then Just 0
                    else fmap (* (if isOption c then 100 else 1))
                              (c^?item.xprice.coerced)) ]
 
-metadata :: Event (Lot API.Transaction)
+metadata :: Action (Lot API.Transaction)
          -> Lot API.Transaction
          -> Map Text Text
          -> Map Text Text
-metadata ev x m = m
+metadata act x m = m
     & at "XId"          ?~ T.pack (show (x^.item.xid))
     & at "XType"        ?~ T.pack (show (x^.item.xsubType))
     & at "XDate"        ?~ T.pack (iso8601Show (x^.item.xdate))
@@ -254,11 +250,11 @@ metadata ev x m = m
     & at "Strike"       .~ x^?item.xoption.strikePrice._Just.to thousands.packed
     & at "Expiration"   .~ x^?item.xoption.expirationDate.to (T.pack . iso8601Show)
     & at "Contract"     .~ x^?item.xoption.description
-    & at "Effect"       .~ (effectDesc ev <|>
+    & at "Effect"       .~ (effectDesc act <|>
                             x^?item.xitem.positionEffect.each.to show.packed)
   where
     effectDesc = \case
-        OpenPosition disp _ _   -> Just $ T.pack $ "Open " ++ show disp
-        PositionClosed disp _ _ -> Just $ T.pack $ "Close " ++ show disp
+        OpenPosition disp _ _ -> Just $ T.pack $ "Open " ++ show disp
+        ClosePosition disp _  -> Just $ T.pack $ "Close " ++ show disp
         _ -> Nothing
 

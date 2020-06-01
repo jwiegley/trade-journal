@@ -102,7 +102,7 @@ thinkorswimOpts = Options
         (   long "trace-xid"
          <> help "transaction id to trace"))
     <*> switch
-        (   long "trace"
+        (   long "trace-all"
          <> help "trace all transactions")
 
 optionsDefinition :: ParserInfo Options

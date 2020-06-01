@@ -75,6 +75,7 @@ haskellPackages.developPackage rec {
       haskellPackages.hpack
       haskellPackages.hoogle
       haskellPackages.hasktags
+      haskellPackages.ghcid
       coq
       coq.ocaml
       coq.camlp5

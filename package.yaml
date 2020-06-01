@@ -6,7 +6,10 @@ maintainer: johnw@newartisans.com
 
 ghc-options:
   - -Wall
-  - -Werror
+  # - -Werror
+  - -debug
+  - -g3
+  - -fno-ignore-asserts
 
 dependencies:
   - base
