@@ -13,76 +13,80 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
-
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module ThinkOrSwim.Event
-    ( gainsKeeper
-    , GainsKeeperState(..)
-    , newGainsKeeperState
-    , positionEvents
-    , roundingEntries
-    , Lot
-    , shares
-    , price
-    , item
-    , trail
-    , Event(..)
-    , Action(..)
-    , _OpenPosition
-    , _ClosePosition
-    , Disposition(..)
-    , Priced(..)
-    , TaxBracket(..)
-    , Eligibility(..)
-    , Transactional(..)
-    , isCall
-    , isOption
-    , isOptionAssignment
-    , renderRefList
-    ) where
+module ThinkOrSwim.Event where
 
-import           Control.Applicative
-import           Control.Lens
-import           Control.Monad.Except
-import           Control.Monad.Trans.State
-import           Data.Amount
-import           Data.Foldable
-import           Data.List (tails, isInfixOf, intersperse)
-import           Data.Map (Map)
-import           Data.Split
-import           Data.Text (Text)
+-- ( gainsKeeper,
+--   GainsKeeperState (..),
+--   newGainsKeeperState,
+--   positionEvents,
+--   roundingEntries,
+--   Lot,
+--   shares,
+--   price,
+--   item,
+--   trail,
+--   Event (..),
+--   Action (..),
+--   _OpenPosition,
+--   _ClosePosition,
+--   Disposition (..),
+--   Priced (..),
+--   TaxBracket (..),
+--   Eligibility (..),
+--   Transactional (..),
+--   isCall,
+--   isOption,
+--   isOptionAssignment,
+--   renderRefList,
+-- )
+
+{-
+import Control.Applicative
+import Control.Lens
+import Control.Monad.Except
+import Control.Monad.Trans.State
+import Data.Amount
+import Data.Foldable
+import Data.List (intersperse, isInfixOf, tails)
+import Data.Map (Map)
+import Data.Split
+import Data.Text (Text)
 import qualified Data.Text as T
-import           Data.Time
-import           Data.Utils
-import           Prelude hiding (Float, Double, (<>))
-import           Text.PrettyPrint as P
-import           ThinkOrSwim.API.TransactionHistory.GetTransactions
-                     (TransactionType(..), TransactionSubType(..),
-                      AssetType(..), _OptionAsset)
+import Data.Time
+import Data.Utils
+import Text.PrettyPrint as P
+import ThinkOrSwim.API.TransactionHistory.GetTransactions
+  ( AssetType (..),
+    TransactionSubType (..),
+    TransactionType (..),
+    _OptionAsset,
+  )
 import qualified ThinkOrSwim.API.TransactionHistory.GetTransactions as API
-import           ThinkOrSwim.Options (Options)
+import ThinkOrSwim.Options (Options)
 import qualified ThinkOrSwim.Options as Options
+import Prelude hiding ((<>), Double, Float)
 
 data Disposition
-    = Long
-    | Short
-    deriving (Eq, Ord, Show, Enum, Bounded)
+  = Long
+  | Short
+  deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Disposition
 
 data TaxBracket
-    = LongTerm
-    | ShortTerm
-    | Collectible
-    deriving (Eq, Ord, Show, Enum, Bounded)
+  = LongTerm
+  | ShortTerm
+  | Collectible
+  deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''TaxBracket
 
 data Eligibility
-    = WashSaleEligible
-    | WashSaleIneligible
-    deriving (Eq, Ord, Show, Enum, Bounded)
+  = WashSaleEligible
+  | WashSaleIneligible
+  deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Eligibility
 
@@ -104,118 +108,135 @@ affect the history of events having possible future implications:
 -- Events are temporarily recorded in a history, and may have an impact on
 -- future transactions or P/L.
 data Event t
-    = PositionOpened Disposition Eligibility t
-    | PositionClosed Disposition t t
-    | PendingWashLoss (Lot (Event t))
-    | OptionAssigned t t
-    | TransactionSplit API.TransactionId [Amount 6]
-    | EquityCostBasis
-        { _equityAmount :: Amount 6
-        , _equityPrice  :: Amount 6
-        , _equityDate   :: UTCTime
-        }
-    deriving (Eq, Ord, Show)
+  = PositionOpened Disposition Eligibility t
+  | PositionClosed Disposition t t
+  | PendingWashLoss (Lot (Event t))
+  | OptionAssigned t t
+  | TransactionSplit API.TransactionId [Amount 6]
+  | EquityCostBasis
+      { _equityAmount :: Amount 6,
+        _equityPrice :: Amount 6,
+        _equityDate :: UTCTime
+      }
+  deriving (Eq, Ord, Show)
 
 instance (Transactional t, Render t) => Render (Event t) where
-    rendered = \case
-        PositionOpened d e x ->
-            "PositionOpened"
-                <> space <> tshow d
-                <> space <> tshow e
-                $$ space <> space <> rendered x
-        PositionClosed d o c ->
-            "PositionClosed"
-                <> space <> tshow d
-                $$ space <> space <> rendered o
-                $$ space <> space <> rendered c
-        PendingWashLoss x ->
-            "PendingWashLoss"
-                $$ space <> space <> rendered x
-        OptionAssigned x y ->
-            "OptionAssigned"
-                $$ space <> space <> rendered x
-                $$ space <> space <> rendered y
-        TransactionSplit x xs ->
-            "TransactionSplit"
-                <> space <> tshow x
-                <> space <> renderList tshow xs
-        EquityCostBasis x y z ->
-            "EquityCostBasis"
-                <> space <> tshow x
-                <> space <> tshow y
-                <> space <> tshow z
+  rendered = \case
+    PositionOpened d e x ->
+      "PositionOpened"
+        <> space
+        <> tshow d
+        <> space
+        <> tshow e
+        $$ space <> space <> rendered x
+    PositionClosed d o c ->
+      "PositionClosed"
+        <> space
+        <> tshow d
+        $$ space <> space <> rendered o
+        $$ space <> space <> rendered c
+    PendingWashLoss x ->
+      "PendingWashLoss"
+        $$ space <> space <> rendered x
+    OptionAssigned x y ->
+      "OptionAssigned"
+        $$ space <> space <> rendered x
+        $$ space <> space <> rendered y
+    TransactionSplit x xs ->
+      "TransactionSplit"
+        <> space
+        <> tshow x
+        <> space
+        <> renderList tshow xs
+    EquityCostBasis x y z ->
+      "EquityCostBasis"
+        <> space
+        <> tshow x
+        <> space
+        <> tshow y
+        <> space
+        <> tshow z
 
 data EventError t
-    = DispositionMismatch Disposition Disposition
-    | CannotFindOpen t
-    deriving (Eq, Ord, Show)
+  = DispositionMismatch Disposition Disposition
+  | CannotFindOpen t
+  deriving (Eq, Ord, Show)
 
 instance (Transactional t, Render t) => Render (EventError t) where
-    rendered = \case
-        DispositionMismatch x y ->
-            "DispositionMismatch" <> space <> tshow x <> space <> tshow y
-        CannotFindOpen x ->
-            "CannotFindOpen"
-                $$ space <> space <> rendered x
+  rendered = \case
+    DispositionMismatch x y ->
+      "DispositionMismatch" <> space <> tshow x <> space <> tshow y
+    CannotFindOpen x ->
+      "CannotFindOpen"
+        $$ space <> space <> rendered x
 
 -- Actions can have an impact on events.
 data Action t
-    = OpenPosition Disposition Eligibility t
-    | ClosePosition Disposition t
-    | WashLoss (Lot (Action t))
-    deriving (Eq, Ord, Show)
+  = OpenPosition Disposition Eligibility t
+  | ClosePosition Disposition t
+  | WashLoss (Lot (Action t))
+  deriving (Eq, Ord, Show)
 
 instance (Transactional t, Render t) => Render (Action t) where
-    rendered = \case
-        OpenPosition d e x ->
-            "OpenPosition"
-                <> space <> tshow d
-                <> space <> tshow e
-                $$ space <> space <> rendered x
-        ClosePosition d x ->
-            "ClosePosition"
-                <> space <> tshow d
-                $$ space <> space <> rendered x
-        CapitalGain b g x ->
-            "CapitalGain"
-                <> space <> tshow b
-                <> space <> tshow g
-                $$ space <> space <> rendered x
-        CapitalLoss b g x ->
-            "CapitalLoss"
-                <> space <> tshow b
-                <> space <> tshow g
-                $$ space <> space <> rendered x
-        WashLoss x ->
-            "WashLoss"
-                $$ space <> space <> rendered x
-        WashDeferred x ->
-            "WashDeferred"
-                $$ space <> space <> rendered x
-        RoundTransaction rnd ->
-            "RoundedTransaction"
-                <> space <> rendered rnd
-        Unrecognized t ->
-            "Unrecognized"
-                $$ space <> space <> rendered t
+  rendered = \case
+    OpenPosition d e x ->
+      "OpenPosition"
+        <> space
+        <> tshow d
+        <> space
+        <> tshow e
+        $$ space <> space <> rendered x
+    ClosePosition d x ->
+      "ClosePosition"
+        <> space
+        <> tshow d
+        $$ space <> space <> rendered x
+    CapitalGain b g x ->
+      "CapitalGain"
+        <> space
+        <> tshow b
+        <> space
+        <> tshow g
+        $$ space <> space <> rendered x
+    CapitalLoss b g x ->
+      "CapitalLoss"
+        <> space
+        <> tshow b
+        <> space
+        <> tshow g
+        $$ space <> space <> rendered x
+    WashLoss x ->
+      "WashLoss"
+        $$ space <> space <> rendered x
+    WashDeferred x ->
+      "WashDeferred"
+        $$ space <> space <> rendered x
+    RoundTransaction rnd ->
+      "RoundedTransaction"
+        <> space
+        <> rendered rnd
+    Unrecognized t ->
+      "Unrecognized"
+        $$ space <> space <> rendered t
 
 -- Results are the fruit of applying actions to the events, or just a result
 -- to be immediate reported.
 data Adjustment t
-    = GainLoss (Event t)
-    | Washed (Event t)
-    | Rounded
-    deriving (Eq, Ord, Show, Enum, Bounded)
+  = GainLoss (Event t)
+  | Washed (Event t)
+  | Rounded
+  deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Adjustment
 
-data Adjusted t = Adjusted
-    { _adjKind    :: Adjustment
-    , _adjBracket :: TaxBracket
-    , _adjAmount  :: Amount 6
-    , _adjItem    :: Lot (Action t)
-    }
-    deriving (Eq, Ord, Show)
+data Adjusted t
+  = Adjusted
+      { _adjKind :: Adjustment,
+        _adjBracket :: TaxBracket,
+        _adjAmount :: Amount 6,
+        _adjItem :: Lot (Action t)
+      }
+  deriving (Eq, Ord, Show)
 
 makeLenses ''Adjusted
 
@@ -773,3 +794,4 @@ gainsKeeper opts t = do
       || case opts^.Options.traceId of
             Nothing  -> False
             Just i   -> show (x^.ident) `isInfixOf` i
+-}

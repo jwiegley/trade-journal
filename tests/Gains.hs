@@ -4,11 +4,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 module Gains where
 
+{-
 import           Control.Lens
 import           Control.Monad.Trans.Class
 import           Hedgehog
@@ -66,3 +66,4 @@ gains_buy_sell_profit_partial = property $ do
 
     st^?positionEvents.ix "ZM"
         @?== Just [ PositionOpened Long WashSaleIneligible res ]
+-}

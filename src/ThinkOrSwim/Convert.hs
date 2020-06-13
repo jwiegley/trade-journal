@@ -4,10 +4,13 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE TypeApplications #-}
 
+module ThinkOrSwim.Convert where
+
+{-
 module ThinkOrSwim.Convert (convertOrders) where
 
 import           Control.Applicative
@@ -258,3 +261,4 @@ metadata act x m = m
         ClosePosition disp _  -> Just $ T.pack $ "Close " ++ show disp
         _ -> Nothing
 
+-}

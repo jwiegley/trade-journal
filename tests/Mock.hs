@@ -4,11 +4,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
-
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 module Mock where
 
+{-
 import           Control.Arrow
 import           Control.Exception
 import           Control.Lens hiding (assign)
@@ -256,3 +256,4 @@ assertEqual' preface expected actual =
 infix 1 @?==
 (@?==) :: (MonadIO m, Eq a, Render a, HasCallStack) => a -> a -> m ()
 actual @?== expected = liftIO $ assertEqual' "" expected actual
+-}
