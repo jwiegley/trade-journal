@@ -24,7 +24,7 @@ module ThinkOrSwim.Event
     , roundingEntries
     , Lot
     , shares
-    , costOfShares
+    , price
     , item
     , trail
     , Event(..)
@@ -101,15 +101,68 @@ affect the history of events having possible future implications:
 - short/long-term loss/gain due to option expiration of long/short call/put
 -}
 
+-- Events are temporarily recorded in a history, and may have an impact on
+-- future transactions or P/L.
+data Event t
+    = PositionOpened Disposition Eligibility t
+    | PositionClosed Disposition t t
+    | PendingWashLoss (Lot (Event t))
+    | OptionAssigned t t
+    | TransactionSplit API.TransactionId [Amount 6]
+    | EquityCostBasis
+        { _equityAmount :: Amount 6
+        , _equityPrice  :: Amount 6
+        , _equityDate   :: UTCTime
+        }
+    deriving (Eq, Ord, Show)
+
+instance (Transactional t, Render t) => Render (Event t) where
+    rendered = \case
+        PositionOpened d e x ->
+            "PositionOpened"
+                <> space <> tshow d
+                <> space <> tshow e
+                $$ space <> space <> rendered x
+        PositionClosed d o c ->
+            "PositionClosed"
+                <> space <> tshow d
+                $$ space <> space <> rendered o
+                $$ space <> space <> rendered c
+        PendingWashLoss x ->
+            "PendingWashLoss"
+                $$ space <> space <> rendered x
+        OptionAssigned x y ->
+            "OptionAssigned"
+                $$ space <> space <> rendered x
+                $$ space <> space <> rendered y
+        TransactionSplit x xs ->
+            "TransactionSplit"
+                <> space <> tshow x
+                <> space <> renderList tshow xs
+        EquityCostBasis x y z ->
+            "EquityCostBasis"
+                <> space <> tshow x
+                <> space <> tshow y
+                <> space <> tshow z
+
+data EventError t
+    = DispositionMismatch Disposition Disposition
+    | CannotFindOpen t
+    deriving (Eq, Ord, Show)
+
+instance (Transactional t, Render t) => Render (EventError t) where
+    rendered = \case
+        DispositionMismatch x y ->
+            "DispositionMismatch" <> space <> tshow x <> space <> tshow y
+        CannotFindOpen x ->
+            "CannotFindOpen"
+                $$ space <> space <> rendered x
+
+-- Actions can have an impact on events.
 data Action t
     = OpenPosition Disposition Eligibility t
     | ClosePosition Disposition t
-    | CapitalGain TaxBracket (Amount 6) (Event t)
-    | CapitalLoss TaxBracket (Amount 6) (Event t)
     | WashLoss (Lot (Action t))
-    | WashDeferred (Lot (Action t))
-    | RoundTransaction (Amount 2)
-    | Unrecognized t
     deriving (Eq, Ord, Show)
 
 instance (Transactional t, Render t) => Render (Action t) where
@@ -146,64 +199,53 @@ instance (Transactional t, Render t) => Render (Action t) where
             "Unrecognized"
                 $$ space <> space <> rendered t
 
-data Event t
-    = PositionOpened Disposition Eligibility t
-    | PositionClosed Disposition t t
-    | WashRecorded (Lot (Event t))
-    | OptionAssigned t t
-    | EstablishEquityCost
-        { _equityAmount :: Amount 6
-        , _equityCost   :: Amount 6
-        , _equityDate   :: UTCTime
-        }
-    | SplitTransaction API.TransactionId [Amount 6]
+-- Results are the fruit of applying actions to the events, or just a result
+-- to be immediate reported.
+data Adjustment t
+    = GainLoss (Event t)
+    | Washed (Event t)
+    | Rounded
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+makePrisms ''Adjustment
+
+data Adjusted t = Adjusted
+    { _adjKind    :: Adjustment
+    , _adjBracket :: TaxBracket
+    , _adjAmount  :: Amount 6
+    , _adjItem    :: Lot (Action t)
+    }
     deriving (Eq, Ord, Show)
 
-instance (Transactional t, Render t) => Render (Event t) where
-    rendered = \case
-        PositionOpened d e x ->
-            "PositionOpened"
-                <> space <> tshow d
-                <> space <> tshow e
-                $$ space <> space <> rendered x
-        PositionClosed d o c ->
-            "PositionClosed"
-                <> space <> tshow d
-                $$ space <> space <> rendered o
-                $$ space <> space <> rendered c
-        WashRecorded x ->
-            "WashRecorded"
-                $$ space <> space <> rendered x
-        OptionAssigned x y ->
-            "OptionAssigned"
-                $$ space <> space <> rendered x
-                $$ space <> space <> rendered y
-        EstablishEquityCost x y z ->
-            "EstablishEquityCost"
-                <> space <> tshow x
-                <> space <> tshow y
-                <> space <> tshow z
-        SplitTransaction x xs ->
-            "SplitTransaction"
-                <> space <> tshow x
-                <> space <> renderList tshow xs
+makeLenses ''Adjusted
 
-data EventError t
-    = DispositionMismatch Disposition Disposition
-    | CannotFindOpen t
-    deriving (Eq, Ord, Show)
-
-instance (Transactional t, Render t) => Render (EventError t) where
-    rendered = \case
-        DispositionMismatch x y ->
-            "DispositionMismatch" <> space <> tshow x <> space <> tshow y
-        CannotFindOpen x ->
-            "CannotFindOpen"
                 $$ space <> space <> rendered x
+        CapitalGain b g x ->
+            "CapitalGain"
+                <> space <> tshow b
+                <> space <> tshow g
+                $$ space <> space <> rendered x
+        CapitalLoss b g x ->
+            "CapitalLoss"
+                <> space <> tshow b
+                <> space <> tshow g
+                $$ space <> space <> rendered x
+        WashLoss x ->
+            "WashLoss"
+                $$ space <> space <> rendered x
+        WashDeferred x ->
+            "WashDeferred"
+                $$ space <> space <> rendered x
+        RoundTransaction rnd ->
+            "RoundedTransaction"
+                <> space <> rendered rnd
+        Unrecognized t ->
+            "Unrecognized"
+                $$ space <> space <> rendered t
 
 class Priced t where
     quantity :: Lens' t (Amount 6)
-    cost     :: Lens' t (Amount 6)
+    price    :: Lens' t (Amount 6)
 
 class (Priced t, Show t) => Transactional t where
     ident       :: Getter t API.TransactionId
@@ -221,7 +263,8 @@ class (Priced t, Show t) => Transactional t where
 
 instance Priced API.Transaction where
     quantity = API.xamount
-    cost     = API.xcost
+    price    | API.xamount == 0 = 0
+             | otherwise        = = API.xcost / API.xamount
 
 instance Transactional API.Transaction where
     ident          = API.xid
@@ -276,10 +319,10 @@ renderRefList :: [Ref] -> Doc
 renderRefList = mconcat . intersperse "," . map rendered
 
 data Lot t = Lot
-    { _shares       :: Amount 6
-    , _costOfShares :: Amount 6
-    , _item         :: t
-    , _trail        :: [Ref]
+    { _shares :: Amount 6
+    , _price  :: Amount 6
+    , _item   :: t
+    , _trail  :: [Ref]
     }
     deriving (Eq, Ord, Show)
 
@@ -327,30 +370,6 @@ mkLot t = Lot
     , _item         = t
     , _trail        = []
     }
-
-alignLots :: (Priced a, Priced b) => a -> b -> (Split a, Split b)
-alignLots x y
-    | xq == 0 &&
-      yq == 0   = ( None x, None y )
-    | xq == 0   = ( None x, All  y )
-    | yq == 0   = ( All  x, None y )
-    | xq == yq  = ( All  x, All  y )
-    | xq <  yq  = ( All x
-                  , Some (y & quantity .~ xq
-                            & cost     .~ xq * ycps)
-                         (y & quantity .~ diff
-                            & cost     .~ diff * ycps) )
-    | otherwise = ( Some (x & quantity .~ yq
-                            & cost     .~ yq * xcps)
-                         (x & quantity .~ diff
-                            & cost     .~ diff * xcps)
-                  , All y )
-  where
-    xq   = x^.quantity
-    yq   = y^.quantity
-    xcps = x^.cost / xq
-    ycps = y^.cost / yq
-    diff = abs (xq - yq)
 
 data StateChange t
     = Result       (Action t)
@@ -447,7 +466,7 @@ matchPositions disp t hist =
     f (mu, evs) _ = (mu, evs)
 
 actionsFromTransaction :: (Transactional t, Render t, Eq t)
-                      => t -> [Event t] -> [Action t]
+                      => t -> [Event t] -> [Either (Action t) (Result t)]
 actionsFromTransaction t evs = case (t^.kind, t^.subkind) of
     -- (DividendOrInterest, AdrFee) -> undefined
     -- (DividendOrInterest, FreeBalanceInterestAdjustment) -> undefined
@@ -532,7 +551,7 @@ handleAction :: (Transactional t, Render t)
              -> Action t          -- ^ current event
              -> ChangeState t (Maybe (Action t))
                -- ^ recorded change, and what remains
-handleAction (ee@(EstablishEquityCost amt cst dt):_) pos@(OpenPosition od _ o)
+handleAction (ee@(EquityCost amt cst dt):_) pos@(OpenPosition od _ o)
     | not (isOption o || isOptionAssignment o) = do
     let o' | amt < quant =
              o & quantity .~ amt
@@ -544,7 +563,7 @@ handleAction (ee@(EstablishEquityCost amt cst dt):_) pos@(OpenPosition od _ o)
 
     when (amt > quant) $
         change $ ReplaceEvent ee $
-            EstablishEquityCost
+            EquityCost
                 (amt - quant)
                 (cst^.percent ((amt - quant) / amt))
                 dt

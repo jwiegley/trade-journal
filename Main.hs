@@ -76,7 +76,7 @@ main = do
             forM_ (assocs (holdings config)) $ \(sym, hs) ->
                 forM_ hs $ \h ->
                     positionEvents.at sym.non []
-                        <>= [ EstablishEquityCost
+                        <>= [ EquityCost
                                 (amount h)
                                 (- (price h * amount h))
                                 (UTCTime (date h) 0) ]
