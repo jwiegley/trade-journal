@@ -3,6 +3,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -42,6 +43,25 @@ _SplitKept :: Traversal' (Split a) a
 _SplitKept f (Some u k) = Some u <$> f k
 _SplitKept _ (All u)    = pure $ All u
 _SplitKept f (None k)   = None <$> f k
+
+align :: (Eq n, Ord n, Num n)
+      => Lens' a n -> Lens' b n -> a -> b -> (Split a, Split b)
+align la lb x y
+    | xq == 0 &&
+      yq == 0   = ( None x, None y )
+    | xq == 0   = ( None x, All  y )
+    | yq == 0   = ( All  x, None y )
+    | xq == yq  = ( All  x, All  y )
+    | xq <  yq  = ( All x
+                  , Some (y & lb .~ xq)
+                         (y & lb .~ diff) )
+    | otherwise = ( Some (x & la .~ yq)
+                         (x & la .~ diff)
+                  , All y )
+  where
+    xq = x^.la
+    yq = y^.lb
+    diff = abs (xq - yq)
 
 data Applied v a b = Applied
     { _value :: v
