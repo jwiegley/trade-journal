@@ -5,8 +5,8 @@
 , doProfiling ? true
 , doStrict    ? true
 
-, rev    ? "b76e3eab1875c897fb00c4a13ee144490c6227fb"
-, sha256 ? "1zjf23g0vwiwr85xwr45mn2maf3mly0n9yi64bk9nb8aq18gv1z1"
+, rev    ? "dcb64ea42e64aaecd8e6fef65cc86245c9666818"
+, sha256 ? "0i77sgs0gic6pwbkvk9lbpfshgizdrqyh18law2ji1409azc09w0"
 
 , pkgs ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
@@ -76,6 +76,7 @@ haskellPackages.developPackage rec {
       haskellPackages.hoogle
       haskellPackages.hasktags
       haskellPackages.ghcid
+      haskellPackages.ormolu
       coq
       coq.ocaml
       coq.camlp5
