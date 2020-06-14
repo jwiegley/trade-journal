@@ -1,0 +1,38 @@
+#!/bin/bash -e
+
+BROKER=$HOME/Documents/accounts/broker
+JSON=$BROKER/Ameritrade/hist.json
+
+ACCOUNT=$1
+shift 1
+TRACE_ID=${1:-1000}
+shift 1
+
+hpack --force
+cabal configure \
+	--disable-library-stripping \
+	--enable-tests \
+	--enable-profiling \
+	--enable-debug-info=3 \
+	--disable-optimization \
+	--ghc-options='-g -debug'
+
+cabal build
+cabal test
+
+if [[ "$TRACE_ID" == all ]]; then
+    TRACE_OPTS=--trace-all
+else
+    TRACE_OPTS="--trace-xid $TRACE_ID"
+fi
+
+cabal run thinkorswim -- \
+	$TRACE_OPTS \
+	--capital-gains \
+	--json-data "$JSON" \
+	--equity "$BROKER/equity.json" \
+	--account $ACCOUNT "$@" >/tmp/ledger.dat
+
+ledger -f /tmp/ledger.dat bal not opening --lots
+
+# (cd ~/src/thinkorswim ; ./build ### ###)
