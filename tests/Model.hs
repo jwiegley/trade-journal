@@ -44,7 +44,7 @@ instance Show MockFailure where
 instance Exception MockFailure
 
 assertEqual' ::
-  (Eq a, Show a, HasCallStack) =>
+  (Eq a, PrettyVal a, HasCallStack) =>
   -- | The message prefix
   String ->
   -- | The expected value
@@ -61,21 +61,21 @@ assertEqual' preface expected actual =
                   then Nothing
                   else Just preface
               )
-              (ppShow expected)
-              (ppShow actual)
+              (dumpStr expected)
+              (dumpStr actual)
           )
       )
 
 infix 1 @?==
 
-(@?==) :: (MonadIO m, Eq a, Show a, HasCallStack) => a -> a -> m ()
+(@?==) :: (MonadIO m, Eq a, PrettyVal a, HasCallStack) => a -> a -> m ()
 actual @?== expected = liftIO $ assertEqual' "" expected actual
 
 testModel :: TestTree
 testModel =
   testGroup
     "model"
-    [ buy
+    [ baseline
     ]
 
 genUTCTime :: MonadGen m => m UTCTime
@@ -99,102 +99,148 @@ genLot = do
   t <- genUTCTime
   pure $ Lot q 1 t []
 
-buy :: TestTree
-buy =
+baseline :: TestTree
+baseline =
   testGroup
-    "buy"
-    [ testProperty "simple-buy" $ property $ do
-        b <- forAll genLot
-        -- A simple buy
-        lift $
-          processLots [BuySell b]
-            @?== ( [ SnocEvent (b & details <>~ [Position Open]),
-                     Result (b & details <>~ [Position Open])
-                   ],
-                   [b & details <>~ [Position Open]]
-                 ),
-      testProperty "buy-sell-breakeven" $ property $ do
-        b <- forAll genLot
-        let s = b & amount %~ negate
-        -- A buy and sell at break-even
-        lift $
-          processLots
-            [ BuySell b,
-              BuySell s
-            ]
-            @?== ( [ SnocEvent (b & details <>~ [Position Open]),
-                     Result (b & details <>~ [Position Open]),
-                     Result (s & details <>~ [GainLoss 0])
-                   ],
-                   [ b & details <>~ [Position Open],
-                     s & details <>~ [GainLoss 0]
-                   ]
-                 ),
-      testProperty "buy-sell-profit" $ property $ do
-        b <- forAll genLot
-        let s = b & amount %~ negate
-            sp = s & price +~ 10
-        -- A buy and sell at a profit
-        lift $
-          processLots
-            [ BuySell b,
-              BuySell sp
-            ]
-            @?== ( [ SnocEvent (b & details <>~ [Position Open]),
-                     Result (b & details <>~ [Position Open]),
-                     Result (sp & details <>~ [GainLoss 10])
-                   ],
-                   [ b & details <>~ [Position Open],
-                     sp & details <>~ [GainLoss 10]
-                   ]
-                 ),
-      testProperty "buy-sell-loss" $ property $ do
-        b <- forAll genLot
-        let s = b & amount %~ negate
-            sl = s & price -~ 1
-        -- A buy and sell at a loss
-        lift $
-          processLots
-            [ BuySell b,
-              BuySell sl
-            ]
-            @?== ( [ SnocEvent (b & details <>~ [Position Open]),
-                     Result (b & details <>~ [Position Open]),
-                     Result (sl & details <>~ [GainLoss (-1)]),
-                     Submit (Wash (sl & details <>~ [GainLoss (-1)])),
-                     SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
-                     SubmitEnd
-                   ],
-                   [ b & details <>~ [Position Open],
-                     sl & details <>~ [GainLoss (-1)]
-                   ]
-                 ),
-      testProperty "simple-sell" $ property $ do
-        b <- forAll genLot
-        let s = b & amount %~ negate
-        -- A simple sell
-        lift $
-          processLots [BuySell s]
-            @?== ( [ SnocEvent (s & details <>~ [Position Open]),
-                     Result (s & details <>~ [Position Open])
-                   ],
-                   [s & details <>~ [Position Open]]
-                 ),
-      testProperty "sell-buy-profit" $ property $ do
-        b <- forAll genLot
-        let s = b & amount %~ negate
-        -- A sell and buy at a profit
-        lift $
-          processLots
-            [ BuySell s,
-              BuySell b
-            ]
-            @?== ( [ SnocEvent (s & details <>~ [Position Open]),
-                     Result (s & details <>~ [Position Open]),
-                     Result (b & details <>~ [GainLoss 0])
-                   ],
-                   [ s & details <>~ [Position Open],
-                     b & details <>~ [GainLoss 0]
-                   ]
-                 )
+    "baseline"
+    [ testProperty "simple-buy" simpleBuy,
+      testProperty "buy-sell-breakeven" buySellBreakeven,
+      testProperty "buy-sell-profit" buySellProfit,
+      testProperty "buy-sell-loss" buySellLoss,
+      testProperty "buy-sell-loss-buy" buySellLossBuy,
+      testProperty "simple-sell" simpleSell,
+      testProperty "sell-buy-profit" sellBuyProfit
     ]
+
+simpleBuy :: Property
+simpleBuy = property $ do
+  b <- forAll genLot
+  -- A simple buy
+  lift $
+    processLots [BuySell b]
+      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open])
+             ],
+             [b & details <>~ [Position Open]]
+           )
+
+buySellBreakeven :: Property
+buySellBreakeven = property $ do
+  b <- forAll genLot
+  let s = b & amount %~ negate
+  -- A buy and sell at break-even
+  lift $
+    processLots
+      [ BuySell b,
+        BuySell s
+      ]
+      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open]),
+               Result (s & details <>~ [GainLoss 0])
+             ],
+             [ b & details <>~ [Position Open],
+               s & details <>~ [GainLoss 0]
+             ]
+           )
+
+buySellProfit :: Property
+buySellProfit = property $ do
+  b <- forAll genLot
+  let s = b & amount %~ negate
+      sp = s & price +~ 10
+  -- A buy and sell at a profit
+  lift $
+    processLots
+      [ BuySell b,
+        BuySell sp
+      ]
+      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open]),
+               Result (sp & details <>~ [GainLoss 10])
+             ],
+             [ b & details <>~ [Position Open],
+               sp & details <>~ [GainLoss 10]
+             ]
+           )
+
+buySellLoss :: Property
+buySellLoss = property $ do
+  b <- forAll genLot
+  let s = b & amount %~ negate
+      sl = s & price -~ 1
+  -- A buy and sell at a loss
+  lift $
+    processLots
+      [ BuySell b,
+        BuySell sl
+      ]
+      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open]),
+               Result (sl & details <>~ [GainLoss (-1)]),
+               Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
+               SubmitEnd
+             ],
+             [ b & details <>~ [Position Open],
+               sl & details <>~ [GainLoss (-1)]
+             ]
+           )
+
+buySellLossBuy :: Property
+buySellLossBuy = property $ do
+  b <- forAll genLot
+  let s = b & amount %~ negate
+      sl = s & price -~ 1
+  -- A buy and sell at a loss
+  lift $
+    processLots
+      [ BuySell b,
+        BuySell sl,
+        BuySell b
+      ]
+      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open]),
+               Result (sl & details <>~ [GainLoss (-1)]),
+               Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
+               SubmitEnd,
+               SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open, WashSaleAdjust (-1)])
+             ],
+             [ b & details <>~ [Position Open],
+               sl & details <>~ [GainLoss (-1)],
+               b & details <>~ [Position Open, WashSaleAdjust (-1)]
+             ]
+           )
+
+simpleSell :: Property
+simpleSell = property $ do
+  b <- forAll genLot
+  let s = b & amount %~ negate
+  -- A simple sell
+  lift $
+    processLots [BuySell s]
+      @?== ( [ SnocEvent (s & details <>~ [Position Open]),
+               Result (s & details <>~ [Position Open])
+             ],
+             [s & details <>~ [Position Open]]
+           )
+
+sellBuyProfit :: Property
+sellBuyProfit = property $ do
+  b <- forAll genLot
+  let s = b & amount %~ negate
+  -- A sell and buy at a profit
+  lift $
+    processLots
+      [ BuySell s,
+        BuySell b
+      ]
+      @?== ( [ SnocEvent (s & details <>~ [Position Open]),
+               Result (s & details <>~ [Position Open]),
+               Result (b & details <>~ [GainLoss 0])
+             ],
+             [ s & details <>~ [Position Open],
+               b & details <>~ [GainLoss 0]
+             ]
+           )

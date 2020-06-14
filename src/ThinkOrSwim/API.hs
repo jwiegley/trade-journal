@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module ThinkOrSwim.API where
 
@@ -34,107 +34,106 @@ baseUrl = "https://api.tdameritrade.com/v1/"
 newtype AccessToken = AccessToken Text
 
 instance ToHttpApiData AccessToken where
-    toUrlPiece (AccessToken t) = "Bearer " <> t
-    toHeader (AccessToken t) = T.encodeUtf8 $ "Bearer " <> t
+  toUrlPiece (AccessToken t) = "Bearer " <> t
+  toHeader (AccessToken t) = T.encodeUtf8 $ "Bearer " <> t
 
 newtype AccountId = AccountId Text
 
 instance ToHttpApiData AccountId where
-    toUrlPiece (AccountId t) = t
+  toUrlPiece (AccountId t) = t
 
 newtype Symbol = Symbol Text
 
 instance ToHttpApiData Symbol where
-    toUrlPiece (Symbol t) = t
+  toUrlPiece (Symbol t) = t
 
 newtype ISO8601Date = ISO8601Date Day
 
 instance ToHttpApiData ISO8601Date where
-    toUrlPiece (ISO8601Date s) = T.pack (iso8601Show s)
+  toUrlPiece (ISO8601Date s) = T.pack (iso8601Show s)
 
 data TransactionQueryType
-    = All
-    | Trade_
-    | BuyOnly
-    | SellOnly
-    | CashInOrCashOut
-    | Checking
-    | Dividend
-    | Interest
-    | Other
-    | AdvisorFees
+  = All
+  | Trade_
+  | BuyOnly
+  | SellOnly
+  | CashInOrCashOut
+  | Checking
+  | Dividend
+  | Interest
+  | Other
+  | AdvisorFees
 
 instance ToHttpApiData TransactionQueryType where
-    toUrlPiece = \case
-        All             -> "ALL"
-        Trade_          -> "TRADE"
-        BuyOnly         -> "BUY_ONLY"
-        SellOnly        -> "SELL_ONLY"
-        CashInOrCashOut -> "CASH_IN_OR_CASH_OUT"
-        Checking        -> "CHECKING"
-        Dividend        -> "DIVIDEND"
-        Interest        -> "INTEREST"
-        Other           -> "OTHER"
-        AdvisorFees     -> "ADVISOR_FEES"
+  toUrlPiece = \case
+    All -> "ALL"
+    Trade_ -> "TRADE"
+    BuyOnly -> "BUY_ONLY"
+    SellOnly -> "SELL_ONLY"
+    CashInOrCashOut -> "CASH_IN_OR_CASH_OUT"
+    Checking -> "CHECKING"
+    Dividend -> "DIVIDEND"
+    Interest -> "INTEREST"
+    Other -> "OTHER"
+    AdvisorFees -> "ADVISOR_FEES"
 
 data AccountFields = Positions | Orders | PositionsAndOrders
 
 instance ToHttpApiData AccountFields where
-    toUrlPiece = \case
-        Positions          -> "positions"
-        Orders             -> "orders"
-        PositionsAndOrders -> "positions,orders"
+  toUrlPiece = \case
+    Positions -> "positions"
+    Orders -> "orders"
+    PositionsAndOrders -> "positions,orders"
 
 data Item = Item
 
 -- APIs
 
 type API =
+  -- Accounts and Trading
+  --
+  -- APIs to access Account Balances, Positions, Trade Info and place Trades
 
--- Accounts and Trading
---
--- APIs to access Account Balances, Positions, Trade Info and place Trades
-
-    -- Orders
-    -- Saved Orders
-    -- Accounts
-    "accounts"
+  -- Orders
+  -- Saved Orders
+  -- Accounts
+  "accounts"
     :> Capture "accountId" AccountId
     :> QueryParam "fields" AccountFields -- one or both of 'positions,orders'
     :> Header "Authorization" AccessToken
     :> Get '[JSON] () -- Item
 
--- Authentication
---
--- oAuth API to retrieve the bearer token which can be used to access other APIs
+    -- Authentication
+    --
+    -- oAuth API to retrieve the bearer token which can be used to access other APIs
 
--- Instruments
---
--- Search for instrument and fundamental data
+    -- Instruments
+    --
+    -- Search for instrument and fundamental data
 
--- Market Hours
---
--- Operating hours of markets
+    -- Market Hours
+    --
+    -- Operating hours of markets
 
--- Movers
---
--- Retrieve mover information by index symbol, direction type and change
+    -- Movers
+    --
+    -- Retrieve mover information by index symbol, direction type and change
 
--- Option Chains
---
--- Get Option Chains for optionable symbols
+    -- Option Chains
+    --
+    -- Get Option Chains for optionable symbols
 
--- Price History
---
--- Historical price data for charts
+    -- Price History
+    --
+    -- Historical price data for charts
 
--- Quotes
---
--- Request real-time and delayed top level quote data
+    -- Quotes
+    --
+    -- Request real-time and delayed top level quote data
 
--- Transaction History
---
--- APIs to access transaction history on the account
+    -- Transaction History
+    --
+    -- APIs to access transaction history on the account
 
     -- Get Transactions
     :<|> "accounts"
@@ -158,19 +157,18 @@ type API =
 api :: Proxy API
 api = Proxy
 
-getAccounts
-    :: AccountId
-    -> Maybe AccountFields
-    -> Maybe AccessToken
-    -> ClientM () -- Item
+getAccounts ::
+  AccountId ->
+  Maybe AccountFields ->
+  Maybe AccessToken ->
+  ClientM () -- Item
 
-getTransactions
-    :: AccountId
-    -> Maybe TransactionQueryType
-    -> Maybe Symbol
-    -> Maybe ISO8601Date
-    -> Maybe ISO8601Date
-    -> Maybe AccessToken
-    -> ClientM TransactionHistory
-
+getTransactions ::
+  AccountId ->
+  Maybe TransactionQueryType ->
+  Maybe Symbol ->
+  Maybe ISO8601Date ->
+  Maybe ISO8601Date ->
+  Maybe AccessToken ->
+  ClientM TransactionHistory
 getAccounts :<|> getTransactions = client api

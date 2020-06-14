@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -35,18 +37,18 @@ import Data.Amount
 import Data.Foldable
 import Data.List (tails)
 -- import Data.Map (Map)
+import Data.Maybe (fromMaybe)
 import Data.Split
 -- import Data.Text (Text)
 -- import qualified Data.Text as T
 import Data.Time
+import GHC.Generics
 -- import Data.Utils
--- import Text.PrettyPrint (Doc)
--- import qualified Text.PrettyPrint as P
--- import Text.Show.Pretty
+import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
 data Effect = Open | Close
-  deriving (Show, Eq, Ord, Enum, Bounded)
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
 
 data Annotation
   = Fees (Amount 6)
@@ -55,7 +57,7 @@ data Annotation
   | WashSaleAdjust (Amount 6)
   | PartsWashed
   | Position Effect
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, PrettyVal)
 
 makePrisms ''Annotation
 
@@ -70,6 +72,9 @@ fees (Fees x : xs) = x + fees xs
 fees (Commission x : xs) = x + fees xs
 fees (_ : xs) = fees xs
 
+instance PrettyVal UTCTime where
+  prettyVal = fromMaybe (error "Could not render time") . reify
+
 -- | A 'Lot' represents a collection of shares, with a given price and a
 --   transaction date.
 data Lot
@@ -80,7 +85,7 @@ data Lot
         -- | All details are expressed "per share", just like the price.
         _details :: [Annotation]
       }
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, PrettyVal)
 
 makeLenses ''Lot
 
@@ -88,7 +93,7 @@ data Action
   = -- | The sign of the Lot 'amount' indicates buy or sell.
     BuySell Lot
   | Wash Lot
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, PrettyVal)
 
 makePrisms ''Action
 
@@ -98,7 +103,7 @@ data StateChange
   | Result Lot
   | ConsEvent Lot
   | SnocEvent Lot
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, PrettyVal)
 
 makePrisms ''StateChange
 
@@ -120,6 +125,10 @@ distance :: UTCTime -> UTCTime -> Integer
 distance x y = abs (utctDay x `diffDays` utctDay y)
 
 handle :: [Lot] -> Action -> Writer [StateChange] (Maybe Action)
+-- The most common trading activities are either to open a new position, or to
+-- close an existing one for a profit or loss. If there is a loss within 30
+-- days of the opening, it implies a wash sale adjustment of any other
+-- openings 30 days before or after.
 handle (open : _) act
   | any (== Position Open) (open ^. details),
     BuySell close <- act,
@@ -143,6 +152,10 @@ handle (open : _) act
       when ((close ^. time) `distance` (open ^. time) <= 30 && pl < 0) $
         tell [Submit (Wash res)]
     pure $ BuySell <$> (d ^? _SplitKept)
+-- If the action is a wash sale adjustment, determine if may be applied to any
+-- existing open positions. If not, it is remembered, to be applied to the
+-- next applicable opening.
+handle (open : _) act = do undefined
 handle [] (BuySell x) = do
   let y = x & details <>~ [Position Open]
   tell [SnocEvent y, Result y]
