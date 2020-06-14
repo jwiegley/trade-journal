@@ -13,17 +13,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
--- {-# LANGUAGE FunctionalDependencies #-}
-
--- {-# LANGUAGE MultiWayIf #-}
--- {-# LANGUAGE OverloadedStrings #-}
-
--- {-# LANGUAGE RecordWildCards #-}
-
--- {-# LANGUAGE TupleSections #-}
-
--- {-# LANGUAGE ViewPatterns #-}
-
 module ThinkOrSwim.Model where
 
 import Control.Applicative
@@ -36,14 +25,10 @@ import Control.Monad.Trans.Writer
 import Data.Amount
 import Data.Foldable
 import Data.List (tails)
--- import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Split
--- import Data.Text (Text)
--- import qualified Data.Text as T
 import Data.Time
 import GHC.Generics
--- import Data.Utils
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
@@ -132,94 +117,6 @@ alignLots x y =
 distance :: UTCTime -> UTCTime -> Integer
 distance x y = abs (utctDay x `diffDays` utctDay y)
 
-handle :: [Lot] -> Action -> Writer [StateChange] (Maybe Action)
--- The most common trading activities are either to open a new position, or to
--- close an existing one for a profit or loss. If there is a loss within 30
--- days of the opening, it implies a wash sale adjustment of any other
--- openings 30 days before or after.
-handle (open : _) act
-  | BuySell close <- act,
-    any (== Position Open) (open ^. details),
-    (open ^. amount > 0) == (close ^. amount < 0) = do
-    let (s, d) = open `alignLots` close
-    forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
-      let pl =
-            ( if open ^. amount > 0
-                then du ^. price - su ^. price
-                else su ^. price - du ^. price
-            )
-              - fees (du ^. details)
-          res = du & details <>~ [GainLoss pl]
-      tell [Result res]
-      forM_ (s ^? _SplitKept) $ \k ->
-        tell [SnocEvent (k & details <>~ [PartsWashed])]
-      -- After closing at a loss, and if the loss occurs within 30 days
-      -- of its corresponding open, and there is another open within 30
-      -- days of the loss, close it and re-open so it's repriced by the
-      -- wash loss.
-      when ((close ^. time) `distance` (open ^. time) <= 30 && pl < 0) $
-        tell [Submit (Wash res)]
-    pure $ BuySell <$> (d ^? _SplitKept)
--- If the action is a wash sale adjustment, determine if may be applied to any
--- existing open positions. If not, it is remembered, to be applied to the
--- next applicable opening.
-handle (open : _) act
-  | Wash wash <- act,
-    any (== Position Open) (open ^. details),
-    not (any (== PartsWashed) (open ^. details)),
-    (open ^. amount > 0) == (wash ^. amount < 0),
-    (open ^. time) `distance` (wash ^. time) <= 30 =
-    assert (wash ^. amount /= 0) $ do
-      let (s, d) = open `alignLots` wash
-          adj = sum (d ^.. _SplitUsed . details . traverse . washSaleAdjust)
-      -- Wash failing closes by adding the amount to the cost basis of the
-      -- opening transaction.
-      tell $
-        (SnocEvent <$> s ^.. _SplitKept)
-          ++ ( SnocEvent . (details <>~ [WashSaleAdjust adj])
-                 <$> s ^.. _SplitUsed
-             )
-          ++ ( Result
-                 . ( \x ->
-                       x & amount %~ negate
-                         & details <>~ [ToBeWashed]
-                         & details . traverse . _Position .~ Close
-                   )
-                 <$> s
-                 ^.. _SplitUsed
-             )
-          ++ ( Result . (details <>~ [WashSaleAdjust adj])
-                 <$> s ^.. _SplitUsed
-             )
-      pure $ Wash <$> d ^? _SplitKept
-handle (close : _) act
-  | BuySell open <- act,
-    Just adj <- close ^? details . traverse . _WashSaleAdjust,
-    (open ^. amount > 0) == (close ^. amount < 0) = do
-    let (s, d) = close `alignLots` open
-    -- We wash failing closes by adding the amount to the cost basis of
-    -- the opening transaction. Thus, we generate three instances of
-    -- WashLossApplied, but only one OpenPosition.
-    tell $
-      (SnocEvent <$> s ^.. _SplitKept)
-        ++ ( SnocEvent . (details <>~ [Position Open, WashSaleAdjust adj])
-               <$> d ^.. _SplitUsed
-           )
-        ++ ( Result . (details <>~ [Position Open, WashSaleAdjust adj])
-               <$> d ^.. _SplitUsed
-           )
-    pure $ BuySell <$> d ^? _SplitKept
-handle [] (BuySell x) = do
-  let y = x & details <>~ [Position Open]
-  tell [SnocEvent y, Result y]
-  pure Nothing
-handle [] (Wash x) = do
-  let loss = sum (x ^.. details . traverse . gainLoss)
-  assert (loss < 0) $ do
-    tell [SnocEvent (x & details .~ [WashSaleAdjust loss])]
-    pure Nothing
-handle _ x = pure $ Just x
-
 impliedChanges :: Action -> State [Lot] [StateChange]
 impliedChanges x = do
   hist <- get
@@ -258,3 +155,100 @@ processLots =
   unzipBoth
     . (`evalState` [])
     . mapM (\x -> first (Action x :) <$> processLot x)
+
+handle :: [Lot] -> Action -> Writer [StateChange] (Maybe Action)
+-- The most common trading activities are either to open a new position, or to
+-- close an existing one for a profit or loss. If there is a loss within 30
+-- days of the opening, it implies a wash sale adjustment of any preceeding or
+-- subsequent openings 30 days before or after.
+handle (open : _) act
+  | BuySell close <- act,
+    any (== Position Open) (open ^. details),
+    (open ^. amount > 0) == (close ^. amount < 0) = do
+    let (s, d) = open `alignLots` close
+    forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
+      let pl =
+            ( if open ^. amount > 0
+                then du ^. price - su ^. price
+                else su ^. price - du ^. price
+            )
+              - fees (du ^. details)
+          res = du & details <>~ [GainLoss pl]
+      tell [Result res]
+      forM_ (s ^? _SplitKept) $ \k ->
+        tell [SnocEvent (k & details <>~ [PartsWashed])]
+      -- After closing at a loss, and if the loss occurs within 30 days
+      -- of its corresponding open, and there is another open within 30
+      -- days of the loss, close it and re-open so it's repriced by the
+      -- wash loss.
+      when ((close ^. time) `distance` (open ^. time) <= 30 && pl < 0) $
+        tell [Submit (Wash res)]
+    pure $ BuySell <$> (d ^? _SplitKept)
+-- If the action is a wash sale adjustment, determine if can be applied to any
+-- existing open positions. If not, it is remembered, to be applied at the
+-- next opening within 30 days of sale.
+handle (open : _) act
+  | Wash wash <- act,
+    any (== Position Open) (open ^. details),
+    not (any (== PartsWashed) (open ^. details)),
+    (open ^. amount > 0) == (wash ^. amount < 0),
+    (open ^. time) `distance` (wash ^. time) <= 30 =
+    assert (wash ^. amount /= 0) $ do
+      let (s, d) = open `alignLots` wash
+          adj = sum (d ^.. _SplitUsed . details . traverse . washSaleAdjust)
+      -- Wash failing closes by adding the amount to the cost basis of the
+      -- opening transaction.
+      tell $
+        (SnocEvent <$> s ^.. _SplitKept)
+          ++ ( SnocEvent . (details <>~ [WashSaleAdjust adj])
+                 <$> s ^.. _SplitUsed
+             )
+          ++ ( Result
+                 . ( \x ->
+                       x & amount %~ negate
+                         & details <>~ [ToBeWashed]
+                         & details . traverse . _Position .~ Close
+                   )
+                 <$> s
+                 ^.. _SplitUsed
+             )
+          ++ ( Result . (details <>~ [WashSaleAdjust adj])
+                 <$> s ^.. _SplitUsed
+             )
+      pure $ Wash <$> d ^? _SplitKept
+-- If we are opening a position and there is a pending wash sale within the
+-- last 30 days, apply the adjustment to the applicable part of this opening.
+handle (close : _) act
+  | BuySell open <- act,
+    Just adj <- close ^? details . traverse . _WashSaleAdjust,
+    (open ^. amount > 0) == (close ^. amount < 0),
+    (close ^. time) `distance` (open ^. time) <= 30 = do
+    let (s, d) = close `alignLots` open
+    -- We wash failing closes by adding the amount to the cost basis of
+    -- the opening transaction. Thus, we generate three instances of
+    -- WashLossApplied, but only one OpenPosition.
+    tell $
+      (SnocEvent <$> s ^.. _SplitKept)
+        ++ ( SnocEvent . (details <>~ [Position Open, WashSaleAdjust adj])
+               <$> d ^.. _SplitUsed
+           )
+        ++ ( Result . (details <>~ [Position Open, WashSaleAdjust adj])
+               <$> d ^.. _SplitUsed
+           )
+    pure $ BuySell <$> d ^? _SplitKept
+-- Otherwise, if there is no history to examine then this buy or sale must
+-- open a new position.
+handle [] (BuySell x) = do
+  let y = x & details <>~ [Position Open]
+  tell [SnocEvent y, Result y]
+  pure Nothing
+-- If a wash sale couldn't be applied to the current history, record it to
+-- apply to a future opening.
+handle [] (Wash x) = do
+  let loss = sum (x ^.. details . traverse . gainLoss)
+  assert (loss < 0) $ do
+    tell [SnocEvent (x & details .~ [WashSaleAdjust loss])]
+    pure Nothing
+-- If none of the above apply, then nothing is done for this element of the
+-- history.
+handle _ x = pure $ Just x
