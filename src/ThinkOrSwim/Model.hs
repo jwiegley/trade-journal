@@ -54,6 +54,7 @@ data Annotation
   = Fees (Amount 6)
   | Commission (Amount 6)
   | GainLoss (Amount 6)
+  | ToBeWashed
   | WashSaleAdjust (Amount 6)
   | PartsWashed
   | Position Effect
@@ -64,6 +65,11 @@ makePrisms ''Annotation
 gainLoss :: Traversal' Annotation (Amount 6)
 gainLoss f = \case
   GainLoss pl -> GainLoss <$> f pl
+  s -> pure s
+
+washSaleAdjust :: Traversal' Annotation (Amount 6)
+washSaleAdjust f = \case
+  WashSaleAdjust pl -> WashSaleAdjust <$> f pl
   s -> pure s
 
 fees :: [Annotation] -> Amount 6
@@ -98,7 +104,9 @@ data Action
 makePrisms ''Action
 
 data StateChange
-  = Submit Action
+  = Action Action
+  | Clear
+  | Submit Action
   | SubmitEnd
   | Result Lot
   | ConsEvent Lot
@@ -130,8 +138,8 @@ handle :: [Lot] -> Action -> Writer [StateChange] (Maybe Action)
 -- days of the opening, it implies a wash sale adjustment of any other
 -- openings 30 days before or after.
 handle (open : _) act
-  | any (== Position Open) (open ^. details),
-    BuySell close <- act,
+  | BuySell close <- act,
+    any (== Position Open) (open ^. details),
     (open ^. amount > 0) == (close ^. amount < 0) = do
     let (s, d) = open `alignLots` close
     forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
@@ -155,7 +163,52 @@ handle (open : _) act
 -- If the action is a wash sale adjustment, determine if may be applied to any
 -- existing open positions. If not, it is remembered, to be applied to the
 -- next applicable opening.
-handle (open : _) act = do undefined
+handle (open : _) act
+  | Wash wash <- act,
+    any (== Position Open) (open ^. details),
+    not (any (== PartsWashed) (open ^. details)),
+    (open ^. amount > 0) == (wash ^. amount < 0),
+    (open ^. time) `distance` (wash ^. time) <= 30 =
+    assert (wash ^. amount /= 0) $ do
+      let (s, d) = open `alignLots` wash
+          adj = sum (d ^.. _SplitUsed . details . traverse . washSaleAdjust)
+      -- Wash failing closes by adding the amount to the cost basis of the
+      -- opening transaction.
+      tell $
+        (SnocEvent <$> s ^.. _SplitKept)
+          ++ ( SnocEvent . (details <>~ [WashSaleAdjust adj])
+                 <$> s ^.. _SplitUsed
+             )
+          ++ ( Result
+                 . ( \x ->
+                       x & amount %~ negate
+                         & details <>~ [ToBeWashed]
+                         & details . traverse . _Position .~ Close
+                   )
+                 <$> s
+                 ^.. _SplitUsed
+             )
+          ++ ( Result . (details <>~ [WashSaleAdjust adj])
+                 <$> s ^.. _SplitUsed
+             )
+      pure $ Wash <$> d ^? _SplitKept
+handle (close : _) act
+  | BuySell open <- act,
+    Just adj <- close ^? details . traverse . _WashSaleAdjust,
+    (open ^. amount > 0) == (close ^. amount < 0) = do
+    let (s, d) = close `alignLots` open
+    -- We wash failing closes by adding the amount to the cost basis of
+    -- the opening transaction. Thus, we generate three instances of
+    -- WashLossApplied, but only one OpenPosition.
+    tell $
+      (SnocEvent <$> s ^.. _SplitKept)
+        ++ ( SnocEvent . (details <>~ [Position Open, WashSaleAdjust adj])
+               <$> d ^.. _SplitUsed
+           )
+        ++ ( Result . (details <>~ [Position Open, WashSaleAdjust adj])
+               <$> d ^.. _SplitUsed
+           )
+    pure $ BuySell <$> d ^? _SplitKept
 handle [] (BuySell x) = do
   let y = x & details <>~ [Position Open]
   tell [SnocEvent y, Result y]
@@ -186,11 +239,13 @@ unzipBoth = (concat *** concat) . unzip
 processLot :: Action -> State [Lot] ([StateChange], [Lot])
 processLot action = do
   changes <- impliedChanges action
-  unzipBoth <$> mapM go changes
+  unzipBoth <$> mapM go (Clear : changes)
   where
     go chg = case chg of
+      Action _ -> error "Action is not produced by impliedChanges"
       Result e -> pure ([chg], [e])
       Submit a -> first (\xs -> chg : xs ++ [SubmitEnd]) <$> processLot a
+      Clear -> ([chg], []) <$ put []
       SubmitEnd -> pure ([chg], [])
       ConsEvent e -> ([chg], []) <$ modify (e :)
       SnocEvent e -> ([chg], []) <$ modify (<> [e])
@@ -199,4 +254,7 @@ processLot action = do
 --   buy and sell at given prices -- into a record of transactions with the
 --   broker where all gains and losses have been calculated.
 processLots :: [Action] -> ([StateChange], [Lot])
-processLots = unzipBoth . (`evalState` []) . mapM processLot
+processLots =
+  unzipBoth
+    . (`evalState` [])
+    . mapM (\x -> first (Action x :) <$> processLot x)

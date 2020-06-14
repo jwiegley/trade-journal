@@ -117,8 +117,11 @@ simpleBuy = property $ do
   b <- forAll genLot
   -- A simple buy
   lift $
-    processLots [BuySell b]
-      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+    processLots
+      [BuySell b]
+      @?== ( [ Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open])
              ],
              [b & details <>~ [Position Open]]
@@ -134,8 +137,12 @@ buySellBreakeven = property $ do
       [ BuySell b,
         BuySell s
       ]
-      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+      @?== ( [ Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
+               Action (BuySell s),
+               Clear,
                Result (s & details <>~ [GainLoss 0])
              ],
              [ b & details <>~ [Position Open],
@@ -154,8 +161,12 @@ buySellProfit = property $ do
       [ BuySell b,
         BuySell sp
       ]
-      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+      @?== ( [ Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
+               Action (BuySell sp),
+               Clear,
                Result (sp & details <>~ [GainLoss 10])
              ],
              [ b & details <>~ [Position Open],
@@ -174,10 +185,15 @@ buySellLoss = property $ do
       [ BuySell b,
         BuySell sl
       ]
-      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+      @?== ( [ Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
+               Action (BuySell sl),
+               Clear,
                Result (sl & details <>~ [GainLoss (-1)]),
                Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               Clear,
                SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
                SubmitEnd
              ],
@@ -198,14 +214,59 @@ buySellLossBuy = property $ do
         BuySell sl,
         BuySell b
       ]
-      @?== ( [ SnocEvent (b & details <>~ [Position Open]),
+      @?== ( [ Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
+               Action (BuySell sl),
+               Clear,
                Result (sl & details <>~ [GainLoss (-1)]),
                Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               Clear,
                SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
                SubmitEnd,
-               SnocEvent (b & details <>~ [Position Open]),
+               Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open, WashSaleAdjust (-1)]),
                Result (b & details <>~ [Position Open, WashSaleAdjust (-1)])
+             ],
+             [ b & details <>~ [Position Open],
+               sl & details <>~ [GainLoss (-1)],
+               b & details <>~ [Position Open, WashSaleAdjust (-1)]
+             ]
+           )
+
+buyBuySellLoss :: Property
+buyBuySellLoss = property $ do
+  b <- forAll genLot
+  let s = b & amount %~ negate
+      sl = s & price -~ 1
+  -- A buy and sell at a loss
+  lift $
+    processLots
+      [ BuySell b,
+        BuySell b,
+        BuySell sl
+      ]
+      @?== ( [ Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open]),
+               Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
+               SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open]),
+               Action (BuySell sl),
+               Clear,
+               Result (sl & details <>~ [GainLoss (-1)]),
+               Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               Clear,
+               SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
+               Result (b & details <>~ [Position Close, ToBeWashed]),
+               Result
+                 (b & details <>~ [Position Open, WashSaleAdjust (-1)]),
+               SubmitEnd
              ],
              [ b & details <>~ [Position Open],
                sl & details <>~ [GainLoss (-1)],
@@ -219,8 +280,11 @@ simpleSell = property $ do
   let s = b & amount %~ negate
   -- A simple sell
   lift $
-    processLots [BuySell s]
-      @?== ( [ SnocEvent (s & details <>~ [Position Open]),
+    processLots
+      [BuySell s]
+      @?== ( [ Action (BuySell s),
+               Clear,
+               SnocEvent (s & details <>~ [Position Open]),
                Result (s & details <>~ [Position Open])
              ],
              [s & details <>~ [Position Open]]
@@ -236,8 +300,12 @@ sellBuyProfit = property $ do
       [ BuySell s,
         BuySell b
       ]
-      @?== ( [ SnocEvent (s & details <>~ [Position Open]),
+      @?== ( [ Action (BuySell s),
+               Clear,
+               SnocEvent (s & details <>~ [Position Open]),
                Result (s & details <>~ [Position Open]),
+               Action (BuySell b),
+               Clear,
                Result (b & details <>~ [GainLoss 0])
              ],
              [ s & details <>~ [Position Open],
