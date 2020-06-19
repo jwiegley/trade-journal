@@ -208,14 +208,17 @@ closePosition open close = do
             - fees (du ^. details)
         res = du & details <>~ [GainLoss pl]
     tell [Result res]
-    forM_ (s ^? _SplitKept) $ \k ->
-      tell [SnocEvent (k & details <>~ [PartsWashed])]
     -- After closing at a loss, and if the loss occurs within 30 days
     -- of its corresponding open, and there is another open within 30
     -- days of the loss, close it and re-open so it's repriced by the
     -- wash loss.
-    when ((close ^. time) `distance` (open ^. time) <= 30 && pl < 0) $
-      tell [Submit (Wash res)]
+    if (close ^. time) `distance` (open ^. time) <= 30 && pl < 0
+      then do
+        tell [Submit (Wash res)]
+        forM_ (s ^? _SplitKept) $ \k ->
+          tell [SnocEvent (k & details <>~ [PartsWashed])]
+      else forM_ (s ^? _SplitKept) $ \k ->
+        tell [SnocEvent k]
   pure $ BuySell <$> (d ^? _SplitKept)
 
 -- | If the action is a wash sale adjustment, determine if can be applied to

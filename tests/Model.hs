@@ -104,8 +104,10 @@ baseline =
   testGroup
     "baseline"
     [ testProperty "simple-buy" simpleBuy,
+      testProperty "buy-buy" buyBuy,
       testProperty "buy-sell-breakeven" buySellBreakeven,
       testProperty "buy-sell-profit" buySellProfit,
+      testProperty "buy-sell-part-profit" buySellPartProfit,
       testProperty "buy-sell-loss" buySellLoss,
       testProperty "buy-sell-loss-buy" buySellLossBuy,
       testProperty "simple-sell" simpleSell,
@@ -125,6 +127,29 @@ simpleBuy = property $ do
                Result (b & details <>~ [Position Open])
              ],
              [b & details <>~ [Position Open]]
+           )
+
+buyBuy :: Property
+buyBuy = property $ do
+  b <- forAll genLot
+  -- A simple buy
+  lift $
+    processActions
+      [ BuySell b,
+        BuySell b
+      ]
+      @?== ( [ Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open]),
+               Action (BuySell b),
+               Clear,
+               SnocEvent (b & details <>~ [Position Open]),
+               Result (b & details <>~ [Position Open])
+             ],
+             [ b & details <>~ [Position Open],
+               b & details <>~ [Position Open]
+             ]
            )
 
 buySellBreakeven :: Property
@@ -170,6 +195,32 @@ buySellProfit = property $ do
                Result (sp & details <>~ [GainLoss 10])
              ],
              [ b & details <>~ [Position Open],
+               sp & details <>~ [GainLoss 10]
+             ]
+           )
+
+buySellPartProfit :: Property
+buySellPartProfit = property $ do
+  b <- forAll genLot
+  let b2 = b & amount *~ 2
+      s = b & amount %~ negate
+      sp = s & price +~ 10
+  -- A buy and sell at a profit
+  lift $
+    processActions
+      [ BuySell b2,
+        BuySell sp
+      ]
+      @?== ( [ Action (BuySell b2),
+               Clear,
+               SnocEvent (b2 & details <>~ [Position Open]),
+               Result (b2 & details <>~ [Position Open]),
+               Action (BuySell sp),
+               Clear,
+               Result (sp & details <>~ [GainLoss 10]),
+               SnocEvent (b & details <>~ [Position Open])
+             ],
+             [ b2 & details <>~ [Position Open],
                sp & details <>~ [GainLoss 10]
              ]
            )
