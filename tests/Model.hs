@@ -117,7 +117,7 @@ simpleBuy = property $ do
   b <- forAll genLot
   -- A simple buy
   lift $
-    processLots
+    processActions
       [BuySell b]
       @?== ( [ Action (BuySell b),
                Clear,
@@ -133,7 +133,7 @@ buySellBreakeven = property $ do
   let s = b & amount %~ negate
   -- A buy and sell at break-even
   lift $
-    processLots
+    processActions
       [ BuySell b,
         BuySell s
       ]
@@ -157,7 +157,7 @@ buySellProfit = property $ do
       sp = s & price +~ 10
   -- A buy and sell at a profit
   lift $
-    processLots
+    processActions
       [ BuySell b,
         BuySell sp
       ]
@@ -181,7 +181,7 @@ buySellLoss = property $ do
       sl = s & price -~ 1
   -- A buy and sell at a loss
   lift $
-    processLots
+    processActions
       [ BuySell b,
         BuySell sl
       ]
@@ -209,7 +209,7 @@ buySellLossBuy = property $ do
       sl = s & price -~ 1
   -- A buy and sell at a loss
   lift $
-    processLots
+    processActions
       [ BuySell b,
         BuySell sl,
         BuySell b
@@ -243,7 +243,7 @@ buyBuySellLoss = property $ do
       sl = s & price -~ 1
   -- A buy and sell at a loss
   lift $
-    processLots
+    processActions
       [ BuySell b,
         BuySell b,
         BuySell sl
@@ -280,7 +280,7 @@ simpleSell = property $ do
   let s = b & amount %~ negate
   -- A simple sell
   lift $
-    processLots
+    processActions
       [BuySell s]
       @?== ( [ Action (BuySell s),
                Clear,
@@ -296,7 +296,7 @@ sellBuyProfit = property $ do
   let s = b & amount %~ negate
   -- A sell and buy at a profit
   lift $
-    processLots
+    processActions
       [ BuySell s,
         BuySell b
       ]
