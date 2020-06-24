@@ -1,0 +1,64 @@
+name:       trade-journal
+version:    1.0.0
+license:    BSD3
+author:     John Wiegley
+maintainer: johnw@newartisans.com
+
+ghc-options:
+  - -Wall
+  # - -Werror
+  - -debug
+  - -g3
+  - -fno-ignore-asserts
+
+dependencies:
+  - aeson
+  - base
+  - bytestring
+  - containers
+  - lens
+  - mtl
+  - pretty-show
+  - text
+  - time
+  - transformers
+
+library:
+  source-dirs: src
+  c-sources:
+    - src/Journal/mpfr_printf.c
+  extra-libraries:
+    - mpfr
+    - gmp
+  exposed-modules:
+    - Journal.Amount
+    - Journal.Split
+    - Journal.Utils
+    - Journal.Model
+    - Journal.Types
+  dependencies:
+    - data-default
+    - megaparsec
+    - pretty
+    - profunctors
+    - split
+    - vector
+
+tests:
+  trade-journal-tests:
+    main: Main.hs
+    source-dirs: test
+    dependencies:
+      - trade-journal
+      - HUnit
+      - hedgehog
+      - tasty
+      - tasty-hedgehog
+      - tasty-hunit
+
+executables:
+  trade-journal:
+    main: Main.hs
+    dependencies:
+      - trade-journal
+      - optparse-applicative

@@ -1,0 +1,100 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.1.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 85cd1b78a3201f0af1fa759c03230d0a55cf6ee2e66ad2e48f89218473b9e504
+
+name:           trade-journal
+version:        1.0.0
+author:         John Wiegley
+maintainer:     johnw@newartisans.com
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+
+library
+  exposed-modules:
+      Journal.Amount
+      Journal.Split
+      Journal.Utils
+      Journal.Model
+      Journal.Types
+  other-modules:
+      Journal.Parse
+      Paths_trade_journal
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -debug -g3 -fno-ignore-asserts
+  c-sources:
+      src/Journal/mpfr_printf.c
+  extra-libraries:
+      mpfr
+      gmp
+  build-depends:
+      aeson
+    , base
+    , bytestring
+    , containers
+    , data-default
+    , lens
+    , megaparsec
+    , mtl
+    , pretty
+    , pretty-show
+    , profunctors
+    , split
+    , text
+    , time
+    , transformers
+    , vector
+  default-language: Haskell2010
+
+executable trade-journal
+  main-is: Main.hs
+  other-modules:
+      Paths_trade_journal
+  ghc-options: -Wall -debug -g3 -fno-ignore-asserts
+  build-depends:
+      aeson
+    , base
+    , bytestring
+    , containers
+    , lens
+    , mtl
+    , optparse-applicative
+    , pretty-show
+    , text
+    , time
+    , trade-journal
+    , transformers
+  default-language: Haskell2010
+
+test-suite trade-journal-tests
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      ModelTests
+      Paths_trade_journal
+  hs-source-dirs:
+      test
+  ghc-options: -Wall -debug -g3 -fno-ignore-asserts
+  build-depends:
+      HUnit
+    , aeson
+    , base
+    , bytestring
+    , containers
+    , hedgehog
+    , lens
+    , mtl
+    , pretty-show
+    , tasty
+    , tasty-hedgehog
+    , tasty-hunit
+    , text
+    , time
+    , trade-journal
+    , transformers
+  default-language: Haskell2010
