@@ -1,0 +1,25 @@
+os:
+- linux
+- osx
+language: nix
+sudo: required
+git:
+  depth: 4
+env:
+  global:
+    secure: CA98fYSedDatAjWg7qE+m+pAdIhTulxwRzNmnvg7bbGbJZ1u+HbdI4jm54+K7TDOx7zdoUEToI15vGvDVCskhd3bqWljF9sye9mv4t64Gg7WRsTIAJpPbPUdGZIHqmz7zI/WbY0XURKkW1MKVxog4CkUNtPcOHipbMtAx4UCCxisSP0E/rV5GfZk3VPxJEIS397Ws8aYrRT2q6BIi+5Zu1Su3avXxpRuPcbzpODerM7r40mAePzu5q/rHtwA2hGuLJ7RViPLAuRAKK24tu3FCwDQEHUkcreeo/YNEaFfgnMOLHwr7iLtfc0IPvSNHcILCiEn6qG76Lil0h1DTuGpmUyyYNmuTrWrNnXiyJnTf8YylhA/5+pfrm4WvHypQrCq17p8bI0xU7FKLVHV5/MXhjCHOcETPYMqVYeNNcycEmi1OlU5L+hTMRkM3RJAt3JREOCNujvauQxaZGNYymuigJFqzOZgcAsJYwWUy0x3QuNylmu/bbkd39LVrGvOa/R64oQknTlnwt02RZka/b+R8ykRvWW5kwuEpHdmPkcUn/D3JRU/XkuRfa3Qc+4KWrzkoIRdJdaxRo32+eWbwjenL0oirsB/hHreULXfOzA1aTJwmwMvxugSG0JX91vGeIkM7S0LqOhioA+pzL1BJhiMTaIbEo3Nyq0jtF0/SRroorw=
+  matrix: 
+before_script:
+- sudo mount -o remount,exec,size=4G,mode=755 /run/user || true
+- sudo mkdir -p /etc/nix
+- echo "trusted-users = root $USER" | sudo tee -a /etc/nix/nix.conf
+- sudo launchctl kickstart -k system/org.nixos.nix-daemon || true
+script:
+- nix-env -iA cachix -f https://cachix.org/api/v1/install
+- cachix use thinkorswim
+- if [ ! "$CACHIX_SIGNING_KEY" = "" ]; then cachix push thinkorswim --watch-store& fi
+- if [ ! "$CACHIX_SIGNING_KEY" = "" ]; then nix-build -Q | cachix push thinkorswim; else nix-build -Q;
+  fi
+branches:
+  only:
+  - master

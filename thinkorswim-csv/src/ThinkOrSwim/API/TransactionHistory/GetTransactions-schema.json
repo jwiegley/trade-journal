@@ -1,0 +1,186 @@
+{
+    "transactionItem": {
+        "properties": {
+            "instrument": {
+                "properties": {
+                    "bondInterestRate": {
+                        "format": "double",
+                        "type": "number"
+                    },
+                    "bondMaturityDate": {
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "assetType": {
+                        "enum": [
+                            "EQUITY",
+                            "MUTUAL_FUND",
+                            "OPTION",
+                            "FIXED_INCOME",
+                            "CASH_EQUIVALENT"
+                        ],
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "cusip": {
+                        "type": "string"
+                    },
+                    "putCall": {
+                        "enum": [
+                            "PUT",
+                            "CALL"
+                        ],
+                        "type": "string"
+                    },
+                    "optionStrikePrice": {
+                        "format": "double",
+                        "type": "number"
+                    },
+                    "optionExpirationDate": {
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "underlyingSymbol": {
+                        "type": "string"
+                    },
+                    "symbol": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "positionEffect": {
+                "enum": [
+                    "OPENING",
+                    "CLOSING",
+                    "AUTOMATIC"
+                ],
+                "type": "string"
+            },
+            "instruction": {
+                "enum": [
+                    "BUY",
+                    "SELL"
+                ],
+                "type": "string"
+            },
+            "parentChildIndicator": {
+                "type": "string"
+            },
+            "parentOrderKey": {
+                "format": "int32",
+                "type": "integer"
+            },
+            "cost": {
+                "format": "double",
+                "type": "number"
+            },
+            "price": {
+                "format": "double",
+                "type": "number"
+            },
+            "amount": {
+                "format": "double",
+                "type": "number"
+            },
+            "accountId": {
+                "format": "int32",
+                "type": "integer"
+            }
+        },
+        "type": "object"
+    },
+    "fees": {
+        "additionalProperties": {
+            "format": "double",
+            "type": "number"
+        },
+        "type": "object"
+    },
+    "accruedInterest": {
+        "format": "double",
+        "type": "number"
+    },
+    "achStatus": {
+        "enum": [
+            "Approved",
+            "Rejected",
+            "Cancel",
+            "Error"
+        ],
+        "type": "string"
+    },
+    "description": {
+        "type": "string"
+    },
+    "cashBalanceEffectFlag": {
+        "default": false,
+        "type": "boolean"
+    },
+    "transactionId": {
+        "format": "int64",
+        "type": "integer"
+    },
+    "transactionSubType": {
+        "type": "string"
+    },
+    "orderDate": {
+        "format": "date-time",
+        "type": "string"
+    },
+    "transactionDate": {
+        "format": "date-time",
+        "type": "string"
+    },
+    "netAmount": {
+        "format": "double",
+        "type": "number"
+    },
+    "dayTradeBuyingPowerEffect": {
+        "format": "double",
+        "type": "number"
+    },
+    "requirementReallocationAmount": {
+        "format": "double",
+        "type": "number"
+    },
+    "sma": {
+        "format": "double",
+        "type": "number"
+    },
+    "orderId": {
+        "type": "string"
+    },
+    "settlementDate": {
+        "format": "date-time",
+        "type": "string"
+    },
+    "subAccount": {
+        "type": "string"
+    },
+    "clearingReferenceNumber": {
+        "type": "string"
+    },
+    "type": {
+        "enum": [
+            "TRADE",
+            "RECEIVE_AND_DELIVER",
+            "DIVIDEND_OR_INTEREST",
+            "ACH_RECEIPT",
+            "ACH_DISBURSEMENT",
+            "CASH_RECEIPT",
+            "CASH_DISBURSEMENT",
+            "ELECTRONIC_FUND",
+            "WIRE_OUT",
+            "WIRE_IN",
+            "JOURNAL",
+            "MEMORANDUM",
+            "MARGIN_CALL",
+            "MONEY_MARKET",
+            "SMA_ADJUSTMENT"
+        ],
+        "type": "string"
+    }
+}

@@ -1,0 +1,78 @@
+name:       thinkorswim
+version:    1.0.0
+license:    BSD3
+author:     John Wiegley
+maintainer: johnw@newartisans.com
+
+ghc-options:
+  - -Wall
+  # - -Werror
+  - -debug
+  - -g3
+  - -fno-ignore-asserts
+
+dependencies:
+  - aeson
+  - base
+  - bytestring
+  - containers
+  - lens
+  - mmorph
+  - mtl
+  - pretty-show
+  - text
+  - time
+  - transformers
+
+library:
+  source-dirs: src
+  c-sources:
+    - src/Data/mpfr_printf.c
+  extra-libraries:
+    - mpfr
+    - gmp
+  exposed-modules:
+    - Data.Amount
+    - Data.Ledger
+    - Data.Ledger.Render
+    - Data.Split
+    - Data.Utils
+    - ThinkOrSwim.API
+    - ThinkOrSwim.API.TransactionHistory.GetTransactions
+    - ThinkOrSwim.Convert
+    - ThinkOrSwim.Event
+    - ThinkOrSwim.Model
+    - ThinkOrSwim.Options
+    - ThinkOrSwim.Types
+  dependencies:
+    - data-default
+    - megaparsec
+    - optparse-applicative
+    - pretty
+    - profunctors
+    - servant
+    - servant-client
+    - split
+    - uri-encode
+    - vector
+
+tests:
+  thinkorswim-tests:
+    main: Main.hs
+    source-dirs: tests
+    dependencies:
+      - thinkorswim
+      - HUnit
+      - hedgehog
+      - tasty
+      - tasty-hedgehog
+      - tasty-hunit
+
+executables:
+  thinkorswim:
+    main: Main.hs
+    dependencies:
+      - thinkorswim
+      - http-client
+      - http-client-tls
+      - servant-client
