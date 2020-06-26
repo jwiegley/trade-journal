@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module ModelTests where
 
 import Control.Exception
@@ -91,7 +93,7 @@ genLot :: MonadGen m => m Lot
 genLot = do
   q <- genAmount (Range.linear 1 1000)
   t <- genUTCTime
-  pure $ Lot q 1 t []
+  pure $ Lot "FOO" q 1 t []
 
 baseline :: TestTree
 baseline =
@@ -104,6 +106,7 @@ baseline =
       testProperty "buy-sell-part-profit" buySellPartProfit,
       testProperty "buy-sell-loss" buySellLoss,
       testProperty "buy-sell-loss-buy" buySellLossBuy,
+      testProperty "buy-buy-sell-loss" buyBuySellLoss,
       testProperty "simple-sell" simpleSell,
       testProperty "sell-buy-profit" sellBuyProfit
     ]
@@ -116,8 +119,7 @@ simpleBuy = property $ do
     processActions
       [BuySell b]
       @?== ( [ Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open])
              ],
              [b & details <>~ [Position Open]]
@@ -133,12 +135,10 @@ buyBuy = property $ do
         BuySell b
       ]
       @?== ( [ Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open])
              ],
              [ b & details <>~ [Position Open],
@@ -157,12 +157,11 @@ buySellBreakeven = property $ do
         BuySell s
       ]
       @?== ( [ Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell s),
-               Clear,
-               Result (s & details <>~ [GainLoss 0])
+               Result (s & details <>~ [GainLoss 0]),
+               RemoveEntry 1
              ],
              [ b & details <>~ [Position Open],
                s & details <>~ [GainLoss 0]
@@ -181,12 +180,11 @@ buySellProfit = property $ do
         BuySell sp
       ]
       @?== ( [ Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sp),
-               Clear,
-               Result (sp & details <>~ [GainLoss 10])
+               Result (sp & details <>~ [GainLoss 10]),
+               RemoveEntry 1
              ],
              [ b & details <>~ [Position Open],
                sp & details <>~ [GainLoss 10]
@@ -206,13 +204,11 @@ buySellPartProfit = property $ do
         BuySell sp
       ]
       @?== ( [ Action (BuySell b2),
-               Clear,
-               SnocEvent (b2 & details <>~ [Position Open]),
+               AddEntry (b2 & details <>~ [Position Open]),
                Result (b2 & details <>~ [Position Open]),
                Action (BuySell sp),
-               Clear,
                Result (sp & details <>~ [GainLoss 10]),
-               SnocEvent (b & details <>~ [Position Open])
+               ReplaceEntry 1 (b & details <>~ [Position Open])
              ],
              [ b2 & details <>~ [Position Open],
                sp & details <>~ [GainLoss 10]
@@ -231,15 +227,13 @@ buySellLoss = property $ do
         BuySell sl
       ]
       @?== ( [ Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sl),
-               Clear,
                Result (sl & details <>~ [GainLoss (-1)]),
+               RemoveEntry 1,
                Submit (Wash (sl & details <>~ [GainLoss (-1)])),
-               Clear,
-               SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
+               AddEntry (sl & details .~ [WashSaleAdjust WashPending (-1)]),
                SubmitEnd
              ],
              [ b & details <>~ [Position Open],
@@ -260,24 +254,33 @@ buySellLossBuy = property $ do
         BuySell b
       ]
       @?== ( [ Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sl),
-               Clear,
                Result (sl & details <>~ [GainLoss (-1)]),
                Submit (Wash (sl & details <>~ [GainLoss (-1)])),
-               Clear,
-               SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
+               AddEntry (sl & details .~ [WashSaleAdjust WashPending (-1)]),
                SubmitEnd,
                Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open, WashSaleAdjust (-1)]),
-               Result (b & details <>~ [Position Open, WashSaleAdjust (-1)])
+               AddEntry
+                 ( b & details
+                     <>~ [ Position Open,
+                           WashSaleAdjust WashRetroactive (-1)
+                         ]
+                 ),
+               Result
+                 ( b & details
+                     <>~ [ Position Open,
+                           WashSaleAdjust WashRetroactive (-1)
+                         ]
+                 )
              ],
              [ b & details <>~ [Position Open],
                sl & details <>~ [GainLoss (-1)],
-               b & details <>~ [Position Open, WashSaleAdjust (-1)]
+               b & details
+                 <>~ [ Position Open,
+                       WashSaleAdjust WashRetroactive (-1)
+                     ]
              ]
            )
 
@@ -294,28 +297,27 @@ buyBuySellLoss = property $ do
         BuySell sl
       ]
       @?== ( [ Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell b),
-               Clear,
-               SnocEvent (b & details <>~ [Position Open]),
-               SnocEvent (b & details <>~ [Position Open]),
+               AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sl),
-               Clear,
                Result (sl & details <>~ [GainLoss (-1)]),
                Submit (Wash (sl & details <>~ [GainLoss (-1)])),
-               Clear,
-               SnocEvent (sl & details .~ [WashSaleAdjust (-1)]),
-               Result (b & details <>~ [Position Close, ToBeWashed]),
-               Result
-                 (b & details <>~ [Position Open, WashSaleAdjust (-1)]),
+               RemoveEntry 1,
+               RemoveEntry 2,
+               AddEntry
+                 ( b & details
+                     <>~ [ Position Open,
+                           WashSaleAdjust WashRetroactive (-1)
+                         ]
+                 ),
                SubmitEnd
              ],
              [ b & details <>~ [Position Open],
-               sl & details <>~ [GainLoss (-1)],
-               b & details <>~ [Position Open, WashSaleAdjust (-1)]
+               b & details <>~ [Position Open],
+               sl & details <>~ [GainLoss (-1)]
              ]
            )
 
@@ -328,8 +330,7 @@ simpleSell = property $ do
     processActions
       [BuySell s]
       @?== ( [ Action (BuySell s),
-               Clear,
-               SnocEvent (s & details <>~ [Position Open]),
+               AddEntry (s & details <>~ [Position Open]),
                Result (s & details <>~ [Position Open])
              ],
              [s & details <>~ [Position Open]]
@@ -346,11 +347,9 @@ sellBuyProfit = property $ do
         BuySell b
       ]
       @?== ( [ Action (BuySell s),
-               Clear,
-               SnocEvent (s & details <>~ [Position Open]),
+               AddEntry (s & details <>~ [Position Open]),
                Result (s & details <>~ [Position Open]),
                Action (BuySell b),
-               Clear,
                Result (b & details <>~ [GainLoss 0])
              ],
              [ s & details <>~ [Position Open],

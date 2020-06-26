@@ -5,8 +5,10 @@
 module Journal.Parse where
 
 import Control.Monad
+import Data.Foldable
 import Data.Functor.Identity
-import Data.Text
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time
 import Data.Void
 import Journal.Amount
@@ -33,13 +35,26 @@ whiteSpace = L.space space1 lineCmnt blockCmnt
 lexeme :: Parser a -> Parser a
 lexeme p = p <* whiteSpace
 
-symbol :: Text -> Parser Text
-symbol = lexeme . string
+keyword :: Text -> Parser Text
+keyword = lexeme . string
 
-parse :: Parser Action
+parse :: Parser (Action Lot)
 parse = do
   _time <- parseTime'
-  action <- symbol "buy" <|> symbol "sell" <|> symbol "wash"
+  action <-
+    asum
+      ( map
+          keyword
+          [ "buy",
+            "sell",
+            "wash",
+            "deposit",
+            "withdraw",
+            "assign",
+            "expire",
+            "dividend"
+          ]
+      )
   _amount <- parseAmount
   _symbol <- parseSymbol
   _price <- single '$' *> parseAmount
@@ -48,7 +63,7 @@ parse = do
     "buy" -> BuySell Lot {..}
     "sell" -> BuySell Lot {..}
     "wash" -> BuySell Lot {..}
-    _ -> error $ "Unexpected action: " ++ unpack action
+    _ -> error $ "Unexpected action: " ++ T.unpack action
 
 parseTime' :: Parser UTCTime
 parseTime' = undefined
