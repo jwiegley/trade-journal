@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -87,7 +89,7 @@ alignLots x y =
 data Action a
   = -- | The sign of the Lot 'amount' indicates buy or sell.
     BuySell a
-  | Wash a
+  | AdjustCostBasis a
   | DepositWithdraw a
   | Assign a
   | Expire a
@@ -98,7 +100,9 @@ data Action a
       Ord,
       Generic,
       PrettyVal,
-      Functor
+      Functor,
+      Foldable,
+      Traversable
     )
 
 makePrisms ''Action
