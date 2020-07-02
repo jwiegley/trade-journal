@@ -80,7 +80,7 @@ handle ((n, open) : _) act
     (open ^. amount > 0) == (close ^. amount < 0) =
     closePosition n open close
 handle ((n, open) : _) act
-  | Wash wash <- act,
+  | AdjustCostBasis wash <- act,
     any (== Position Open) (open ^. details),
     not (any (== PartsWashed) (open ^. details)),
     (open ^. amount > 0) == (wash ^. amount < 0),
@@ -100,7 +100,7 @@ handle [] (BuySell x) = do
   pure Nothing
 -- If a wash sale couldn't be applied to the current history, record it to
 -- apply to a future opening.
-handle [] (Wash x) = do
+handle [] (AdjustCostBasis x) = do
   let loss = sum (x ^.. details . traverse . gainLoss)
   assert (loss < 0) $ do
     tell [AddEntry (x & details .~ [WashSaleAdjust WashPending loss])]
@@ -123,7 +123,7 @@ closePosition n open close = do
               else su ^. price - du ^. price
           )
             - fees (du ^. details)
-        res = du & details <>~ [GainLoss pl]
+        res = du & details <>~ [Position Close, GainLoss pl]
     tell [Result res]
     -- After closing at a loss, and if the loss occurs within 30 days
     -- of its corresponding open, and there is another open within 30
@@ -142,7 +142,12 @@ closePosition n open close = do
           Nothing -> RemoveEntry n
       ]
     when mayWash $ do
-      tell [Submit (Wash res)]
+      tell
+        [ Submit
+            ( AdjustCostBasis
+                (res & details %~ filter (has _GainLoss))
+            )
+        ]
   pure $ BuySell <$> (d ^? _SplitKept)
 
 -- | If the action is a wash sale adjustment, determine if can be applied to
@@ -166,7 +171,9 @@ washExistingPosition n open wash = assert (wash ^. amount /= 0) $ do
       ++ ( AddEntry . (details <>~ [WashSaleAdjust WashRetroactive adj])
              <$> s ^.. _SplitUsed
          )
-  pure $ Wash <$> d ^? _SplitKept
+  pure $
+    AdjustCostBasis
+      <$> (d ^? _SplitKept & traverse . details %~ filter (has _GainLoss))
 
 -- | If we are opening a position and there is a pending wash sale within the
 -- last 30 days, apply the adjustment to the applicable part of this opening.

@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.1.
+-- This file has been generated from package.yaml by hpack version 0.34.2.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 85cd1b78a3201f0af1fa759c03230d0a55cf6ee2e66ad2e48f89218473b9e504
+-- hash: 293967daa97d31884232948c7d09b639162210b3a85dfcf8fd100db3619a8792
 
 name:           trade-journal
 version:        1.0.0
@@ -20,9 +20,9 @@ library
       Journal.Split
       Journal.Utils
       Journal.Model
+      Journal.Parse
       Journal.Types
   other-modules:
-      Journal.Parse
       Paths_trade_journal
   hs-source-dirs:
       src
@@ -51,7 +51,7 @@ library
     , vector
   default-language: Haskell2010
 
-executable trade-journal
+executable tj
   main-is: Main.hs
   other-modules:
       Paths_trade_journal
@@ -62,6 +62,7 @@ executable trade-journal
     , bytestring
     , containers
     , lens
+    , megaparsec
     , mtl
     , optparse-applicative
     , pretty-show

@@ -160,11 +160,11 @@ buySellBreakeven = property $ do
                AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell s),
-               Result (s & details <>~ [GainLoss 0]),
+               Result (s & details <>~ [Position Close, GainLoss 0]),
                RemoveEntry 1
              ],
              [ b & details <>~ [Position Open],
-               s & details <>~ [GainLoss 0]
+               s & details <>~ [Position Close, GainLoss 0]
              ]
            )
 
@@ -183,11 +183,11 @@ buySellProfit = property $ do
                AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sp),
-               Result (sp & details <>~ [GainLoss 10]),
+               Result (sp & details <>~ [Position Close, GainLoss 10]),
                RemoveEntry 1
              ],
              [ b & details <>~ [Position Open],
-               sp & details <>~ [GainLoss 10]
+               sp & details <>~ [Position Close, GainLoss 10]
              ]
            )
 
@@ -207,11 +207,11 @@ buySellPartProfit = property $ do
                AddEntry (b2 & details <>~ [Position Open]),
                Result (b2 & details <>~ [Position Open]),
                Action (BuySell sp),
-               Result (sp & details <>~ [GainLoss 10]),
+               Result (sp & details <>~ [Position Close, GainLoss 10]),
                ReplaceEntry 1 (b & details <>~ [Position Open])
              ],
              [ b2 & details <>~ [Position Open],
-               sp & details <>~ [GainLoss 10]
+               sp & details <>~ [Position Close, GainLoss 10]
              ]
            )
 
@@ -230,14 +230,14 @@ buySellLoss = property $ do
                AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sl),
-               Result (sl & details <>~ [GainLoss (-1)]),
+               Result (sl & details <>~ [Position Close, GainLoss (-1)]),
                RemoveEntry 1,
-               Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               Submit (AdjustCostBasis (sl & details <>~ [GainLoss (-1)])),
                AddEntry (sl & details .~ [WashSaleAdjust WashPending (-1)]),
                SubmitEnd
              ],
              [ b & details <>~ [Position Open],
-               sl & details <>~ [GainLoss (-1)]
+               sl & details <>~ [Position Close, GainLoss (-1)]
              ]
            )
 
@@ -257,29 +257,31 @@ buySellLossBuy = property $ do
                AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sl),
-               Result (sl & details <>~ [GainLoss (-1)]),
-               Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               Result (sl & details <>~ [Position Close, GainLoss (-1)]),
+               RemoveEntry 1,
+               Submit (AdjustCostBasis (sl & details <>~ [GainLoss (-1)])),
                AddEntry (sl & details .~ [WashSaleAdjust WashPending (-1)]),
                SubmitEnd,
                Action (BuySell b),
+               RemoveEntry 2,
                AddEntry
                  ( b & details
                      <>~ [ Position Open,
-                           WashSaleAdjust WashRetroactive (-1)
+                           WashSaleAdjust WashOnOpen (-1)
                          ]
                  ),
                Result
                  ( b & details
                      <>~ [ Position Open,
-                           WashSaleAdjust WashRetroactive (-1)
+                           WashSaleAdjust WashOnOpen (-1)
                          ]
                  )
              ],
              [ b & details <>~ [Position Open],
-               sl & details <>~ [GainLoss (-1)],
+               sl & details <>~ [Position Close, GainLoss (-1)],
                b & details
                  <>~ [ Position Open,
-                       WashSaleAdjust WashRetroactive (-1)
+                       WashSaleAdjust WashOnOpen (-1)
                      ]
              ]
            )
@@ -303,21 +305,22 @@ buyBuySellLoss = property $ do
                AddEntry (b & details <>~ [Position Open]),
                Result (b & details <>~ [Position Open]),
                Action (BuySell sl),
-               Result (sl & details <>~ [GainLoss (-1)]),
-               Submit (Wash (sl & details <>~ [GainLoss (-1)])),
+               Result (sl & details <>~ [Position Close, GainLoss (-1)]),
                RemoveEntry 1,
+               Submit (AdjustCostBasis (sl & details <>~ [GainLoss (-1)])),
                RemoveEntry 2,
                AddEntry
                  ( b & details
                      <>~ [ Position Open,
-                           WashSaleAdjust WashRetroactive (-1)
+                           -- jww (2020-07-02): ???
+                           WashSaleAdjust WashRetroactive 0
                          ]
                  ),
                SubmitEnd
              ],
              [ b & details <>~ [Position Open],
                b & details <>~ [Position Open],
-               sl & details <>~ [GainLoss (-1)]
+               sl & details <>~ [Position Close, GainLoss (-1)]
              ]
            )
 
@@ -350,9 +353,10 @@ sellBuyProfit = property $ do
                AddEntry (s & details <>~ [Position Open]),
                Result (s & details <>~ [Position Open]),
                Action (BuySell b),
-               Result (b & details <>~ [GainLoss 0])
+               Result (b & details <>~ [Position Close, GainLoss 0]),
+               RemoveEntry 1
              ],
              [ s & details <>~ [Position Open],
-               b & details <>~ [GainLoss 0]
+               b & details <>~ [Position Close, GainLoss 0]
              ]
            )
