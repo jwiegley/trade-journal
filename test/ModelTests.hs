@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module ModelTests where
+module ModelTests (testModel) where
 
 import Control.Exception
 import Control.Lens
