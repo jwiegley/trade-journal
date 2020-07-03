@@ -1,5 +1,6 @@
 module Main where
 
+import Examples
 import ModelTests
 import Test.Tasty
 
@@ -8,5 +9,6 @@ main =
   defaultMain $
     testGroup
       "trade-journal"
-      [ testModel
+      [ testExamples,
+        testModel
       ]

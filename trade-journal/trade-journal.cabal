@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 293967daa97d31884232948c7d09b639162210b3a85dfcf8fd100db3619a8792
+-- hash: c08bea4e3a1ad9a35ef349c151c7a21b3f7267f6966f6466a8fcf2752c6f930f
 
 name:           trade-journal
 version:        1.0.0
@@ -76,6 +76,7 @@ test-suite trade-journal-tests
   type: exitcode-stdio-1.0
   main-is: Main.hs
   other-modules:
+      Examples
       ModelTests
       Paths_trade_journal
   hs-source-dirs:
@@ -88,7 +89,9 @@ test-suite trade-journal-tests
     , bytestring
     , containers
     , hedgehog
+    , here
     , lens
+    , megaparsec
     , mtl
     , pretty-show
     , tasty

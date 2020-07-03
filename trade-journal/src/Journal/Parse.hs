@@ -49,7 +49,7 @@ parseAction = do
   kw <- parseKeyword
   _amount <- parseAmount
   _symbol <- TL.toStrict <$> parseSymbol
-  _price <- single '$' *> parseAmount
+  _price <- parseAmount
   let _details = []
   pure $ case kw of
     "buy" -> BuySell Lot {..}
@@ -63,7 +63,7 @@ printLot lot =
     [ printTime (lot ^. time),
       printAmount (lot ^. amount),
       TL.fromStrict (lot ^. symbol),
-      "$" <> printAmount (lot ^. price)
+      printAmount (lot ^. price)
     ]
       ++ map f (lot ^. details)
   where

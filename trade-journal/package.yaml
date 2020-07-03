@@ -17,6 +17,7 @@ dependencies:
   - bytestring
   - containers
   - lens
+  - megaparsec
   - mtl
   - pretty-show
   - text
@@ -39,7 +40,6 @@ library:
     - Journal.Types
   dependencies:
     - data-default
-    - megaparsec
     - pretty
     - profunctors
     - split
@@ -53,6 +53,7 @@ tests:
       - trade-journal
       - HUnit
       - hedgehog
+      - here
       - tasty
       - tasty-hedgehog
       - tasty-hunit
@@ -63,4 +64,3 @@ executables:
     dependencies:
       - trade-journal
       - optparse-applicative
-      - megaparsec
