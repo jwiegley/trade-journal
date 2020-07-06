@@ -24,16 +24,15 @@ import Prelude hiding (Double, Float)
 data Effect = Open | Close
   deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
 
-data WashReason = WashPending | WashRetroactive | WashOnOpen
+data WashReason = Retroactively | OnOpen
   deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
 
 data Annotation
   = Fees (Amount 6)
   | Commission (Amount 6)
   | GainLoss (Amount 6)
-  | ToBeWashed (Amount 6)
-  | WashSaleAdjust WashReason (Amount 6)
-  | PartsWashed
+  | Washed WashReason (Amount 6)
+  | PartWashed
   | Position Effect
   deriving (Show, Eq, Ord, Generic, PrettyVal)
 
@@ -42,11 +41,6 @@ makePrisms ''Annotation
 gainLoss :: Traversal' Annotation (Amount 6)
 gainLoss f = \case
   GainLoss pl -> GainLoss <$> f pl
-  s -> pure s
-
-washSaleAdjust :: Traversal' Annotation (Amount 6)
-washSaleAdjust f = \case
-  WashSaleAdjust k pl -> WashSaleAdjust k <$> f pl
   s -> pure s
 
 fees :: [Annotation] -> Amount 6
@@ -61,10 +55,9 @@ instance PrettyVal UTCTime where
 -- | A 'Lot' represents a collection of shares, with a given price and a
 --   transaction date.
 data Lot = Lot
-  { _symbol :: Text,
-    _amount :: Amount 6, -- positive is long, negative is short
+  { _amount :: Amount 6, -- positive is long, negative is short
+    _symbol :: Text,
     _price :: Amount 6,
-    _time :: UTCTime,
     -- | All details are expressed "per share", just like the price.
     _details :: [Annotation]
   }
@@ -73,27 +66,44 @@ data Lot = Lot
 makeLenses ''Lot
 
 alignLots :: Lot -> Lot -> (Split Lot, Split Lot)
-alignLots x y =
-  let (s, d) = align amount amount (x & amount %~ abs) (y & amount %~ abs)
-   in ( if negX
-          then s & _Splits . amount %~ negate
-          else s,
-        if negY
-          then d & _Splits . amount %~ negate
-          else d
-      )
-  where
-    negX = x ^. amount < 0
-    negY = y ^. amount < 0
+alignLots = align amount amount
 
-data Action a
-  = -- | The sign of the Lot 'amount' indicates buy or sell.
-    BuySell a
-  | AdjustCostBasis a
-  | DepositWithdraw a
-  | Assign a
-  | Expire a
-  | Dividend a
+data Action
+  = Buy Lot
+  | Sell Lot
+  | Adjust Lot
+  | Deposit (Amount 6)
+  | Withdraw (Amount 6)
+  | Assign Lot
+  | Expire Lot
+  | Dividend Lot
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+makePrisms ''Action
+
+data Event
+  = Opened Bool Lot
+  | Adjustment Lot
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+makePrisms ''Event
+
+data Timed a = Timed
+  { _time :: UTCTime,
+    _item :: a
+  }
   deriving
     ( Show,
       Eq,
@@ -105,23 +115,22 @@ data Action a
       Traversable
     )
 
-makePrisms ''Action
+makeLenses ''Timed
 
-data StateChange a
-  = Action (Action a)
-  | Submit (Action a)
+data Change
+  = SawAction (Timed Action)
+  | Submit (Timed Lot) -- can only be an adjustment
   | SubmitEnd
-  | Result a
-  | AddEntry a
-  | RemoveEntry Int
-  | ReplaceEntry Int a
+  | Result (Timed Action)
+  | AddEvent (Timed Event)
+  | RemoveEvent Int
+  | ReplaceEvent Int (Timed Event)
   deriving
     ( Show,
       Eq,
       Ord,
       Generic,
-      PrettyVal,
-      Functor
+      PrettyVal
     )
 
-makePrisms ''StateChange
+makePrisms ''Change
