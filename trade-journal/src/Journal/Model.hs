@@ -141,13 +141,17 @@ closePosition ::
 closePosition n open close = do
   let (s, d) = (open ^?! opened) `alignLots` (close ^?! buyOrSell)
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
-    let pl =
-          ( if has (item . _Sell) close
-              then du ^. price - su ^. price
-              else su ^. price - du ^. price
-          )
-            - fees (du ^. details)
-        res = du & details <>~ [Position Close, GainLoss pl]
+    let pl
+          | has (item . _Sell) close =
+            du ^. price - su ^. price
+          | otherwise = su ^. price - du ^. price
+        res =
+          du & details
+            <>~ [ Position Close,
+                  if pl < 0
+                    then Loss (- pl)
+                    else Gain pl
+                ]
     tell [Result (close & buyOrSell .~ res)]
     -- After closing at a loss, and if the loss occurs within 30 days
     -- of its corresponding open, and there is another open within 30

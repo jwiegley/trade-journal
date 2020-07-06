@@ -17,6 +17,7 @@ module Journal.Amount
     normalizeAmount,
     spreadAmounts,
     showAmount,
+    amountToString,
     mpfr_RNDN,
     mpfr_RNDZ,
     mpfr_RNDU,
@@ -113,7 +114,7 @@ instance KnownNat n => Eq (Amount n) where
   (==) = (==) `on` show
 
 instance KnownNat n => Show (Amount n) where
-  show = amountToString
+  show = amountToString 2
 
 instance KnownNat n => Read (Amount n) where
   readsPrec _d = \case
@@ -153,9 +154,12 @@ rounded ::
   p (Amount n) (f (Amount n))
 rounded = dimap coerce (fmap coerce)
 
-amountToString :: KnownNat n => Amount n -> String
-amountToString = cleanup 2 . showAmount mpfr_RNDNA
+amountToString :: KnownNat n => Int -> Amount n -> String
+amountToString n = touchup . cleanup n . showAmount mpfr_RNDNA
   where
+    touchup s
+      | last s == '.' = take (length s - 1) s
+      | otherwise = s
     cleanup m t
       | len > m && last t == '0' = cleanup m (take (length t - 1) t)
       | otherwise = t
@@ -176,7 +180,7 @@ thousands d = intercalate "." $ case splitOn "." str of
       _ -> False
     str
       | isInt = show (floor d :: Int)
-      | otherwise = amountToString d
+      | otherwise = amountToString 2 d
     go (x : y : z : []) = x : y : z : []
     go (x : y : z : ['-']) = x : y : z : ['-']
     go (x : y : z : xs) = x : y : z : ',' : go xs

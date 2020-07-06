@@ -32,11 +32,11 @@ journalSimpleBuy = ii @--> oo
   where
     ii =
       [i|2020-07-02 buy 100 AAPL 260.00
-         2020-07-03 sell 100 AAPL 300.00
+         2020-07-03 sell 100 AAPL 300.00 fees 0.20
         |]
     oo =
-      [i|2020-07-02 00:00:00 buy 100.000000 AAPL 260.000000 open
-         2020-07-03 00:00:00 sell 100.000000 AAPL 300.000000 close gain 40.000000
+      [i|2020-07-02 00:00:00 buy 100 AAPL 260.0000 open
+         2020-07-03 00:00:00 sell 100 AAPL 300.0000 fees 0.20 close gain 40.000000
         |]
 
 (@-->) :: Text -> Text -> Assertion
