@@ -47,8 +47,7 @@ align ::
   b ->
   (Split a, Split b)
 align la lb x y
-  | xq == 0
-      && yq == 0 =
+  | xq == 0 && yq == 0 =
     (None x, None y)
   | xq == 0 = (None x, All y)
   | yq == 0 = (All x, None y)
@@ -70,12 +69,11 @@ align la lb x y
     yq = y ^. lb
     diff = abs (xq - yq)
 
-data Applied v a b
-  = Applied
-      { _value :: v,
-        _src :: Split a,
-        _dest :: Split b
-      }
+data Applied v a b = Applied
+  { _value :: v,
+    _src :: Split a,
+    _dest :: Split b
+  }
   deriving (Eq, Ord, Show)
 
 makeLenses ''Applied
@@ -86,13 +84,12 @@ nothingApplied x y = Applied def (None x) (None y)
 splits :: Default v => Split a -> Split b -> Applied v a b
 splits = Applied def
 
-data Considered a b c
-  = Considered
-      { _fromList :: [a],
-        _newList :: [b],
-        _fromElement :: [c],
-        _newElement :: Maybe c
-      }
+data Considered a b c = Considered
+  { _fromList :: [a],
+    _newList :: [b],
+    _fromElement :: [c],
+    _newElement :: Maybe c
+  }
   deriving (Eq, Show)
 
 makeLenses ''Considered

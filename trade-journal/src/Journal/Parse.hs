@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Journal.Parse (parseJournal, printLot) where
+module Journal.Parse (parseJournal, printJournal) where
 
 import Control.Lens
 import Control.Monad
@@ -40,28 +40,60 @@ lexeme p = p <* whiteSpace
 keyword :: Text -> Parser Text
 keyword = lexeme . string
 
-parseJournal :: Parser [Action Lot]
-parseJournal = many parseAction
+parseJournal :: Parser [Timed Action]
+parseJournal = many (parseTimed parseAction)
 
-parseAction :: Parser (Action Lot)
-parseAction = do
+parseTimed :: Parser a -> Parser (Timed a)
+parseTimed p = do
   _time <- Journal.Parse.parseTime
+  _item <- p
+  pure Timed {..}
+
+parseAction :: Parser Action
+parseAction = do
   kw <- parseKeyword
+  case kw of
+    "buy" -> Buy <$> parseLot
+    "sell" -> Sell <$> parseLot
+    "adjust" -> Adjust <$> parseLot
+    _ -> error $ "Unexpected action: " ++ TL.unpack kw
+
+parseLot :: Parser Lot
+parseLot = do
   _amount <- parseAmount
   _symbol <- TL.toStrict <$> parseSymbol
   _price <- parseAmount
   let _details = []
-  pure $ case kw of
-    "buy" -> BuySell Lot {..}
-    "sell" -> BuySell $ Lot {..} & amount %~ negate
-    "adjust" -> BuySell Lot {..}
-    _ -> error $ "Unexpected action: " ++ TL.unpack kw
+  pure Lot {..}
+
+printJournal :: [Timed Action] -> Text
+printJournal =
+  TL.concat
+    . intersperse "\n"
+    . map (printTimed printAction)
+
+printTimed :: (a -> Text) -> Timed a -> Text
+printTimed printItem t =
+  TL.concat $ intersperse " " $
+    [ printTime (t ^. time),
+      printItem (t ^. item)
+    ]
+
+printAction :: Action -> Text
+printAction = \case
+  Buy lot -> "buy " <> printLot lot
+  Sell lot -> "sell " <> printLot lot
+  Adjust lot -> "adjust " <> printLot lot
+  Deposit amt -> "deposit " <> printAmount amt
+  Withdraw amt -> "withdraw " <> printAmount amt
+  Assign lot -> "assign " <> printLot lot
+  Expire lot -> "expire " <> printLot lot
+  Dividend lot -> "dividend " <> printLot lot
 
 printLot :: Lot -> Text
 printLot lot =
   TL.concat $ intersperse " " $
-    [ printTime (lot ^. time),
-      printAmount (lot ^. amount),
+    [ printAmount (lot ^. amount),
       TL.fromStrict (lot ^. symbol),
       printAmount (lot ^. price)
     ]
@@ -73,15 +105,14 @@ printLot lot =
       GainLoss x
         | x < 0 -> "loss " <> printAmount x
         | otherwise -> "gain " <> printAmount x
-      ToBeWashed x -> "toWash " <> printAmount x
-      WashSaleAdjust r x -> "washSale " <> case r of
-        WashPending -> "pending " <> printAmount x
-        WashRetroactive -> "retroactive " <> printAmount x
-        WashOnOpen -> "onOpen " <> printAmount x
-      PartsWashed -> "washed"
+      Washed reason amt -> "wash " <> w reason <> printAmount amt
+      PartWashed -> "partWashed"
       Position eff -> case eff of
         Open -> "open"
         Close -> "close"
+    w = \case
+      Retroactively -> "retroactively"
+      OnOpen -> "onOpen"
 
 parseKeyword :: Parser Text
 parseKeyword =
@@ -93,21 +124,6 @@ parseKeyword =
     <|> keyword "assign"
     <|> keyword "expire"
     <|> keyword "dividend"
-
-{-
-printKeyword :: Action Lot -> Text
-printKeyword = \case
-  BuySell a
-    | a ^. amount < 0 -> "sell"
-    | otherwise -> "buy"
-  AdjustCostBasis _ -> "adjust"
-  DepositWithdraw a
-    | a ^. amount < 0 -> "withdraw"
-    | otherwise -> "deposit"
-  Assign _ -> "assign"
-  Expire _ -> "expire"
-  Dividend _ -> "dividend"
--}
 
 parseTime :: Parser UTCTime
 parseTime = do

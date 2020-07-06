@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module ModelTests (testModel) where
 
@@ -89,11 +90,17 @@ genAmount range = do
   n <- Gen.integral range
   pure $ Amount (d % n)
 
+genTimed :: MonadGen m => m a -> m (Timed a)
+genTimed gen = do
+  _time <- genUTCTime
+  _item <- gen
+  pure Timed {..}
+
 genLot :: MonadGen m => m Lot
 genLot = do
   q <- genAmount (Range.linear 1 1000)
-  t <- genUTCTime
-  pure $ Lot "FOO" q 1 t []
+  p <- genAmount (Range.linear 1 2000)
+  pure $ Lot q "FOO" p []
 
 baseline :: TestTree
 baseline =
@@ -104,259 +111,289 @@ baseline =
       testProperty "buy-sell-breakeven" buySellBreakeven,
       testProperty "buy-sell-profit" buySellProfit,
       testProperty "buy-sell-part-profit" buySellPartProfit,
-      testProperty "buy-sell-loss" buySellLoss,
-      testProperty "buy-sell-loss-buy" buySellLossBuy,
       testProperty "buy-buy-sell-loss" buyBuySellLoss,
+      testProperty "buy-sell-loss-buy" buySellLossBuy,
+      testProperty "buy-buy-sell-loss" buySellLoss,
       testProperty "simple-sell" simpleSell,
       testProperty "sell-buy-profit" sellBuyProfit
     ]
 
 simpleBuy :: Property
 simpleBuy = property $ do
-  b <- forAll genLot
+  b <- forAll $ genTimed genLot
   -- A simple buy
   lift $
-    processActions
-      [BuySell b]
-      @?== ( [ Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open])
+    processActionsWithChanges
+      [Buy <$> b]
+      @?== ( [ SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open]))
              ],
-             [b & details <>~ [Position Open]]
+             [Buy <$> (b & item . details <>~ [Position Open])]
            )
 
 buyBuy :: Property
 buyBuy = property $ do
-  b <- forAll genLot
-  -- A simple buy
+  b <- forAll $ genTimed genLot
   lift $
-    processActions
-      [ BuySell b,
-        BuySell b
+    processActionsWithChanges
+      [ Buy <$> b,
+        Buy <$> b
       ]
-      @?== ( [ Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open]),
-               Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open])
+      @?== ( [ SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open])),
+               SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open]))
              ],
-             [ b & details <>~ [Position Open],
-               b & details <>~ [Position Open]
+             [ Buy <$> (b & item . details <>~ [Position Open]),
+               Buy <$> (b & item . details <>~ [Position Open])
              ]
            )
 
 buySellBreakeven :: Property
 buySellBreakeven = property $ do
-  b <- forAll genLot
-  let s = b & amount %~ negate
+  b <- forAll $ genTimed genLot
   -- A buy and sell at break-even
   lift $
-    processActions
-      [ BuySell b,
-        BuySell s
+    processActionsWithChanges
+      [ Buy <$> b,
+        Sell <$> b
       ]
-      @?== ( [ Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open]),
-               Action (BuySell s),
-               Result (s & details <>~ [Position Close, GainLoss 0]),
-               RemoveEntry 1
+      @?== ( [ SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open])),
+               SawAction (Sell <$> b),
+               Result
+                 ( Sell
+                     <$> (b & item . details <>~ [Position Close, GainLoss 0])
+                 ),
+               RemoveEvent 1
              ],
-             [ b & details <>~ [Position Open],
-               s & details <>~ [Position Close, GainLoss 0]
+             [ Buy <$> (b & item . details <>~ [Position Open]),
+               Sell <$> (b & item . details <>~ [Position Close, GainLoss 0])
              ]
            )
 
 buySellProfit :: Property
 buySellProfit = property $ do
-  b <- forAll genLot
-  let s = b & amount %~ negate
-      sp = s & price +~ 10
+  b <- forAll $ genTimed genLot
+  let s = b
+      sp = s & item . price +~ 10
   -- A buy and sell at a profit
   lift $
-    processActions
-      [ BuySell b,
-        BuySell sp
+    processActionsWithChanges
+      [ Buy <$> b,
+        Sell <$> sp
       ]
-      @?== ( [ Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open]),
-               Action (BuySell sp),
-               Result (sp & details <>~ [Position Close, GainLoss 10]),
-               RemoveEntry 1
+      @?== ( [ SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open])),
+               SawAction (Sell <$> sp),
+               Result
+                 ( Sell
+                     <$> (sp & item . details <>~ [Position Close, GainLoss 10])
+                 ),
+               RemoveEvent 1
              ],
-             [ b & details <>~ [Position Open],
-               sp & details <>~ [Position Close, GainLoss 10]
+             [ Buy <$> (b & item . details <>~ [Position Open]),
+               Sell <$> (sp & item . details <>~ [Position Close, GainLoss 10])
              ]
            )
 
 buySellPartProfit :: Property
 buySellPartProfit = property $ do
-  b <- forAll genLot
-  let b2 = b & amount *~ 2
-      s = b & amount %~ negate
-      sp = s & price +~ 10
-  -- A buy and sell at a profit
+  b <- forAll $ genTimed genLot
+  let b2 = b & item . amount *~ 2
+      s = b
+      sp = s & item . price +~ 10
+  -- A buy and sell at a partial profit
   lift $
-    processActions
-      [ BuySell b2,
-        BuySell sp
+    processActionsWithChanges
+      [ Buy <$> b2,
+        Sell <$> sp
       ]
-      @?== ( [ Action (BuySell b2),
-               AddEntry (b2 & details <>~ [Position Open]),
-               Result (b2 & details <>~ [Position Open]),
-               Action (BuySell sp),
-               Result (sp & details <>~ [Position Close, GainLoss 10]),
-               ReplaceEntry 1 (b & details <>~ [Position Open])
+      @?== ( [ SawAction (Buy <$> b2),
+               AddEvent (Opened True <$> b2),
+               Result (Buy <$> (b2 & item . details <>~ [Position Open])),
+               SawAction (Sell <$> sp),
+               Result
+                 ( Sell
+                     <$> (sp & item . details <>~ [Position Close, GainLoss 10])
+                 ),
+               ReplaceEvent 1 (Opened True <$> b)
              ],
-             [ b2 & details <>~ [Position Open],
-               sp & details <>~ [Position Close, GainLoss 10]
+             [ Buy <$> (b2 & item . details <>~ [Position Open]),
+               Sell <$> (sp & item . details <>~ [Position Close, GainLoss 10])
              ]
            )
 
 buySellLoss :: Property
 buySellLoss = property $ do
-  b <- forAll genLot
-  let s = b & amount %~ negate
-      sl = s & price -~ 1
+  b <- forAll $ genTimed genLot
+  let s = b
+      sl = s & item . price -~ 1
   -- A buy and sell at a loss
   lift $
-    processActions
-      [ BuySell b,
-        BuySell sl
+    processActionsWithChanges
+      [ Buy <$> b,
+        Sell <$> sl
       ]
-      @?== ( [ Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open]),
-               Action (BuySell sl),
-               Result (sl & details <>~ [Position Close, GainLoss (-1)]),
-               RemoveEntry 1,
-               Submit (AdjustCostBasis (sl & details <>~ [GainLoss (-1)])),
-               AddEntry (sl & details .~ [WashSaleAdjust WashPending (-1)]),
+      @?== ( [ SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open])),
+               SawAction (Sell <$> sl),
+               Result
+                 ( Sell
+                     <$> ( sl & item . details
+                             <>~ [Position Close, GainLoss (-1)]
+                         )
+                 ),
+               RemoveEvent 1,
+               Submit (sl & item . price .~ 1),
+               AddEvent (Adjustment <$> (sl & item . price .~ 1)),
                SubmitEnd
              ],
-             [ b & details <>~ [Position Open],
-               sl & details <>~ [Position Close, GainLoss (-1)]
+             [ Buy <$> (b & item . details <>~ [Position Open]),
+               Sell
+                 <$> (sl & item . details <>~ [Position Close, GainLoss (-1)])
              ]
            )
 
 buySellLossBuy :: Property
 buySellLossBuy = property $ do
-  b <- forAll genLot
-  let s = b & amount %~ negate
-      sl = s & price -~ 1
-  -- A buy and sell at a loss
+  b <- forAll $ genTimed genLot
+  let s = b
+      sl = s & item . price -~ 1
+  -- A buy and sell at a loss, followed by a buy
   lift $
-    processActions
-      [ BuySell b,
-        BuySell sl,
-        BuySell b
+    processActionsWithChanges
+      [ Buy <$> b,
+        Sell <$> sl,
+        Buy <$> b
       ]
-      @?== ( [ Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open]),
-               Action (BuySell sl),
-               Result (sl & details <>~ [Position Close, GainLoss (-1)]),
-               RemoveEntry 1,
-               Submit (AdjustCostBasis (sl & details <>~ [GainLoss (-1)])),
-               AddEntry (sl & details .~ [WashSaleAdjust WashPending (-1)]),
+      @?== ( [ SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open])),
+               SawAction (Sell <$> sl),
+               Result
+                 ( Sell
+                     <$> ( sl & item . details
+                             <>~ [Position Close, GainLoss (-1)]
+                         )
+                 ),
+               RemoveEvent 1,
+               Submit (sl & item . price .~ 1),
+               AddEvent (Adjustment <$> (sl & item . price .~ 1)),
                SubmitEnd,
-               Action (BuySell b),
-               RemoveEntry 2,
-               AddEntry
-                 ( b & details
-                     <>~ [ Position Open,
-                           WashSaleAdjust WashOnOpen (-1)
-                         ]
+               SawAction (Buy <$> b),
+               RemoveEvent 2,
+               AddEvent
+                 ( Opened True
+                     <$> ( b & item . details
+                             <>~ [Washed OnOpen 1]
+                         )
                  ),
                Result
-                 ( b & details
-                     <>~ [ Position Open,
-                           WashSaleAdjust WashOnOpen (-1)
-                         ]
+                 ( Buy
+                     <$> ( b & item . details
+                             <>~ [ Position Open,
+                                   Washed OnOpen 1
+                                 ]
+                         )
                  )
              ],
-             [ b & details <>~ [Position Open],
-               sl & details <>~ [Position Close, GainLoss (-1)],
-               b & details
-                 <>~ [ Position Open,
-                       WashSaleAdjust WashOnOpen (-1)
-                     ]
+             [ Buy <$> (b & item . details <>~ [Position Open]),
+               Sell
+                 <$> (sl & item . details <>~ [Position Close, GainLoss (-1)]),
+               Buy
+                 <$> ( b & item . details
+                         <>~ [ Position Open,
+                               Washed OnOpen 1
+                             ]
+                     )
              ]
            )
 
 buyBuySellLoss :: Property
 buyBuySellLoss = property $ do
-  b <- forAll genLot
-  let s = b & amount %~ negate
-      sl = s & price -~ 1
-  -- A buy and sell at a loss
+  b <- forAll $ genTimed genLot
+  let s = b
+      sl = s & item . price -~ 1
+  -- A buy, a buy and then a sell at a loss
   lift $
-    processActions
-      [ BuySell b,
-        BuySell b,
-        BuySell sl
+    processActionsWithChanges
+      [ Buy <$> b,
+        Buy <$> b,
+        Sell <$> sl
       ]
-      @?== ( [ Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open]),
-               Action (BuySell b),
-               AddEntry (b & details <>~ [Position Open]),
-               Result (b & details <>~ [Position Open]),
-               Action (BuySell sl),
-               Result (sl & details <>~ [Position Close, GainLoss (-1)]),
-               RemoveEntry 1,
-               Submit (AdjustCostBasis (sl & details <>~ [GainLoss (-1)])),
-               RemoveEntry 2,
-               AddEntry
-                 ( b & details
-                     <>~ [ Position Open,
-                           -- jww (2020-07-02): ???
-                           WashSaleAdjust WashRetroactive 0
-                         ]
+      @?== ( [ SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open])),
+               SawAction (Buy <$> b),
+               AddEvent (Opened True <$> b),
+               Result (Buy <$> (b & item . details <>~ [Position Open])),
+               SawAction (Sell <$> sl),
+               Result
+                 ( Sell
+                     <$> ( sl & item . details
+                             <>~ [Position Close, GainLoss (-1)]
+                         )
+                 ),
+               RemoveEvent 1,
+               Submit (sl & item . price .~ 1),
+               RemoveEvent 2,
+               AddEvent
+                 ( Opened True
+                     <$> ( b & item . details
+                             <>~ [Washed Retroactively 1]
+                         )
                  ),
                SubmitEnd
              ],
-             [ b & details <>~ [Position Open],
-               b & details <>~ [Position Open],
-               sl & details <>~ [Position Close, GainLoss (-1)]
+             [ Buy <$> (b & item . details <>~ [Position Open]),
+               Buy <$> (b & item . details <>~ [Position Open]),
+               Sell
+                 <$> (sl & item . details <>~ [Position Close, GainLoss (-1)])
              ]
            )
 
 simpleSell :: Property
 simpleSell = property $ do
-  b <- forAll genLot
-  let s = b & amount %~ negate
+  s <- forAll $ genTimed genLot
   -- A simple sell
   lift $
-    processActions
-      [BuySell s]
-      @?== ( [ Action (BuySell s),
-               AddEntry (s & details <>~ [Position Open]),
-               Result (s & details <>~ [Position Open])
+    processActionsWithChanges
+      [Sell <$> s]
+      @?== ( [ SawAction (Sell <$> s),
+               AddEvent (Opened False <$> s),
+               Result (Sell <$> (s & item . details <>~ [Position Open]))
              ],
-             [s & details <>~ [Position Open]]
+             [Sell <$> (s & item . details <>~ [Position Open])]
            )
 
 sellBuyProfit :: Property
 sellBuyProfit = property $ do
-  b <- forAll genLot
-  let s = b & amount %~ negate
+  b <- forAll $ genTimed genLot
+  let s = b
   -- A sell and buy at a profit
   lift $
-    processActions
-      [ BuySell s,
-        BuySell b
+    processActionsWithChanges
+      [ Sell <$> s,
+        Buy <$> b
       ]
-      @?== ( [ Action (BuySell s),
-               AddEntry (s & details <>~ [Position Open]),
-               Result (s & details <>~ [Position Open]),
-               Action (BuySell b),
-               Result (b & details <>~ [Position Close, GainLoss 0]),
-               RemoveEntry 1
+      @?== ( [ SawAction (Sell <$> s),
+               AddEvent (Opened False <$> s),
+               Result (Sell <$> (s & item . details <>~ [Position Open])),
+               SawAction (Buy <$> b),
+               Result
+                 ( Buy
+                     <$> (b & item . details <>~ [Position Close, GainLoss 0])
+                 ),
+               RemoveEvent 1
              ],
-             [ s & details <>~ [Position Open],
-               b & details <>~ [Position Close, GainLoss 0]
+             [ Sell <$> (s & item . details <>~ [Position Open]),
+               Buy <$> (b & item . details <>~ [Position Close, GainLoss 0])
              ]
            )
