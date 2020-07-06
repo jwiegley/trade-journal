@@ -30,7 +30,8 @@ data WashReason = Retroactively | OnOpen
 data Annotation
   = Fees (Amount 6)
   | Commission (Amount 6)
-  | GainLoss (Amount 6)
+  | Gain (Amount 6)
+  | Loss (Amount 6)
   | Washed WashReason (Amount 6)
   | PartWashed
   | Position Effect
@@ -40,7 +41,8 @@ makePrisms ''Annotation
 
 gainLoss :: Traversal' Annotation (Amount 6)
 gainLoss f = \case
-  GainLoss pl -> GainLoss <$> f pl
+  Gain pl -> Gain <$> f pl
+  Loss pl -> Loss <$> f (negate pl)
   s -> pure s
 
 fees :: [Annotation] -> Amount 6

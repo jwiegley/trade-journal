@@ -167,12 +167,12 @@ buySellBreakeven = property $ do
                SawAction (Sell <$> b),
                Result
                  ( Sell
-                     <$> (b & item . details <>~ [Position Close, GainLoss 0])
+                     <$> (b & item . details <>~ [Position Close, Gain 0])
                  ),
                RemoveEvent 1
              ],
              [ Buy <$> (b & item . details <>~ [Position Open]),
-               Sell <$> (b & item . details <>~ [Position Close, GainLoss 0])
+               Sell <$> (b & item . details <>~ [Position Close, Gain 0])
              ]
            )
 
@@ -193,12 +193,12 @@ buySellProfit = property $ do
                SawAction (Sell <$> sp),
                Result
                  ( Sell
-                     <$> (sp & item . details <>~ [Position Close, GainLoss 10])
+                     <$> (sp & item . details <>~ [Position Close, Gain 10])
                  ),
                RemoveEvent 1
              ],
              [ Buy <$> (b & item . details <>~ [Position Open]),
-               Sell <$> (sp & item . details <>~ [Position Close, GainLoss 10])
+               Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
              ]
            )
 
@@ -220,12 +220,12 @@ buySellPartProfit = property $ do
                SawAction (Sell <$> sp),
                Result
                  ( Sell
-                     <$> (sp & item . details <>~ [Position Close, GainLoss 10])
+                     <$> (sp & item . details <>~ [Position Close, Gain 10])
                  ),
                ReplaceEvent 1 (Opened True <$> b)
              ],
              [ Buy <$> (b2 & item . details <>~ [Position Open]),
-               Sell <$> (sp & item . details <>~ [Position Close, GainLoss 10])
+               Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
              ]
            )
 
@@ -247,7 +247,7 @@ buySellLoss = property $ do
                Result
                  ( Sell
                      <$> ( sl & item . details
-                             <>~ [Position Close, GainLoss (-1)]
+                             <>~ [Position Close, Loss 1]
                          )
                  ),
                RemoveEvent 1,
@@ -257,7 +257,7 @@ buySellLoss = property $ do
              ],
              [ Buy <$> (b & item . details <>~ [Position Open]),
                Sell
-                 <$> (sl & item . details <>~ [Position Close, GainLoss (-1)])
+                 <$> (sl & item . details <>~ [Position Close, Loss 1])
              ]
            )
 
@@ -280,7 +280,7 @@ buySellLossBuy = property $ do
                Result
                  ( Sell
                      <$> ( sl & item . details
-                             <>~ [Position Close, GainLoss (-1)]
+                             <>~ [Position Close, Loss 1]
                          )
                  ),
                RemoveEvent 1,
@@ -306,7 +306,7 @@ buySellLossBuy = property $ do
              ],
              [ Buy <$> (b & item . details <>~ [Position Open]),
                Sell
-                 <$> (sl & item . details <>~ [Position Close, GainLoss (-1)]),
+                 <$> (sl & item . details <>~ [Position Close, Loss 1]),
                Buy
                  <$> ( b & item . details
                          <>~ [ Position Open,
@@ -338,7 +338,7 @@ buyBuySellLoss = property $ do
                Result
                  ( Sell
                      <$> ( sl & item . details
-                             <>~ [Position Close, GainLoss (-1)]
+                             <>~ [Position Close, Loss 1]
                          )
                  ),
                RemoveEvent 1,
@@ -355,7 +355,7 @@ buyBuySellLoss = property $ do
              [ Buy <$> (b & item . details <>~ [Position Open]),
                Buy <$> (b & item . details <>~ [Position Open]),
                Sell
-                 <$> (sl & item . details <>~ [Position Close, GainLoss (-1)])
+                 <$> (sl & item . details <>~ [Position Close, Loss 1])
              ]
            )
 
@@ -389,11 +389,11 @@ sellBuyProfit = property $ do
                SawAction (Buy <$> b),
                Result
                  ( Buy
-                     <$> (b & item . details <>~ [Position Close, GainLoss 0])
+                     <$> (b & item . details <>~ [Position Close, Gain 0])
                  ),
                RemoveEvent 1
              ],
              [ Sell <$> (s & item . details <>~ [Position Open]),
-               Buy <$> (b & item . details <>~ [Position Close, GainLoss 0])
+               Buy <$> (b & item . details <>~ [Position Close, Gain 0])
              ]
            )

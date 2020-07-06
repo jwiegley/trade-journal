@@ -63,8 +63,25 @@ parseLot = do
   _amount <- parseAmount
   _symbol <- TL.toStrict <$> parseSymbol
   _price <- parseAmount
-  let _details = []
+  _details <- many parseAnnotation
   pure Lot {..}
+
+parseAnnotation :: Parser Annotation
+parseAnnotation = do
+  keyword "fees" *> (Fees <$> parseAmount)
+    <|> keyword "commission" *> (Commission <$> parseAmount)
+    <|> keyword "gain" *> (Gain <$> parseAmount)
+    <|> keyword "loss" *> (Loss <$> parseAmount)
+    <|> keyword "washed" *> (Washed <$> parseReason <*> parseAmount)
+    <|> keyword "partwashed" *> pure PartWashed
+    <|> keyword "position" *> (Position <$> parseEffect)
+  where
+    parseReason =
+      Retroactively <$ keyword "retroactively"
+        <|> OnOpen <$ keyword "onOpen"
+    parseEffect =
+      Open <$ keyword "open"
+        <|> Close <$ keyword "close"
 
 printJournal :: [Timed Action] -> Text
 printJournal =
@@ -84,8 +101,8 @@ printAction = \case
   Buy lot -> "buy " <> printLot lot
   Sell lot -> "sell " <> printLot lot
   Adjust lot -> "adjust " <> printLot lot
-  Deposit amt -> "deposit " <> printAmount amt
-  Withdraw amt -> "withdraw " <> printAmount amt
+  Deposit amt -> "deposit " <> printAmount 2 amt
+  Withdraw amt -> "withdraw " <> printAmount 2 amt
   Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend lot -> "dividend " <> printLot lot
@@ -93,19 +110,18 @@ printAction = \case
 printLot :: Lot -> Text
 printLot lot =
   TL.concat $ intersperse " " $
-    [ printAmount (lot ^. amount),
+    [ printAmount 0 (lot ^. amount),
       TL.fromStrict (lot ^. symbol),
-      printAmount (lot ^. price)
+      printAmount 4 (lot ^. price)
     ]
       ++ map f (lot ^. details)
   where
     f = \case
-      Fees x -> "fees " <> printAmount x
-      Commission x -> "commission " <> printAmount x
-      GainLoss x
-        | x < 0 -> "loss " <> printAmount x
-        | otherwise -> "gain " <> printAmount x
-      Washed reason amt -> "wash " <> w reason <> printAmount amt
+      Fees x -> "fees " <> printAmount 2 x
+      Commission x -> "commission " <> printAmount 2 x
+      Gain x -> "gain " <> printAmount 6 x
+      Loss x -> "loss " <> printAmount 6 x
+      Washed reason amt -> "wash " <> w reason <> printAmount 6 amt
       PartWashed -> "partWashed"
       Position eff -> case eff of
         Open -> "open"
@@ -146,8 +162,8 @@ parseAmount :: Parser (Amount 6)
 parseAmount =
   read <$> some (satisfy (\c -> isDigit c || c == '.')) <* whiteSpace
 
-printAmount :: Amount 6 -> Text
-printAmount = TL.pack . showAmount 6
+printAmount :: Int -> Amount 6 -> Text
+printAmount n = TL.pack . amountToString n
 
 parseSymbol :: Parser Text
 parseSymbol =
