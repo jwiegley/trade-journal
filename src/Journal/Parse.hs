@@ -9,6 +9,7 @@ import Control.Lens
 import Control.Monad
 import Data.Char
 import Data.List (intersperse)
+import Data.Maybe
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
@@ -31,7 +32,7 @@ skipLineComment' prefix =
 whiteSpace :: Parser ()
 whiteSpace = L.space space1 lineCmnt blockCmnt
   where
-    lineCmnt = skipLineComment' "#"
+    lineCmnt = skipLineComment' "|"
     blockCmnt = L.skipBlockComment "/*" "*/"
 
 lexeme :: Parser a -> Parser a
@@ -41,7 +42,7 @@ keyword :: Text -> Parser Text
 keyword = lexeme . string
 
 parseJournal :: Parser [Timed Action]
-parseJournal = many (parseTimed parseAction)
+parseJournal = many (whiteSpace *> parseTimed parseAction)
 
 parseTimed :: Parser a -> Parser (Timed a)
 parseTimed p = do
@@ -55,7 +56,7 @@ parseAction = do
   case kw of
     "buy" -> Buy <$> parseLot
     "sell" -> Sell <$> parseLot
-    "adjust" -> Adjust <$> parseLot
+    "wash" -> Wash <$> parseLot
     _ -> error $ "Unexpected action: " ++ TL.unpack kw
 
 parseLot :: Parser Lot
@@ -72,13 +73,10 @@ parseAnnotation = do
     <|> keyword "commission" *> (Commission <$> parseAmount)
     <|> keyword "gain" *> (Gain <$> parseAmount)
     <|> keyword "loss" *> (Loss <$> parseAmount)
-    <|> keyword "washed" *> (Washed <$> parseReason <*> parseAmount)
-    <|> keyword "partwashed" *> pure PartWashed
+    <|> keyword "washed" *> (Washed <$> parseAmount)
+    <|> keyword "exempt" *> pure Exempt
     <|> keyword "position" *> (Position <$> parseEffect)
   where
-    parseReason =
-      Retroactively <$ keyword "retroactively"
-        <|> OnOpen <$ keyword "onOpen"
     parseEffect =
       Open <$ keyword "open"
         <|> Close <$ keyword "close"
@@ -100,7 +98,7 @@ printAction :: Action -> Text
 printAction = \case
   Buy lot -> "buy " <> printLot lot
   Sell lot -> "sell " <> printLot lot
-  Adjust lot -> "adjust " <> printLot lot
+  Wash lot -> "wash " <> printLot lot
   Deposit amt -> "deposit " <> printAmount 2 amt
   Withdraw amt -> "withdraw " <> printAmount 2 amt
   Assign lot -> "assign " <> printLot lot
@@ -109,32 +107,64 @@ printAction = \case
 
 printLot :: Lot -> Text
 printLot lot =
-  TL.concat $ intersperse " " $
-    [ printAmount 0 (lot ^. amount),
-      TL.fromStrict (lot ^. symbol),
-      printAmount 4 (lot ^. price)
-    ]
-      ++ map f (lot ^. details)
+  basic
+    <> "\n  total "
+    <> printAmount 4 (lot ^. amount . coerced * lot ^. price)
+    <> " "
+    <> ( TL.concat
+           $ intersperse " "
+           $ map (f (Just (lot ^. amount . coerced))) (lot ^. details)
+       )
   where
-    f = \case
-      Fees x -> "fees " <> printAmount 2 x
-      Commission x -> "commission " <> printAmount 2 x
-      Gain x -> "gain " <> printAmount 6 x
-      Loss x -> "loss " <> printAmount 6 x
-      Washed reason amt -> "wash " <> w reason <> printAmount 6 amt
-      PartWashed -> "partWashed"
-      Position eff -> case eff of
-        Open -> "open"
-        Close -> "close"
-    w = \case
-      Retroactively -> "retroactively"
-      OnOpen -> "onOpen"
+    basic =
+      TL.concat $ intersperse " " $
+        [ printAmount 0 (lot ^. amount),
+          TL.fromStrict (lot ^. symbol),
+          printAmount 4 (lot ^. price)
+        ]
+          ++ map (f Nothing) (lot ^. details)
+    f m = \case
+      Fees x -> "fees " <> printAmount 2 (x * n)
+      Commission x -> "commission " <> printAmount 2 (x * n)
+      Gain x ->
+        ( case m of
+            Nothing -> ""
+            Just _ -> "price " <> printAmount 2 (lot ^. price - x) <> " "
+        )
+          <> "gain "
+          <> printAmount 6 (x * n)
+      Loss x ->
+        ( case m of
+            Nothing -> ""
+            Just _ -> "price " <> printAmount 2 (lot ^. price + x) <> " "
+        )
+          <> "loss "
+          <> printAmount 6 (x * n)
+      Washed amt ->
+        "washed "
+          <> printAmount
+            6
+            ( case m of
+                Nothing -> amt
+                Just _ -> lot ^. price + amt
+            )
+      Exempt -> maybe "exempt" (const "") m
+      Position eff ->
+        maybe
+          ( case eff of
+              Open -> "open"
+              Close -> "close"
+          )
+          (const "")
+          m
+      where
+        n = fromMaybe 1 m
 
 parseKeyword :: Parser Text
 parseKeyword =
   keyword "buy"
     <|> keyword "sell"
-    <|> keyword "adjust"
+    <|> keyword "wash"
     <|> keyword "deposit"
     <|> keyword "withdraw"
     <|> keyword "assign"

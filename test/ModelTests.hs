@@ -252,7 +252,7 @@ buySellLoss = property $ do
                  ),
                RemoveEvent 1,
                Submit (sl & item . price .~ 1),
-               AddEvent (Adjustment <$> (sl & item . price .~ 1)),
+               AddEvent (WashSale <$> (sl & item . price .~ 1)),
                SubmitEnd
              ],
              [ Buy <$> (b & item . details <>~ [Position Open]),
@@ -285,21 +285,21 @@ buySellLossBuy = property $ do
                  ),
                RemoveEvent 1,
                Submit (sl & item . price .~ 1),
-               AddEvent (Adjustment <$> (sl & item . price .~ 1)),
+               AddEvent (WashSale <$> (sl & item . price .~ 1)),
                SubmitEnd,
                SawAction (Buy <$> b),
                RemoveEvent 2,
                AddEvent
                  ( Opened True
                      <$> ( b & item . details
-                             <>~ [Washed OnOpen 1]
+                             <>~ [Washed 1]
                          )
                  ),
                Result
                  ( Buy
                      <$> ( b & item . details
                              <>~ [ Position Open,
-                                   Washed OnOpen 1
+                                   Washed 1
                                  ]
                          )
                  )
@@ -310,7 +310,7 @@ buySellLossBuy = property $ do
                Buy
                  <$> ( b & item . details
                          <>~ [ Position Open,
-                               Washed OnOpen 1
+                               Washed 1
                              ]
                      )
              ]
@@ -347,15 +347,17 @@ buyBuySellLoss = property $ do
                AddEvent
                  ( Opened True
                      <$> ( b & item . details
-                             <>~ [Washed Retroactively 1]
+                             <>~ [Washed 1]
                          )
                  ),
+               Result (Wash <$> (b & item . price .~ 1)),
                SubmitEnd
              ],
              [ Buy <$> (b & item . details <>~ [Position Open]),
                Buy <$> (b & item . details <>~ [Position Open]),
                Sell
-                 <$> (sl & item . details <>~ [Position Close, Loss 1])
+                 <$> (sl & item . details <>~ [Position Close, Loss 1]),
+               Wash <$> (b & item . price .~ 1)
              ]
            )
 
