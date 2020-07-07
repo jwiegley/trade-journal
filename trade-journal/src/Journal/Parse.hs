@@ -65,7 +65,9 @@ parseLot = do
   _symbol <- TL.toStrict <$> parseSymbol
   _price <- parseAmount
   _details <- many parseAnnotation
-  pure Lot {..}
+  pure $
+    Lot {..}
+      & details . traverse . failing _Fees _Commission //~ _amount
 
 parseAnnotation :: Parser Annotation
 parseAnnotation = do
@@ -124,8 +126,10 @@ printLot lot =
         ]
           ++ map (f Nothing) (lot ^. details)
     f m = \case
-      Fees x -> "fees " <> printAmount 2 (x * n)
-      Commission x -> "commission " <> printAmount 2 (x * n)
+      Fees x ->
+        maybe ("fees " <> printAmount 2 (x * n)) (const "") m
+      Commission x ->
+        maybe ("commission " <> printAmount 2 (x * n)) (const "") m
       Gain x ->
         ( case m of
             Nothing -> ""
@@ -157,6 +161,8 @@ printLot lot =
           )
           (const "")
           m
+      Balance x ->
+        maybe ("balance " <> printAmount 2 (x ^. coerced)) (const "") m
       where
         n = fromMaybe 1 m
 
