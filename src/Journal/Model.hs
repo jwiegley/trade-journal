@@ -149,7 +149,14 @@ closePosition ::
 closePosition n open close = do
   let (s, d) = (open ^?! opened) `alignLots` (close ^?! buyOrSell)
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
-    let pricing x = x ^. price + sum (x ^.. details . traverse . _Washed)
+    let pricing x =
+          x ^. price
+            + sum
+              ( x
+                  ^.. details
+                    . traverse
+                    . failing _Washed (failing _Fees _Commission . to negate)
+              )
         pl
           | has (item . _Sell) close =
             pricing du - pricing su
@@ -208,7 +215,7 @@ washExistingPosition n open washing =
                <$> s ^.. _SplitUsed
            )
         ++ ( Result . (set wash ?? washing)
-               . (details <>~ [Washed (s ^?! _SplitUsed . price)])
+               . (details .~ [Washed (s ^?! _SplitUsed . price)])
                <$> d ^.. _SplitUsed
            )
     pure $ (set wash ?? washing) <$> (d ^? _SplitKept)
