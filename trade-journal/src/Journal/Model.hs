@@ -54,7 +54,7 @@ processAction = fmap unzipBoth . mapM go <=< impliedChanges
       Result e -> pure ([chg], [e])
       Submit lot ->
         first (\xs -> chg : xs ++ [SubmitEnd])
-          <$> processAction (Adjust <$> lot)
+          <$> processAction (Wash <$> lot)
       SubmitEnd -> pure ([chg], [])
       AddEvent e -> do
         ident <- use nextId
@@ -83,14 +83,14 @@ impliedChanges x = do
 buyOrSell :: Traversal' (Timed Action) Lot
 buyOrSell = item . failing _Buy _Sell
 
-adjust :: Traversal' (Timed Action) Lot
-adjust = item . _Adjust
+wash :: Traversal' (Timed Action) Lot
+wash = item . _Wash
 
 opened :: Traversal' (Timed Event) Lot
 opened = item . _Opened . _2
 
-adjustment :: Traversal' (Timed Event) Lot
-adjustment = item . _Adjustment
+washSale :: Traversal' (Timed Event) Lot
+washSale = item . _WashSale
 
 handle ::
   [(Int, Timed Event)] ->
@@ -103,12 +103,17 @@ handle
       closePosition n open close
 handle
   ((n, open@(view item -> Opened _ o)) : _)
-  wash@(preview adjust -> Just _)
-    | all (/= PartWashed) (o ^. details),
-      (open ^. time) `distance` (wash ^. time) <= 30 =
-      washExistingPosition n open wash
+  washing@(preview wash -> Just _)
+    | all
+        ( \ann ->
+            hasn't _Exempt ann
+              && hasn't _Washed ann
+        )
+        (o ^. details),
+      (open ^. time) `distance` (washing ^. time) <= 30 =
+      washExistingPosition n open washing
 handle
-  ((n, adj@(view item -> Adjustment _)) : _)
+  ((n, adj@(view item -> WashSale _)) : _)
   open@(preview buyOrSell -> Just _)
     | (adj ^. time) `distance` (open ^. time) <= 30 =
       -- We are buying or selling to open, but must wash first
@@ -123,8 +128,11 @@ handle [] act@(preview buyOrSell -> Just open) = do
   pure Nothing
 -- If a wash sale couldn't be applied to the current history, record it to
 -- apply to a future opening.
-handle [] act@(preview adjust -> Just x) = do
-  tell [AddEvent (Adjustment x <$ act)]
+handle [] act@(preview wash -> Just x) = do
+  tell
+    [ AddEvent (WashSale x <$ act),
+      Result (Wash x <$ act)
+    ]
   pure Nothing
 -- If none of the above apply, nothing is done for this action, pass through
 handle _ x = pure $ Just x
@@ -141,10 +149,11 @@ closePosition ::
 closePosition n open close = do
   let (s, d) = (open ^?! opened) `alignLots` (close ^?! buyOrSell)
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
-    let pl
+    let pricing x = x ^. price + sum (x ^.. details . traverse . _Washed)
+        pl
           | has (item . _Sell) close =
-            du ^. price - su ^. price
-          | otherwise = su ^. price - du ^. price
+            pricing du - pricing su
+          | otherwise = pricing su - pricing du
         res =
           du & details
             <>~ [ Position Close,
@@ -165,7 +174,7 @@ closePosition n open close = do
               n
               ( open & opened
                   .~ if mayWash
-                    then k & details <>~ [PartWashed]
+                    then k & details <>~ [Exempt]
                     else k
               )
           Nothing -> RemoveEvent n
@@ -182,22 +191,27 @@ washExistingPosition ::
   Timed Event ->
   Timed Action ->
   Writer [Change] (Maybe (Timed Action))
-washExistingPosition n open wash =
-  assert (wash ^?! adjust . amount /= 0) $ do
-    let (s, d) = (open ^?! opened) `alignLots` (wash ^?! adjust)
+washExistingPosition n open washing =
+  assert (washing ^?! wash . amount /= 0) $ do
+    let (s, d) = (open ^?! opened) `alignLots` (washing ^?! wash)
     -- Wash failing closes by adding the amount to the cost basis of the
     -- opening transaction.
     tell $
       [ case s ^? _SplitKept of
-          Just e -> ReplaceEvent n (open & opened .~ e)
+          Just e ->
+            ReplaceEvent n (set opened (e & details <>~ [Exempt]) open)
           Nothing -> RemoveEvent n
       ]
         ++ ( AddEvent
                . (set opened ?? open)
-               . (details <>~ [Washed Retroactively (d ^?! _SplitUsed . price)])
+               . (details <>~ [Washed (d ^?! _SplitUsed . price)])
                <$> s ^.. _SplitUsed
            )
-    pure $ (set adjust ?? wash) <$> (d ^? _SplitKept)
+        ++ ( Result . (set wash ?? washing)
+               . (details <>~ [Washed (s ^?! _SplitUsed . price)])
+               <$> d ^.. _SplitUsed
+           )
+    pure $ (set wash ?? washing) <$> (d ^? _SplitKept)
 
 -- | If we are opening a position and there is a pending wash sale within the
 -- last 30 days, apply the adjustment to the applicable part of this opening.
@@ -206,26 +220,26 @@ washNewPosition ::
   Timed Event ->
   Timed Action ->
   Writer [Change] (Maybe (Timed Action))
-washNewPosition n adj open = do
-  let (s, d) = (adj ^?! adjustment) `alignLots` (open ^?! buyOrSell)
+washNewPosition n washing open = do
+  let (s, d) = (washing ^?! washSale) `alignLots` (open ^?! buyOrSell)
   -- We wash failing closes by adding the amount to the cost basis of
   -- the opening transaction. Thus, we generate three instances of
   -- WashLossApplied, but only one OpenPosition.
   tell $
     [ case s ^? _SplitKept of
-        Just e -> ReplaceEvent n (adj & adjustment .~ e)
+        Just e -> ReplaceEvent n (washing & washSale .~ e)
         Nothing -> RemoveEvent n
     ]
       ++ ( AddEvent
              . Timed (open ^. time)
              . Opened (has (item . _Buy) open)
-             . (details <>~ [Washed OnOpen (adj ^?! adjustment . price)])
+             . (details <>~ [Washed (washing ^?! washSale . price)])
              <$> d ^.. _SplitUsed
          )
       ++ ( Result . (set buyOrSell ?? open)
              . ( details
                    <>~ [ Position Open,
-                         Washed OnOpen (adj ^?! adjustment . price)
+                         Washed (washing ^?! washSale . price)
                        ]
                )
              <$> d ^.. _SplitUsed

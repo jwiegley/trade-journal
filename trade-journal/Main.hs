@@ -10,9 +10,9 @@ module Main where
 
 import Data.Aeson hiding ((.=))
 import qualified Data.ByteString.Lazy as BL
-import Data.Foldable
 import Data.Map (Map)
 import Data.Text (Text)
+import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Text.Lazy.IO as TL
 import GHC.Generics hiding (to)
@@ -36,13 +36,16 @@ newConfig =
       rounding = mempty
     }
 
+parseProcessPrint :: MonadFail m => FilePath -> TL.Text -> m TL.Text
+parseProcessPrint path journal = do
+  actions <- case parse parseJournal path journal of
+    Left e -> fail $ errorBundlePretty e
+    Right res -> pure res
+  pure $ printJournal (processActions actions)
+
 main :: IO ()
 main = do
   path : _ <- getArgs
+  putStrLn $ "Reading journal " ++ path
   journal <- TL.decodeUtf8 <$> BL.readFile path
-  actions <- case parse parseJournal path journal of
-    Left e -> fail $ errorBundlePretty e
-    Right x -> pure x
-  let (_, res) = processActions actions
-  forM_ res $ \lot ->
-    TL.putStrLn $ printLot lot
+  TL.putStrLn =<< parseProcessPrint path journal

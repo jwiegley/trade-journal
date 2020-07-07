@@ -24,11 +24,12 @@ baseline :: TestTree
 baseline =
   testGroup
     "baseline"
-    [ testCase "journal-simple-buy" journalSimpleBuy
+    [ testCase "journal-buy-sell-profit" journalBuySellProfit,
+      testCase "journal-buy-sell-loss-buy" journalBuySellLossBuy
     ]
 
-journalSimpleBuy :: Assertion
-journalSimpleBuy = ii @--> oo
+journalBuySellProfit :: Assertion
+journalBuySellProfit = ii @--> oo
   where
     ii =
       [i|2020-07-02 buy 100 AAPL 260.00
@@ -37,6 +38,20 @@ journalSimpleBuy = ii @--> oo
     oo =
       [i|2020-07-02 00:00:00 buy 100 AAPL 260.0000 open
          2020-07-03 00:00:00 sell 100 AAPL 300.0000 fees 0.20 close gain 40.000000
+        |]
+
+journalBuySellLossBuy :: Assertion
+journalBuySellLossBuy = ii @--> oo
+  where
+    ii =
+      [i|2020-07-02 buy 100 AAPL 260.00
+         2020-07-03 sell 100 AAPL 240.00 fees 0.20
+         2020-07-04 buy 100 AAPL 260.00
+        |]
+    oo =
+      [i|2020-07-02 00:00:00 buy 100 AAPL 260.0000 open
+         2020-07-03 00:00:00 sell 100 AAPL 240.0000 fees 0.20 close loss 20.000000
+         2020-07-04 00:00:00 buy 100 AAPL 260.0000 open washed 20.000000
         |]
 
 (@-->) :: Text -> Text -> Assertion

@@ -24,17 +24,15 @@ import Prelude hiding (Double, Float)
 data Effect = Open | Close
   deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
 
-data WashReason = Retroactively | OnOpen
-  deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
-
 data Annotation
   = Fees (Amount 6)
   | Commission (Amount 6)
   | Gain (Amount 6)
   | Loss (Amount 6)
-  | Washed WashReason (Amount 6)
-  | PartWashed
+  | Washed (Amount 6)
+  | Exempt
   | Position Effect
+  | Balance (Amount 2)
   deriving (Show, Eq, Ord, Generic, PrettyVal)
 
 makePrisms ''Annotation
@@ -73,7 +71,7 @@ alignLots = align amount amount
 data Action
   = Buy Lot
   | Sell Lot
-  | Adjust Lot
+  | Wash Lot
   | Deposit (Amount 6)
   | Withdraw (Amount 6)
   | Assign Lot
@@ -91,7 +89,7 @@ makePrisms ''Action
 
 data Event
   = Opened Bool Lot
-  | Adjustment Lot
+  | WashSale Lot
   deriving
     ( Show,
       Eq,
