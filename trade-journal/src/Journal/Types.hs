@@ -75,7 +75,6 @@ data Action
   = Buy Lot
   | Sell Lot
   | Wash Lot
-  | WashDropped Lot
   | Deposit Lot
   | Withdraw Lot
   | Assign Lot
@@ -96,7 +95,6 @@ _Lot f = \case
   Buy lot -> Buy <$> f lot
   Sell lot -> Sell <$> f lot
   Wash lot -> Wash <$> f lot
-  WashDropped lot -> WashDropped <$> f lot
   Deposit lot -> Deposit <$> f lot
   Withdraw lot -> Withdraw <$> f lot
   Assign lot -> Assign <$> f lot

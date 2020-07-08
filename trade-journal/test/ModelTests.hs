@@ -113,7 +113,7 @@ baseline =
       testProperty "buy-sell-part-profit" buySellPartProfit,
       testProperty "buy-buy-sell-loss" buyBuySellLoss,
       testProperty "buy-sell-loss-buy" buySellLossBuy,
-      testProperty "buy-buy-sell-loss" buySellLoss,
+      testProperty "buy-sell-loss" buySellLoss,
       testProperty "simple-sell" simpleSell,
       testProperty "sell-buy-profit" sellBuyProfit
     ]
@@ -238,7 +238,9 @@ buySellLoss :: Property
 buySellLoss = property $ do
   b <- forAll $ genTimed genLot
   let s = b
-      sl = s & item . price -~ 1
+      sl =
+        s & item . price -~ 1
+          & item . details <>~ [WashTo Nothing Nothing]
   -- A buy and sell at a loss
   lift $
     processActionsWithChanges
@@ -258,12 +260,10 @@ buySellLoss = property $ do
               ),
             RemoveEvent 1,
             Submit (sl & item . price .~ 1),
-            -- AddEvent (WashSale <$> (sl & item . price .~ 1)),
             SubmitEnd
           ],
           [ Buy <$> (b & item . details <>~ [Position Open]),
-            Sell
-              <$> (sl & item . details <>~ [Position Close, Loss 1])
+            Sell <$> (sl & item . details <>~ [Position Close, Loss 1])
           ]
         )
 
@@ -271,13 +271,17 @@ buySellLossBuy :: Property
 buySellLossBuy = property $ do
   b <- forAll $ genTimed genLot
   let s = b
-      sl = s & item . price -~ 1
+      sl =
+        s & item . price -~ 1
+          & item . details <>~ [WashTo (Just "A") Nothing]
+      b2 =
+        b & item . details <>~ [WashApply "A" (b ^. item . amount)]
   -- A buy and sell at a loss, followed by a buy
   lift $
     processActionsWithChanges
       [ Buy <$> b,
         Sell <$> sl,
-        Buy <$> b
+        Buy <$> b2
       ]
       @?== Right
         ( [ SawAction (Buy <$> b),
@@ -292,19 +296,19 @@ buySellLossBuy = property $ do
               ),
             RemoveEvent 1,
             Submit (sl & item . price .~ 1),
-            -- AddEvent (WashSale <$> (sl & item . price .~ 1)),
+            SaveWash "A" (sl & item . price .~ 1),
+            Result (Wash <$> (sl & item . price .~ 1)),
             SubmitEnd,
-            SawAction (Buy <$> b),
-            RemoveEvent 2,
+            SawAction (Buy <$> b2),
             AddEvent
               ( Opened True
-                  <$> ( b & item . details
+                  <$> ( b2 & item . details
                           <>~ [Washed 1]
                       )
               ),
             Result
               ( Buy
-                  <$> ( b & item . details
+                  <$> ( b2 & item . details
                           <>~ [ Position Open,
                                 Washed 1
                               ]
@@ -313,9 +317,14 @@ buySellLossBuy = property $ do
           ],
           [ Buy <$> (b & item . details <>~ [Position Open]),
             Sell
-              <$> (sl & item . details <>~ [Position Close, Loss 1]),
+              <$> ( sl & item . details
+                      <>~ [ Position Close,
+                            Loss 1
+                          ]
+                  ),
+            Wash <$> (sl & item . price .~ 1),
             Buy
-              <$> ( b & item . details
+              <$> ( b2 & item . details
                       <>~ [ Position Open,
                             Washed 1
                           ]
@@ -358,14 +367,22 @@ buyBuySellLoss = property $ do
                           <>~ [Washed 1]
                       )
               ),
-            Result (Wash <$> (b & item . price .~ 1)),
+            Result
+              ( Wash
+                  <$> ( b & item . price .~ 1
+                          & item . details <>~ [Washed (b ^. item . price)]
+                      )
+              ),
             SubmitEnd
           ],
           [ Buy <$> (b & item . details <>~ [Position Open]),
             Buy <$> (b & item . details <>~ [Position Open]),
             Sell
               <$> (sl & item . details <>~ [Position Close, Loss 1]),
-            Wash <$> (b & item . price .~ 1)
+            Wash
+              <$> ( b & item . price .~ 1
+                      & item . details <>~ [Washed (b ^. item . price)]
+                  )
           ]
         )
 

@@ -141,10 +141,7 @@ handle [] act@(preview wash -> Just x) = do
   case x ^? details . traverse . _WashTo of
     Nothing -> throwError $ UnappliedWashSale act
     Just (Nothing, _) ->
-      Nothing
-        <$ tell
-          [ Result (WashDropped x <$ act)
-          ]
+      pure Nothing
     Just (Just name, mres) ->
       Nothing
         <$ tell

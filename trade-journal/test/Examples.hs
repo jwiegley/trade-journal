@@ -193,8 +193,6 @@ zoomHistory = ii @--> oo
   total 1158.6680 fees 0.84
 2019-07-29 00:00:00 sell 100 ZM 96.1841 close fees 0.0021 loss 4.225650 wash dropped
   total 9618.4100  fees 0.21 basis 100.40765 loss 422.565000
-2019-07-29 00:00:00 dropped 100 ZM 4.22565 fees 0.0021 wash dropped
-  total 422.5650 fees 0.21
 2019-07-30 00:00:00 buy 200 ZM 96.0000 open washed 0.130300 apply C 200
   total 19200.0000  washed 96.130300
 2019-09-06 00:00:00 buy 100 ZM 85.9700 open commission 0.05
