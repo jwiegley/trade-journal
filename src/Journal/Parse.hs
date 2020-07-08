@@ -100,11 +100,11 @@ parseAnnotation = do
       Open <$ keyword "open"
         <|> Close <$ keyword "close"
 
-printJournal :: Journal -> Text
-printJournal =
+printJournal :: Bool -> Journal -> Text
+printJournal b =
   TL.concat
     . intersperse "\n"
-    . map (printTimed printAction)
+    . map (printTimed (printAction b))
     . view actions
 
 printTimed :: (a -> Text) -> Timed a -> Text
@@ -114,29 +114,31 @@ printTimed printItem t =
       printItem (t ^. item)
     ]
 
-printAction :: Action -> Text
-printAction = \case
-  Buy lot -> "buy " <> printLot lot
-  Sell lot -> "sell " <> printLot lot
-  Wash lot -> "wash " <> printLot lot
-  Deposit lot -> "deposit " <> printLot lot
-  Withdraw lot -> "withdraw " <> printLot lot
-  Assign lot -> "assign " <> printLot lot
-  Expire lot -> "expire " <> printLot lot
-  Dividend lot -> "dividend " <> printLot lot
+printAction :: Bool -> Action -> Text
+printAction b = \case
+  Buy lot -> "buy " <> printLot b lot
+  Sell lot -> "sell " <> printLot b lot
+  Wash lot -> "wash " <> printLot b lot
+  Deposit lot -> "deposit " <> printLot b lot
+  Withdraw lot -> "withdraw " <> printLot b lot
+  Assign lot -> "assign " <> printLot b lot
+  Expire lot -> "expire " <> printLot b lot
+  Dividend lot -> "dividend " <> printLot b lot
 
-printLot :: Lot -> Text
-printLot lot =
-  basic
-    <> "\n  total "
-    <> printAmount 4 (lot ^. amount . coerced * lot ^. price)
-    <> " "
-    <> ( TL.concat
-           $ intersperse " "
-           $ map
-             (printAnnotationSum (lot ^. amount . coerced))
-             (sort (lot ^. details))
-       )
+printLot :: Bool -> Lot -> Text
+printLot b lot
+  | not b = basic
+  | otherwise =
+    basic
+      <> "\n  total "
+      <> printAmount 4 (lot ^. amount . coerced * lot ^. price)
+      <> " "
+      <> ( TL.concat
+             $ intersperse " "
+             $ map
+               (printAnnotationSum (lot ^. amount . coerced))
+               (sort (lot ^. details))
+         )
   where
     basic =
       TL.concat $ intersperse " " $
