@@ -41,7 +41,10 @@ parseProcessPrint path journal = do
   actions <- case parse parseJournal path journal of
     Left e -> fail $ errorBundlePretty e
     Right res -> pure res
-  pure $ printJournal (processActions actions)
+  case processJournal actions of
+    Left err ->
+      error $ "Error processing journal " ++ path ++ ": " ++ show err
+    Right j -> pure $ printJournal j
 
 main :: IO ()
 main = do

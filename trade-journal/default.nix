@@ -5,8 +5,8 @@
 , doProfiling ? true
 , doStrict    ? true
 
-, rev    ? "2cd2e7267e5b9a960c2997756cb30e86f0958a6b"
-, sha256 ? "0ir3rk776wldyjz6l6y5c5fs8lqk95gsik6w45wxgk6zdpsvhrn5"
+, rev    ? "4855aa62fa13052fb1a3daea68971503ab07a744"
+, sha256 ? "17sk264qw397zzw12x11ry5vj9qidgbmjsyj544ysg857b4qq9sj"
 
 , pkgs ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";

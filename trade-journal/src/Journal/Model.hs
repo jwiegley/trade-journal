@@ -1,9 +1,15 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Journal.Model (processActions, processActionsWithChanges) where
+module Journal.Model
+  ( processJournal,
+    processJournalWithChanges,
+    processActionsWithChanges,
+  )
+where
 
 import Control.Applicative
 import Control.Arrow
@@ -13,8 +19,6 @@ import Control.Monad.Except
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Writer
 import Data.Foldable
-import Data.IntMap (IntMap)
-import qualified Data.IntMap as IM
 import Data.List (sortOn)
 import Data.List (tails)
 import Journal.Split
@@ -22,63 +26,87 @@ import Journal.Types
 import Journal.Utils
 import Prelude hiding (Double, Float)
 
-data JournalState = JournalState
-  { _nextId :: Int,
-    _events :: IntMap (Timed Event)
-  }
-
-makeLenses ''JournalState
-
-newJournalState :: JournalState
-newJournalState = JournalState 1 IM.empty
-
 -- | Ideally, this module turns a stream of lots -- expressing intentions to
 --   buy and sell at given prices -- into a record of transactions with the
 --   broker where all gains and losses have been calculated.
-processActions :: [Timed Action] -> [Timed Action]
-processActions = snd . processActionsWithChanges
+processJournal :: MonadError JournalError m => Journal -> m Journal
+processJournal =
+  fmap (Journal . snd) . processActionsWithChanges . view actions
 
-processActionsWithChanges :: [Timed Action] -> ([Change], [Timed Action])
-processActionsWithChanges =
-  unzipBoth
-    . (`evalState` newJournalState)
-    . mapM (\x -> first (SawAction x :) <$> processAction x)
+processJournalWithChanges ::
+  MonadError JournalError m =>
+  Journal ->
+  m ([Change], Journal)
+processJournalWithChanges =
+  fmap (second Journal) . processActionsWithChanges . view actions
+
+processActionsWithChanges ::
+  MonadError JournalError m =>
+  [Timed Action] ->
+  m ([Change], [Timed Action])
+processActionsWithChanges xs =
+  fmap unzipBoth . (`evalStateT` newJournalState) $ do
+    forM xs $ \x -> do
+      let macct = x ^? item . _Lot . details . traverse . _Account
+          sym = x ^. item . _Lot . symbol
+      zoom (accounts . at macct . non newAccountState) $ do
+        zoom
+          ( zipped
+              nextId
+              (instruments . at sym . non newInstrumentState)
+          )
+          $ first (SawAction x :) <$> processAction x
 
 processAction ::
+  MonadError JournalError m =>
   Timed Action ->
-  State JournalState ([Change], [Timed Action])
+  StateT (Int, InstrumentState) m ([Change], [Timed Action])
 processAction = fmap unzipBoth . mapM go <=< impliedChanges
   where
     go chg = case chg of
-      SawAction _ -> error "Change not produced by impliedChanges"
+      SawAction _ -> throwError $ ChangeNotFromImpliedChanges chg
       Result e -> pure ([chg], [e])
       Submit lot ->
         first (\xs -> chg : xs ++ [SubmitEnd])
           <$> processAction (Wash <$> lot)
       SubmitEnd -> pure ([chg], [])
       AddEvent e -> do
-        ident <- use nextId
-        nextId += 1
-        events . at ident ?= e
+        ident <- use _1
+        _1 += 1
+        _2 . events . at ident ?= e
         pure ([chg], [])
       RemoveEvent ident -> do
-        events . at ident .= Nothing
+        _2 . events . at ident .= Nothing
         pure ([chg], [])
       ReplaceEvent ident e -> do
-        events . at ident ?= e
+        _2 . events . at ident ?= e
+        pure ([chg], [])
+      SaveWash name lot -> do
+        _2 . washSales . at name
+          %= \case Nothing -> Just [lot]; Just xs -> Just (lot : xs)
         pure ([chg], [])
 
-impliedChanges :: Timed Action -> State JournalState [Change]
+-- | A specialized variant of 'foldM' with some arguments shifted around.
+shortFoldM ::
+  Monad m =>
+  a ->
+  [b] ->
+  (b -> Maybe a -> m (Maybe a)) ->
+  m (Maybe a)
+shortFoldM z xs f = foldM (flip f) (Just z) xs
+
+impliedChanges ::
+  MonadError JournalError m =>
+  Timed Action ->
+  StateT (Int, InstrumentState) m [Change]
 impliedChanges x = do
-  hist <- gets (sortOn fst . toListOf (events . ifolded . withIndex))
-  let (mx, changes) =
-        runWriter $ (\f -> foldM f (Just x) (tails hist)) $ flip $
-          \hs -> \case
-            Nothing -> pure Nothing
-            Just x' -> handle hs x'
-  case mx of
-    Just x' -> error $ "impliedChanges: unexpected remainder: " ++ show x'
-    Nothing -> pure changes
+  hist <- gets (sortOn fst . toListOf (_2 . events . ifolded . withIndex))
+  (mx, changes) <- runWriterT $ shortFoldM x (tails hist) $
+    \hs -> \case
+      Nothing -> pure Nothing
+      Just x' -> handle hs x'
+  forM_ mx $ throwError . UnexpectedRemainder
+  pure changes
 
 buyOrSell :: Traversal' (Timed Action) Lot
 buyOrSell = item . failing _Buy _Sell
@@ -89,13 +117,11 @@ wash = item . _Wash
 opened :: Traversal' (Timed Event) Lot
 opened = item . _Opened . _2
 
-washSale :: Traversal' (Timed Event) Lot
-washSale = item . _WashSale
-
 handle ::
+  MonadError JournalError m =>
   [(Int, Timed Event)] ->
   Timed Action ->
-  Writer [Change] (Maybe (Timed Action))
+  WriterT [Change] (StateT (Int, InstrumentState) m) (Maybe (Timed Action))
 handle
   ((n, open@(view item -> Opened buyToOpen _)) : _)
   close@(preview buyOrSell -> Just _)
@@ -105,36 +131,75 @@ handle
   ((n, open@(view item -> Opened _ o)) : _)
   washing@(preview wash -> Just _)
     | all
-        ( \ann ->
-            hasn't _Exempt ann
-              && hasn't _Washed ann
-        )
+        (\ann -> hasn't _Exempt ann && hasn't _Washed ann)
         (o ^. details),
       (open ^. time) `distance` (washing ^. time) <= 30 =
       washExistingPosition n open washing
-handle
-  ((n, adj@(view item -> WashSale _)) : _)
-  open@(preview buyOrSell -> Just _)
-    | (adj ^. time) `distance` (open ^. time) <= 30 =
-      -- We are buying or selling to open, but must wash first
-      washNewPosition n adj open
--- Otherwise, if there is no history to examine then this buy or sale must
--- open a new position.
-handle [] act@(preview buyOrSell -> Just open) = do
-  tell
-    [ AddEvent (Opened (has (item . _Buy) act) open <$ act),
-      Result (act & buyOrSell . details <>~ [Position Open])
-    ]
-  pure Nothing
 -- If a wash sale couldn't be applied to the current history, record it to
 -- apply to a future opening.
 handle [] act@(preview wash -> Just x) = do
-  tell
-    [ AddEvent (WashSale x <$ act),
-      Result (Wash x <$ act)
-    ]
-  pure Nothing
--- If none of the above apply, nothing is done for this action, pass through
+  case x ^? details . traverse . _WashTo of
+    Nothing -> throwError $ UnappliedWashSale act
+    Just (Nothing, _) ->
+      Nothing
+        <$ tell
+          [ Result (WashDropped x <$ act)
+          ]
+    Just (Just name, mres) ->
+      Nothing
+        <$ tell
+          [ SaveWash
+              name
+              ( ( case mres of
+                    Nothing -> x
+                    Just (_amount, _price) ->
+                      let _symbol = x ^. symbol
+                          _details = []
+                       in Lot {..}
+                )
+                  <$ act
+              ),
+            Result (Wash x <$ act)
+          ]
+-- Otherwise, if there is no history to examine then this buy or sale must
+-- open a new position.
+handle [] action = do
+  mact <- shortFoldM
+    action
+    (action ^.. buyOrSell . details . traverse . _WashApply)
+    $ \(name, _amount) -> \case
+      Just (act@(preview buyOrSell -> Just open)) -> do
+        sales <-
+          lift $
+            gets
+              ( toListOf
+                  ( _2 . washSales
+                      . ix name
+                      . folded
+                      . filtered
+                        ( \adj ->
+                            (adj ^. time)
+                              `distance` (act ^. time) <= 30
+                        )
+                      . to (\x -> x ^. item . amount * x ^. item . price)
+                  )
+              )
+        let _price = sum sales / _amount
+            _symbol = open ^. symbol
+            _details = []
+        washNewPosition Lot {..} act
+      _ -> pure Nothing
+  case mact of
+    Just (act@(preview buyOrSell -> Just open)) ->
+      Nothing
+        <$ tell
+          [ AddEvent (Opened (has (item . _Buy) act) open <$ act),
+            Result (act & buyOrSell . details <>~ [Position Open])
+          ]
+    _ ->
+      -- If none of the above apply, nothing is done for this action, pass
+      -- it through
+      pure mact
 handle _ x = pure $ Just x
 
 -- | The most common trading activities are either to open a new position, or
@@ -142,10 +207,11 @@ handle _ x = pure $ Just x
 -- days of the opening, it implies a wash sale adjustment of any preceeding or
 -- subsequent openings 30 days before or after.
 closePosition ::
+  MonadError JournalError m =>
   Int ->
   Timed Event ->
   Timed Action ->
-  Writer [Change] (Maybe (Timed Action))
+  WriterT [Change] m (Maybe (Timed Action))
 closePosition n open close = do
   let (s, d) = (open ^?! opened) `alignLots` (close ^?! buyOrSell)
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
@@ -155,12 +221,13 @@ closePosition n open close = do
               ( x
                   ^.. details
                     . traverse
-                    . failing _Washed (failing _Fees _Commission . to negate)
+                    . _Washed
               )
+        fees = lotFees du + lotFees su
         pl
           | has (item . _Sell) close =
-            pricing du - pricing su
-          | otherwise = pricing su - pricing du
+            pricing du - pricing su - fees
+          | otherwise = pricing su - pricing du - fees
         res =
           du & details
             <>~ [ Position Close,
@@ -187,17 +254,20 @@ closePosition n open close = do
           Nothing -> RemoveEvent n
       ]
     when mayWash $
-      tell [Submit ((du & price .~ negate pl) <$ close)]
+      tell
+        [ Submit ((du & price .~ negate pl) <$ close)
+        ]
   pure $ (set buyOrSell ?? close) <$> (d ^? _SplitKept)
 
 -- | If the action is a wash sale adjustment, determine if can be applied to
 -- any existing open positions. If not, it is remembered, to be applied at the
 -- next opening within 30 days of sale.
 washExistingPosition ::
+  MonadError JournalError m =>
   Int ->
   Timed Event ->
   Timed Action ->
-  Writer [Change] (Maybe (Timed Action))
+  WriterT [Change] m (Maybe (Timed Action))
 washExistingPosition n open washing =
   assert (washing ^?! wash . amount /= 0) $ do
     let (s, d) = (open ^?! opened) `alignLots` (washing ^?! wash)
@@ -223,32 +293,29 @@ washExistingPosition n open washing =
 -- | If we are opening a position and there is a pending wash sale within the
 -- last 30 days, apply the adjustment to the applicable part of this opening.
 washNewPosition ::
-  Int ->
-  Timed Event ->
+  MonadError JournalError m =>
+  Lot ->
   Timed Action ->
-  Writer [Change] (Maybe (Timed Action))
-washNewPosition n washing open = do
-  let (s, d) = (washing ^?! washSale) `alignLots` (open ^?! buyOrSell)
-  -- We wash failing closes by adding the amount to the cost basis of
-  -- the opening transaction. Thus, we generate three instances of
-  -- WashLossApplied, but only one OpenPosition.
-  tell $
-    [ case s ^? _SplitKept of
-        Just e -> ReplaceEvent n (washing & washSale .~ e)
-        Nothing -> RemoveEvent n
-    ]
-      ++ ( AddEvent
-             . Timed (open ^. time)
-             . Opened (has (item . _Buy) open)
-             . (details <>~ [Washed (washing ^?! washSale . price)])
-             <$> d ^.. _SplitUsed
-         )
-      ++ ( Result . (set buyOrSell ?? open)
-             . ( details
-                   <>~ [ Position Open,
-                         Washed (washing ^?! washSale . price)
-                       ]
-               )
-             <$> d ^.. _SplitUsed
-         )
-  pure $ (set buyOrSell ?? open) <$> d ^? _SplitKept
+  WriterT [Change] m (Maybe (Timed Action))
+washNewPosition washing open =
+  assert (washing ^. amount <= open ^?! buyOrSell . amount) $ do
+    let (_s, d) = washing `alignLots` (open ^?! buyOrSell)
+    -- We wash failing closes by adding the amount to the cost basis of
+    -- the opening transaction. Thus, we generate three instances of
+    -- WashLossApplied, but only one OpenPosition.
+    tell $
+      ( AddEvent
+          . Timed (open ^. time)
+          . Opened (has (item . _Buy) open)
+          . (details <>~ [Washed (washing ^. price)])
+          <$> d ^.. _SplitUsed
+      )
+        ++ ( Result . (set buyOrSell ?? open)
+               . ( details
+                     <>~ [ Position Open,
+                           Washed (washing ^. price)
+                         ]
+                 )
+               <$> d ^.. _SplitUsed
+           )
+    pure $ (set buyOrSell ?? open) <$> d ^? _SplitKept

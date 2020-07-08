@@ -125,12 +125,13 @@ simpleBuy = property $ do
   lift $
     processActionsWithChanges
       [Buy <$> b]
-      @?== ( [ SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open]))
-             ],
-             [Buy <$> (b & item . details <>~ [Position Open])]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open]))
+          ],
+          [Buy <$> (b & item . details <>~ [Position Open])]
+        )
 
 buyBuy :: Property
 buyBuy = property $ do
@@ -140,17 +141,18 @@ buyBuy = property $ do
       [ Buy <$> b,
         Buy <$> b
       ]
-      @?== ( [ SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open])),
-               SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open]))
-             ],
-             [ Buy <$> (b & item . details <>~ [Position Open]),
-               Buy <$> (b & item . details <>~ [Position Open])
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open])),
+            SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open]))
+          ],
+          [ Buy <$> (b & item . details <>~ [Position Open]),
+            Buy <$> (b & item . details <>~ [Position Open])
+          ]
+        )
 
 buySellBreakeven :: Property
 buySellBreakeven = property $ do
@@ -161,20 +163,21 @@ buySellBreakeven = property $ do
       [ Buy <$> b,
         Sell <$> b
       ]
-      @?== ( [ SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open])),
-               SawAction (Sell <$> b),
-               Result
-                 ( Sell
-                     <$> (b & item . details <>~ [Position Close, Gain 0])
-                 ),
-               RemoveEvent 1
-             ],
-             [ Buy <$> (b & item . details <>~ [Position Open]),
-               Sell <$> (b & item . details <>~ [Position Close, Gain 0])
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open])),
+            SawAction (Sell <$> b),
+            Result
+              ( Sell
+                  <$> (b & item . details <>~ [Position Close, Gain 0])
+              ),
+            RemoveEvent 1
+          ],
+          [ Buy <$> (b & item . details <>~ [Position Open]),
+            Sell <$> (b & item . details <>~ [Position Close, Gain 0])
+          ]
+        )
 
 buySellProfit :: Property
 buySellProfit = property $ do
@@ -187,20 +190,21 @@ buySellProfit = property $ do
       [ Buy <$> b,
         Sell <$> sp
       ]
-      @?== ( [ SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open])),
-               SawAction (Sell <$> sp),
-               Result
-                 ( Sell
-                     <$> (sp & item . details <>~ [Position Close, Gain 10])
-                 ),
-               RemoveEvent 1
-             ],
-             [ Buy <$> (b & item . details <>~ [Position Open]),
-               Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open])),
+            SawAction (Sell <$> sp),
+            Result
+              ( Sell
+                  <$> (sp & item . details <>~ [Position Close, Gain 10])
+              ),
+            RemoveEvent 1
+          ],
+          [ Buy <$> (b & item . details <>~ [Position Open]),
+            Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
+          ]
+        )
 
 buySellPartProfit :: Property
 buySellPartProfit = property $ do
@@ -214,20 +218,21 @@ buySellPartProfit = property $ do
       [ Buy <$> b2,
         Sell <$> sp
       ]
-      @?== ( [ SawAction (Buy <$> b2),
-               AddEvent (Opened True <$> b2),
-               Result (Buy <$> (b2 & item . details <>~ [Position Open])),
-               SawAction (Sell <$> sp),
-               Result
-                 ( Sell
-                     <$> (sp & item . details <>~ [Position Close, Gain 10])
-                 ),
-               ReplaceEvent 1 (Opened True <$> b)
-             ],
-             [ Buy <$> (b2 & item . details <>~ [Position Open]),
-               Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b2),
+            AddEvent (Opened True <$> b2),
+            Result (Buy <$> (b2 & item . details <>~ [Position Open])),
+            SawAction (Sell <$> sp),
+            Result
+              ( Sell
+                  <$> (sp & item . details <>~ [Position Close, Gain 10])
+              ),
+            ReplaceEvent 1 (Opened True <$> b)
+          ],
+          [ Buy <$> (b2 & item . details <>~ [Position Open]),
+            Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
+          ]
+        )
 
 buySellLoss :: Property
 buySellLoss = property $ do
@@ -240,26 +245,27 @@ buySellLoss = property $ do
       [ Buy <$> b,
         Sell <$> sl
       ]
-      @?== ( [ SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open])),
-               SawAction (Sell <$> sl),
-               Result
-                 ( Sell
-                     <$> ( sl & item . details
-                             <>~ [Position Close, Loss 1]
-                         )
-                 ),
-               RemoveEvent 1,
-               Submit (sl & item . price .~ 1),
-               AddEvent (WashSale <$> (sl & item . price .~ 1)),
-               SubmitEnd
-             ],
-             [ Buy <$> (b & item . details <>~ [Position Open]),
-               Sell
-                 <$> (sl & item . details <>~ [Position Close, Loss 1])
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open])),
+            SawAction (Sell <$> sl),
+            Result
+              ( Sell
+                  <$> ( sl & item . details
+                          <>~ [Position Close, Loss 1]
+                      )
+              ),
+            RemoveEvent 1,
+            Submit (sl & item . price .~ 1),
+            -- AddEvent (WashSale <$> (sl & item . price .~ 1)),
+            SubmitEnd
+          ],
+          [ Buy <$> (b & item . details <>~ [Position Open]),
+            Sell
+              <$> (sl & item . details <>~ [Position Close, Loss 1])
+          ]
+        )
 
 buySellLossBuy :: Property
 buySellLossBuy = property $ do
@@ -273,48 +279,49 @@ buySellLossBuy = property $ do
         Sell <$> sl,
         Buy <$> b
       ]
-      @?== ( [ SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open])),
-               SawAction (Sell <$> sl),
-               Result
-                 ( Sell
-                     <$> ( sl & item . details
-                             <>~ [Position Close, Loss 1]
-                         )
-                 ),
-               RemoveEvent 1,
-               Submit (sl & item . price .~ 1),
-               AddEvent (WashSale <$> (sl & item . price .~ 1)),
-               SubmitEnd,
-               SawAction (Buy <$> b),
-               RemoveEvent 2,
-               AddEvent
-                 ( Opened True
-                     <$> ( b & item . details
-                             <>~ [Washed 1]
-                         )
-                 ),
-               Result
-                 ( Buy
-                     <$> ( b & item . details
-                             <>~ [ Position Open,
-                                   Washed 1
-                                 ]
-                         )
-                 )
-             ],
-             [ Buy <$> (b & item . details <>~ [Position Open]),
-               Sell
-                 <$> (sl & item . details <>~ [Position Close, Loss 1]),
-               Buy
-                 <$> ( b & item . details
-                         <>~ [ Position Open,
-                               Washed 1
-                             ]
-                     )
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open])),
+            SawAction (Sell <$> sl),
+            Result
+              ( Sell
+                  <$> ( sl & item . details
+                          <>~ [Position Close, Loss 1]
+                      )
+              ),
+            RemoveEvent 1,
+            Submit (sl & item . price .~ 1),
+            -- AddEvent (WashSale <$> (sl & item . price .~ 1)),
+            SubmitEnd,
+            SawAction (Buy <$> b),
+            RemoveEvent 2,
+            AddEvent
+              ( Opened True
+                  <$> ( b & item . details
+                          <>~ [Washed 1]
+                      )
+              ),
+            Result
+              ( Buy
+                  <$> ( b & item . details
+                          <>~ [ Position Open,
+                                Washed 1
+                              ]
+                      )
+              )
+          ],
+          [ Buy <$> (b & item . details <>~ [Position Open]),
+            Sell
+              <$> (sl & item . details <>~ [Position Close, Loss 1]),
+            Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Washed 1
+                          ]
+                  )
+          ]
+        )
 
 buyBuySellLoss :: Property
 buyBuySellLoss = property $ do
@@ -328,38 +335,39 @@ buyBuySellLoss = property $ do
         Buy <$> b,
         Sell <$> sl
       ]
-      @?== ( [ SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open])),
-               SawAction (Buy <$> b),
-               AddEvent (Opened True <$> b),
-               Result (Buy <$> (b & item . details <>~ [Position Open])),
-               SawAction (Sell <$> sl),
-               Result
-                 ( Sell
-                     <$> ( sl & item . details
-                             <>~ [Position Close, Loss 1]
-                         )
-                 ),
-               RemoveEvent 1,
-               Submit (sl & item . price .~ 1),
-               RemoveEvent 2,
-               AddEvent
-                 ( Opened True
-                     <$> ( b & item . details
-                             <>~ [Washed 1]
-                         )
-                 ),
-               Result (Wash <$> (b & item . price .~ 1)),
-               SubmitEnd
-             ],
-             [ Buy <$> (b & item . details <>~ [Position Open]),
-               Buy <$> (b & item . details <>~ [Position Open]),
-               Sell
-                 <$> (sl & item . details <>~ [Position Close, Loss 1]),
-               Wash <$> (b & item . price .~ 1)
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open])),
+            SawAction (Buy <$> b),
+            AddEvent (Opened True <$> b),
+            Result (Buy <$> (b & item . details <>~ [Position Open])),
+            SawAction (Sell <$> sl),
+            Result
+              ( Sell
+                  <$> ( sl & item . details
+                          <>~ [Position Close, Loss 1]
+                      )
+              ),
+            RemoveEvent 1,
+            Submit (sl & item . price .~ 1),
+            RemoveEvent 2,
+            AddEvent
+              ( Opened True
+                  <$> ( b & item . details
+                          <>~ [Washed 1]
+                      )
+              ),
+            Result (Wash <$> (b & item . price .~ 1)),
+            SubmitEnd
+          ],
+          [ Buy <$> (b & item . details <>~ [Position Open]),
+            Buy <$> (b & item . details <>~ [Position Open]),
+            Sell
+              <$> (sl & item . details <>~ [Position Close, Loss 1]),
+            Wash <$> (b & item . price .~ 1)
+          ]
+        )
 
 simpleSell :: Property
 simpleSell = property $ do
@@ -368,12 +376,13 @@ simpleSell = property $ do
   lift $
     processActionsWithChanges
       [Sell <$> s]
-      @?== ( [ SawAction (Sell <$> s),
-               AddEvent (Opened False <$> s),
-               Result (Sell <$> (s & item . details <>~ [Position Open]))
-             ],
-             [Sell <$> (s & item . details <>~ [Position Open])]
-           )
+      @?== Right
+        ( [ SawAction (Sell <$> s),
+            AddEvent (Opened False <$> s),
+            Result (Sell <$> (s & item . details <>~ [Position Open]))
+          ],
+          [Sell <$> (s & item . details <>~ [Position Open])]
+        )
 
 sellBuyProfit :: Property
 sellBuyProfit = property $ do
@@ -385,17 +394,18 @@ sellBuyProfit = property $ do
       [ Sell <$> s,
         Buy <$> b
       ]
-      @?== ( [ SawAction (Sell <$> s),
-               AddEvent (Opened False <$> s),
-               Result (Sell <$> (s & item . details <>~ [Position Open])),
-               SawAction (Buy <$> b),
-               Result
-                 ( Buy
-                     <$> (b & item . details <>~ [Position Close, Gain 0])
-                 ),
-               RemoveEvent 1
-             ],
-             [ Sell <$> (s & item . details <>~ [Position Open]),
-               Buy <$> (b & item . details <>~ [Position Close, Gain 0])
-             ]
-           )
+      @?== Right
+        ( [ SawAction (Sell <$> s),
+            AddEvent (Opened False <$> s),
+            Result (Sell <$> (s & item . details <>~ [Position Open])),
+            SawAction (Buy <$> b),
+            Result
+              ( Buy
+                  <$> (b & item . details <>~ [Position Close, Gain 0])
+              ),
+            RemoveEvent 1
+          ],
+          [ Sell <$> (s & item . details <>~ [Position Open]),
+            Buy <$> (b & item . details <>~ [Position Close, Gain 0])
+          ]
+        )
