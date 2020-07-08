@@ -23,6 +23,7 @@ dependencies:
   - text
   - time
   - transformers
+  - unordered-containers
 
 library:
   source-dirs: src

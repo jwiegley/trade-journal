@@ -12,9 +12,11 @@ module Journal.Types where
 
 import Control.Applicative
 import Control.Lens
-import Data.Maybe (fromMaybe)
+import Data.IntMap (IntMap)
+import Data.Map (Map)
 import Data.Text (Text)
 import Data.Time
+import Data.Time.Format.ISO8601
 import GHC.Generics
 import Journal.Amount
 import Journal.Split
@@ -24,33 +26,31 @@ import Prelude hiding (Double, Float)
 data Effect = Open | Close
   deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
 
+-- instance (PrettyVal k, PrettyVal v) => PrettyVal (Map k v) where
+--   prettyVal m = Con "Map.fromList" [prettyVal (M.toList m)]
+-- Meta (Map Text Text)
+
 data Annotation
-  = Fees (Amount 6)
+  = Position Effect
+  | Fees (Amount 6)
   | Commission (Amount 6)
   | Gain (Amount 6)
   | Loss (Amount 6)
   | Washed (Amount 6)
+  | WashTo (Maybe Text) (Maybe (Amount 6, Amount 6))
+  | WashApply Text (Amount 6)
   | Exempt
-  | Position Effect
   | Balance (Amount 2)
+  | Account Text
+  | Trade Text
+  | Order Text
+  | Transaction Text
   deriving (Show, Eq, Ord, Generic, PrettyVal)
 
 makePrisms ''Annotation
 
-gainLoss :: Traversal' Annotation (Amount 6)
-gainLoss f = \case
-  Gain pl -> Gain <$> f pl
-  Loss pl -> Loss <$> f (negate pl)
-  s -> pure s
-
-fees :: [Annotation] -> Amount 6
-fees [] = 0
-fees (Fees x : xs) = x + fees xs
-fees (Commission x : xs) = x + fees xs
-fees (_ : xs) = fees xs
-
 instance PrettyVal UTCTime where
-  prettyVal = fromMaybe (error "Could not render time") . reify
+  prettyVal = String . iso8601Show
 
 -- | A 'Lot' represents a collection of shares, with a given price and a
 --   transaction date.
@@ -68,12 +68,16 @@ makeLenses ''Lot
 alignLots :: Lot -> Lot -> (Split Lot, Split Lot)
 alignLots = align amount amount
 
+lotFees :: Lot -> Amount 6
+lotFees x = sum (x ^.. details . traverse . failing _Fees _Commission)
+
 data Action
   = Buy Lot
   | Sell Lot
   | Wash Lot
-  | Deposit (Amount 6)
-  | Withdraw (Amount 6)
+  | WashDropped Lot
+  | Deposit Lot
+  | Withdraw Lot
   | Assign Lot
   | Expire Lot
   | Dividend Lot
@@ -87,9 +91,20 @@ data Action
 
 makePrisms ''Action
 
+_Lot :: Lens' Action Lot
+_Lot f = \case
+  Buy lot -> Buy <$> f lot
+  Sell lot -> Sell <$> f lot
+  Wash lot -> Wash <$> f lot
+  WashDropped lot -> WashDropped <$> f lot
+  Deposit lot -> Deposit <$> f lot
+  Withdraw lot -> Withdraw <$> f lot
+  Assign lot -> Assign <$> f lot
+  Expire lot -> Expire <$> f lot
+  Dividend lot -> Dividend <$> f lot
+
 data Event
   = Opened Bool Lot
-  | WashSale Lot
   deriving
     ( Show,
       Eq,
@@ -125,6 +140,7 @@ data Change
   | AddEvent (Timed Event)
   | RemoveEvent Int
   | ReplaceEvent Int (Timed Event)
+  | SaveWash Text (Timed Lot)
   deriving
     ( Show,
       Eq,
@@ -134,3 +150,82 @@ data Change
     )
 
 makePrisms ''Change
+
+data InstrumentState = InstrumentState
+  { _events :: IntMap (Timed Event),
+    _washSales :: Map Text [Timed Lot]
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic
+    )
+
+makeLenses ''InstrumentState
+
+newInstrumentState :: InstrumentState
+newInstrumentState = InstrumentState mempty mempty
+
+data AccountState = AccountState
+  { _nextId :: Int,
+    _instruments :: Map Text InstrumentState
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic
+    )
+
+makeLenses ''AccountState
+
+newAccountState :: AccountState
+newAccountState = AccountState 1 mempty
+
+data JournalState = JournalState
+  { _accounts :: Map (Maybe Text) AccountState
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic
+    )
+
+makeLenses ''JournalState
+
+newJournalState :: JournalState
+newJournalState = JournalState mempty
+
+data Journal = Journal
+  { _actions :: [Timed Action]
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+makeLenses ''Journal
+
+newJournal :: Journal
+newJournal = Journal []
+
+data JournalError
+  = ChangeNotFromImpliedChanges Change
+  | UnexpectedRemainder (Timed Action)
+  | UnappliedWashSale (Timed Action)
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+-- "Change not produced by impliedChanges"
+-- "impliedChanges: unexpected remainder: "
+-- "Unapplied wash sale requires use of \"wash to\""

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c08bea4e3a1ad9a35ef349c151c7a21b3f7267f6966f6466a8fcf2752c6f930f
+-- hash: 1ceb72a05cf48a6c7e86e42bfdfbc3f96854a1b45939e1173933e82b5473d681
 
 name:           trade-journal
 version:        1.0.0
@@ -48,6 +48,7 @@ library
     , text
     , time
     , transformers
+    , unordered-containers
     , vector
   default-language: Haskell2010
 
@@ -70,6 +71,7 @@ executable tj
     , time
     , trade-journal
     , transformers
+    , unordered-containers
   default-language: Haskell2010
 
 test-suite trade-journal-tests
@@ -101,4 +103,5 @@ test-suite trade-journal-tests
     , time
     , trade-journal
     , transformers
+    , unordered-containers
   default-language: Haskell2010

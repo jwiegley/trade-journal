@@ -8,8 +8,7 @@ module Journal.Parse (parseJournal, printJournal) where
 import Control.Lens
 import Control.Monad
 import Data.Char
-import Data.List (intersperse)
-import Data.Maybe
+import Data.List (intersperse, sort)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
@@ -21,8 +20,6 @@ import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = ParsecT Void Text Identity
-
--- 2020-06-09 buy 50 AAPL $316.00
 
 skipLineComment' :: Tokens Text -> Parser ()
 skipLineComment' prefix =
@@ -41,8 +38,9 @@ lexeme p = p <* whiteSpace
 keyword :: Text -> Parser Text
 keyword = lexeme . string
 
-parseJournal :: Parser [Timed Action]
-parseJournal = many (whiteSpace *> parseTimed parseAction)
+parseJournal :: Parser Journal
+parseJournal =
+  Journal <$> many (whiteSpace *> parseTimed parseAction) <* eof
 
 parseTimed :: Parser a -> Parser (Timed a)
 parseTimed p = do
@@ -57,6 +55,11 @@ parseAction = do
     "buy" -> Buy <$> parseLot
     "sell" -> Sell <$> parseLot
     "wash" -> Wash <$> parseLot
+    "deposit" -> Deposit <$> parseLot
+    "withdraw" -> Withdraw <$> parseLot
+    "assign" -> Assign <$> parseLot
+    "expire" -> Expire <$> parseLot
+    "dividend" -> Dividend <$> parseLot
     _ -> error $ "Unexpected action: " ++ TL.unpack kw
 
 parseLot :: Parser Lot
@@ -76,18 +79,33 @@ parseAnnotation = do
     <|> keyword "gain" *> (Gain <$> parseAmount)
     <|> keyword "loss" *> (Loss <$> parseAmount)
     <|> keyword "washed" *> (Washed <$> parseAmount)
+    <|> keyword "wash" *> parseWash
+    <|> keyword "apply"
+      *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
     <|> keyword "exempt" *> pure Exempt
     <|> keyword "position" *> (Position <$> parseEffect)
   where
+    parseWash =
+      WashTo Nothing Nothing <$ keyword "dropped"
+        <|> do
+          mres <- optional $ do
+            q <- parseAmount
+            _ <- char '@' <* whiteSpace
+            p <- parseAmount
+            pure (q, p)
+          _ <- keyword "to"
+          sym <- parseSymbol
+          pure $ WashTo (Just (TL.toStrict sym)) mres
     parseEffect =
       Open <$ keyword "open"
         <|> Close <$ keyword "close"
 
-printJournal :: [Timed Action] -> Text
+printJournal :: Journal -> Text
 printJournal =
   TL.concat
     . intersperse "\n"
     . map (printTimed printAction)
+    . view actions
 
 printTimed :: (a -> Text) -> Timed a -> Text
 printTimed printItem t =
@@ -101,8 +119,9 @@ printAction = \case
   Buy lot -> "buy " <> printLot lot
   Sell lot -> "sell " <> printLot lot
   Wash lot -> "wash " <> printLot lot
-  Deposit amt -> "deposit " <> printAmount 2 amt
-  Withdraw amt -> "withdraw " <> printAmount 2 amt
+  WashDropped lot -> "dropped " <> printLot lot
+  Deposit lot -> "deposit " <> printLot lot
+  Withdraw lot -> "withdraw " <> printLot lot
   Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend lot -> "dividend " <> printLot lot
@@ -115,7 +134,9 @@ printLot lot =
     <> " "
     <> ( TL.concat
            $ intersperse " "
-           $ map (f (Just (lot ^. amount . coerced))) (lot ^. details)
+           $ map
+             (printAnnotationSum (lot ^. amount . coerced))
+             (sort (lot ^. details))
        )
   where
     basic =
@@ -124,47 +145,47 @@ printLot lot =
           TL.fromStrict (lot ^. symbol),
           printAmount 4 (lot ^. price)
         ]
-          ++ map (f Nothing) (lot ^. details)
-    f m = \case
+          ++ map printAnnotation (sort (lot ^. details))
+    printAnnotation = \case
+      Fees x -> "fees " <> printAmount 2 x
+      Commission x -> "commission " <> printAmount 2 x
+      Gain x -> "gain " <> printAmount 6 x
+      Loss x -> "loss " <> printAmount 6 x
+      Washed amt -> "washed " <> printAmount 6 amt
+      WashTo Nothing _ -> "wash dropped"
+      WashTo (Just x) (Just (q, p)) ->
+        "wash "
+          <> printAmount 0 q
+          <> " @ "
+          <> printAmount 4 p
+          <> " to "
+          <> TL.fromStrict x
+      WashTo (Just x) Nothing -> "wash to " <> TL.fromStrict x
+      WashApply x amt -> "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
+      Exempt -> "exempt"
+      Trade x -> "trade " <> TL.fromStrict x
+      Order x -> "order " <> TL.fromStrict x
+      Transaction x -> "transaction " <> TL.fromStrict x
+      Account x -> "account " <> TL.fromStrict x
+      Position eff -> case eff of
+        Open -> "open"
+        Close -> "close"
+      Balance x -> "balance " <> printAmount 2 (x ^. coerced)
+    printAnnotationSum n = \case
       Fees x ->
-        maybe ("fees " <> printAmount 2 (x * n)) (const "") m
+        "fees " <> printAmount 2 (x * n)
       Commission x ->
-        maybe ("commission " <> printAmount 2 (x * n)) (const "") m
+        "commission " <> printAmount 2 (x * n)
       Gain x ->
-        ( case m of
-            Nothing -> ""
-            Just _ -> "price " <> printAmount 2 (lot ^. price - x) <> " "
-        )
+        "basis " <> printAmount 2 (lot ^. price - x - lotFees lot) <> " "
           <> "gain "
           <> printAmount 6 (x * n)
       Loss x ->
-        ( case m of
-            Nothing -> ""
-            Just _ -> "price " <> printAmount 2 (lot ^. price + x) <> " "
-        )
+        "basis " <> printAmount 2 (lot ^. price + x - lotFees lot) <> " "
           <> "loss "
           <> printAmount 6 (x * n)
-      Washed amt ->
-        "washed "
-          <> printAmount
-            6
-            ( case m of
-                Nothing -> amt
-                Just _ -> lot ^. price + amt
-            )
-      Exempt -> maybe "exempt" (const "") m
-      Position eff ->
-        maybe
-          ( case eff of
-              Open -> "open"
-              Close -> "close"
-          )
-          (const "")
-          m
-      Balance x ->
-        maybe ("balance " <> printAmount 2 (x ^. coerced)) (const "") m
-      where
-        n = fromMaybe 1 m
+      Washed amt -> "washed " <> printAmount 6 (lot ^. price + amt)
+      _ -> ""
 
 parseKeyword :: Parser Text
 parseKeyword =
