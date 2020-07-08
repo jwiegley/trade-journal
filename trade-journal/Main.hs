@@ -8,8 +8,10 @@
 
 module Main where
 
+import Control.Lens
 import Data.Aeson hiding ((.=))
 import qualified Data.ByteString.Lazy as BL
+import Data.Foldable
 import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
@@ -19,7 +21,7 @@ import GHC.Generics hiding (to)
 import Journal.Amount
 import Journal.Model
 import Journal.Parse
-import System.Environment
+import Options
 import Text.Megaparsec (parse)
 import Text.Megaparsec.Error
 
@@ -36,19 +38,20 @@ newConfig =
       rounding = mempty
     }
 
-parseProcessPrint :: MonadFail m => FilePath -> TL.Text -> m TL.Text
-parseProcessPrint path journal = do
+parseProcessPrint :: MonadFail m => Bool -> FilePath -> TL.Text -> m TL.Text
+parseProcessPrint showTotals path journal = do
   actions <- case parse parseJournal path journal of
     Left e -> fail $ errorBundlePretty e
     Right res -> pure res
   case processJournal actions of
     Left err ->
       error $ "Error processing journal " ++ path ++ ": " ++ show err
-    Right j -> pure $ printJournal j
+    Right j -> pure $ printJournal showTotals j
 
 main :: IO ()
 main = do
-  path : _ <- getArgs
-  putStrLn $ "Reading journal " ++ path
-  journal <- TL.decodeUtf8 <$> BL.readFile path
-  TL.putStrLn =<< parseProcessPrint path journal
+  opts <- getOptions
+  forM_ (opts ^. files) $ \path -> do
+    putStrLn $ "Reading journal " ++ path
+    journal <- TL.decodeUtf8 <$> BL.readFile path
+    TL.putStrLn =<< parseProcessPrint (opts ^. totals) path journal

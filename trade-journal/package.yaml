@@ -60,8 +60,10 @@ tests:
       - tasty-hunit
 
 executables:
-  tj:
+  trade-journal:
     main: Main.hs
+    other-modules:
+      - Options
     dependencies:
       - trade-journal
       - optparse-applicative
