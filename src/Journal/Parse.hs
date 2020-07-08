@@ -119,7 +119,6 @@ printAction = \case
   Buy lot -> "buy " <> printLot lot
   Sell lot -> "sell " <> printLot lot
   Wash lot -> "wash " <> printLot lot
-  WashDropped lot -> "dropped " <> printLot lot
   Deposit lot -> "deposit " <> printLot lot
   Withdraw lot -> "withdraw " <> printLot lot
   Assign lot -> "assign " <> printLot lot
