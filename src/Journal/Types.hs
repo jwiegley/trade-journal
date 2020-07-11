@@ -26,10 +26,6 @@ import Prelude hiding (Double, Float)
 data Effect = Open | Close
   deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
 
--- instance (PrettyVal k, PrettyVal v) => PrettyVal (Map k v) where
---   prettyVal m = Con "Map.fromList" [prettyVal (M.toList m)]
--- Meta (Map Text Text)
-
 data Annotation
   = Position Effect
   | Fees (Amount 6)
@@ -45,6 +41,7 @@ data Annotation
   | Trade Text
   | Order Text
   | Transaction Text
+  | Meta Text Text
   deriving (Show, Eq, Ord, Generic, PrettyVal)
 
 makePrisms ''Annotation

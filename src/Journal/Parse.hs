@@ -9,10 +9,12 @@ import Control.Lens
 import Control.Monad
 import Data.Char
 import Data.List (intersperse, sort)
+import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void
+import GHC.TypeLits
 import Journal.Amount
 import Journal.Types
 import Text.Megaparsec
@@ -49,18 +51,15 @@ parseTimed p = do
   pure Timed {..}
 
 parseAction :: Parser Action
-parseAction = do
-  kw <- parseKeyword
-  case kw of
-    "buy" -> Buy <$> parseLot
-    "sell" -> Sell <$> parseLot
-    "wash" -> Wash <$> parseLot
-    "deposit" -> Deposit <$> parseLot
-    "withdraw" -> Withdraw <$> parseLot
-    "assign" -> Assign <$> parseLot
-    "expire" -> Expire <$> parseLot
-    "dividend" -> Dividend <$> parseLot
-    _ -> error $ "Unexpected action: " ++ TL.unpack kw
+parseAction =
+  keyword "buy" *> (Buy <$> parseLot)
+    <|> keyword "sell" *> (Sell <$> parseLot)
+    <|> keyword "wash" *> (Wash <$> parseLot)
+    <|> keyword "deposit" *> (Deposit <$> parseLot)
+    <|> keyword "withdraw" *> (Withdraw <$> parseLot)
+    <|> keyword "assign" *> (Assign <$> parseLot)
+    <|> keyword "expire" *> (Expire <$> parseLot)
+    <|> keyword "dividend" *> (Dividend <$> parseLot)
 
 parseLot :: Parser Lot
 parseLot = do
@@ -74,7 +73,8 @@ parseLot = do
 
 parseAnnotation :: Parser Annotation
 parseAnnotation = do
-  keyword "fees" *> (Fees <$> parseAmount)
+  keyword "position" *> (Position <$> parseEffect)
+    <|> keyword "fees" *> (Fees <$> parseAmount)
     <|> keyword "commission" *> (Commission <$> parseAmount)
     <|> keyword "gain" *> (Gain <$> parseAmount)
     <|> keyword "loss" *> (Loss <$> parseAmount)
@@ -83,7 +83,12 @@ parseAnnotation = do
     <|> keyword "apply"
       *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
     <|> keyword "exempt" *> pure Exempt
-    <|> keyword "position" *> (Position <$> parseEffect)
+    <|> keyword "balance" *> (Balance <$> parseAmount)
+    <|> keyword "account" *> (Account <$> parseText)
+    <|> keyword "trade" *> (Trade <$> parseText)
+    <|> keyword "order" *> (Order <$> parseText)
+    <|> keyword "xact" *> (Transaction <$> parseText)
+    <|> keyword "meta" *> (Meta <$> parseText <*> parseText)
   where
     parseWash =
       WashTo Nothing Nothing <$ keyword "dropped"
@@ -148,6 +153,9 @@ printLot b lot
         ]
           ++ map printAnnotation (sort (lot ^. details))
     printAnnotation = \case
+      Position eff -> case eff of
+        Open -> "open"
+        Close -> "close"
       Fees x -> "fees " <> printAmount 2 x
       Commission x -> "commission " <> printAmount 2 x
       Gain x -> "gain " <> printAmount 6 x
@@ -164,14 +172,12 @@ printLot b lot
       WashTo (Just x) Nothing -> "wash to " <> TL.fromStrict x
       WashApply x amt -> "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
       Exempt -> "exempt"
-      Trade x -> "trade " <> TL.fromStrict x
-      Order x -> "order " <> TL.fromStrict x
-      Transaction x -> "transaction " <> TL.fromStrict x
-      Account x -> "account " <> TL.fromStrict x
-      Position eff -> case eff of
-        Open -> "open"
-        Close -> "close"
       Balance x -> "balance " <> printAmount 2 (x ^. coerced)
+      Account x -> "account " <> printText x
+      Trade x -> "trade " <> printText x
+      Order x -> "order " <> printText x
+      Transaction x -> "transaction " <> printText x
+      Meta k v -> "meta " <> printText k <> " " <> printText v
     printAnnotationSum n = \case
       Fees x ->
         "fees " <> printAmount 2 (x * n)
@@ -187,17 +193,16 @@ printLot b lot
           <> printAmount 6 (x * n)
       Washed amt -> "washed " <> printAmount 6 (lot ^. price + amt)
       _ -> ""
+    printText t
+      | T.all isAlphaNum t = TL.fromStrict t
+      | otherwise = "\"" <> TL.replace "\"" "\\\"" (TL.fromStrict t) <> "\""
 
-parseKeyword :: Parser Text
-parseKeyword =
-  keyword "buy"
-    <|> keyword "sell"
-    <|> keyword "wash"
-    <|> keyword "deposit"
-    <|> keyword "withdraw"
-    <|> keyword "assign"
-    <|> keyword "expire"
-    <|> keyword "dividend"
+parseText :: Parser T.Text
+parseText =
+  T.pack
+    <$> ( char '"' *> manyTill L.charLiteral (char '"')
+            <|> some (satisfy isAlphaNum)
+        )
 
 parseTime :: Parser UTCTime
 parseTime = do
@@ -216,7 +221,7 @@ parseTime = do
 printTime :: UTCTime -> Text
 printTime = TL.pack . formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S%Q"
 
-parseAmount :: Parser (Amount 6)
+parseAmount :: KnownNat n => Parser (Amount n)
 parseAmount =
   read <$> some (satisfy (\c -> isDigit c || c == '.')) <* whiteSpace
 
