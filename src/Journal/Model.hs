@@ -21,6 +21,7 @@ import Control.Monad.Trans.Writer
 import Data.Foldable
 import Data.List (sortOn)
 import Data.List (tails)
+import Journal.Amount
 import Journal.Split
 import Journal.Types
 import Journal.Utils
@@ -47,25 +48,60 @@ processActionsWithChanges ::
 processActionsWithChanges xs =
   fmap unzipBoth . (`evalStateT` newJournalState) $ do
     forM xs $ \x -> do
-      let macct = x ^? item . _Lot . details . traverse . _Account
-          sym = x ^. item . _Lot . symbol
+      let lot = x ^. item . _Lot
+          macct = lot ^? details . traverse . _Account
+          sym = lot ^. symbol
       zoom (accounts . at macct . non newAccountState) $ do
         zoom
-          ( zipped
+          ( zipped3
               nextId
+              balance
               (instruments . at sym . non newInstrumentState)
           )
           $ first (SawAction x :) <$> processAction x
 
+checkNetAmount ::
+  MonadError JournalError m =>
+  Timed Action ->
+  m (Timed Action)
+checkNetAmount x
+  | Just itemNet <- x ^? item . _Lot . details . traverse . _Net = do
+    let calcNet = netAmount (x ^. item)
+    if itemNet == calcNet
+      then throwError $ NetAmountDoesNotMatch x calcNet itemNet
+      else pure x
+  | otherwise =
+    pure $ x & item . _Lot . details <>~ [Net (netAmount (x ^. item))]
+
+checkBalance ::
+  MonadError JournalError m =>
+  Timed Action ->
+  StateT (Amount 2) m (Timed Action)
+checkBalance x
+  | Just itemBal <- x ^? item . _Lot . details . traverse . _Balance = do
+    bal <- get
+    let newBal = netAmount (x ^. item) + bal
+    if itemBal == newBal
+      then pure x
+      else throwError $ BalanceDoesNotMatch x newBal itemBal
+  | otherwise = do
+    bal <- get
+    let newBal = netAmount (x ^. item) + bal
+    put newBal
+    pure $ x & item . _Lot . details <>~ [Balance newBal]
+
 processAction ::
   MonadError JournalError m =>
   Timed Action ->
-  StateT (Int, InstrumentState) m ([Change], [Timed Action])
+  StateT (Int, Amount 2, InstrumentState) m ([Change], [Timed Action])
 processAction = fmap unzipBoth . mapM go <=< impliedChanges
   where
     go chg = case chg of
       SawAction _ -> throwError $ ChangeNotFromImpliedChanges chg
-      Result e -> pure ([chg], [e])
+      Result e -> do
+        e' <- zoom _2 $ checkBalance e
+        e'' <- lift $ checkNetAmount e'
+        pure ([chg], [e''])
       Submit lot ->
         first (\xs -> chg : xs ++ [SubmitEnd])
           <$> processAction (Wash <$> lot)
@@ -73,16 +109,16 @@ processAction = fmap unzipBoth . mapM go <=< impliedChanges
       AddEvent e -> do
         ident <- use _1
         _1 += 1
-        _2 . events . at ident ?= e
+        _3 . events . at ident ?= e
         pure ([chg], [])
       RemoveEvent ident -> do
-        _2 . events . at ident .= Nothing
+        _3 . events . at ident .= Nothing
         pure ([chg], [])
       ReplaceEvent ident e -> do
-        _2 . events . at ident ?= e
+        _3 . events . at ident ?= e
         pure ([chg], [])
       SaveWash name lot -> do
-        _2 . washSales . at name
+        _3 . washSales . at name
           %= \case Nothing -> Just [lot]; Just xs -> Just (lot : xs)
         pure ([chg], [])
 
@@ -98,9 +134,9 @@ shortFoldM z xs f = foldM (flip f) (Just z) xs
 impliedChanges ::
   MonadError JournalError m =>
   Timed Action ->
-  StateT (Int, InstrumentState) m [Change]
+  StateT (Int, Amount 2, InstrumentState) m [Change]
 impliedChanges x = do
-  hist <- gets (sortOn fst . toListOf (_2 . events . ifolded . withIndex))
+  hist <- gets (sortOn fst . toListOf (_3 . events . ifolded . withIndex))
   (mx, changes) <- runWriterT $ shortFoldM x (tails hist) $
     \hs -> \case
       Nothing -> pure Nothing
@@ -121,7 +157,10 @@ handle ::
   MonadError JournalError m =>
   [(Int, Timed Event)] ->
   Timed Action ->
-  WriterT [Change] (StateT (Int, InstrumentState) m) (Maybe (Timed Action))
+  WriterT
+    [Change]
+    (StateT (Int, Amount 2, InstrumentState) m)
+    (Maybe (Timed Action))
 handle
   ((n, open@(view item -> Opened buyToOpen _)) : _)
   close@(preview buyOrSell -> Just _)
@@ -170,7 +209,7 @@ handle [] action = do
           lift $
             gets
               ( toListOf
-                  ( _2 . washSales
+                  ( _3 . washSales
                       . ix name
                       . folded
                       . filtered
@@ -220,11 +259,11 @@ closePosition n open close = do
                     . traverse
                     . _Washed
               )
-        fees = lotFees du + lotFees su
+        lotFees = sum (du ^.. fees) + sum (su ^.. fees)
         pl
           | has (item . _Sell) close =
-            pricing du - pricing su - fees
-          | otherwise = pricing su - pricing du - fees
+            pricing du - pricing su - lotFees
+          | otherwise = pricing su - pricing du - lotFees
         res =
           du & details
             <>~ [ Position Close,

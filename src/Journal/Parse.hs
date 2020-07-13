@@ -6,9 +6,9 @@
 module Journal.Parse (parseJournal, printJournal) where
 
 import Control.Lens
-import Control.Monad
 import Data.Char
 import Data.List (intersperse, sort)
+import Data.Maybe
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -26,7 +26,8 @@ type Parser = ParsecT Void Text Identity
 skipLineComment' :: Tokens Text -> Parser ()
 skipLineComment' prefix =
   string prefix
-    *> void (takeWhileP (Just "character") (\x -> x /= '\n' && x /= '\r'))
+    *> takeWhileP (Just "character") (\x -> x /= '\n' && x /= '\r')
+    *> pure ()
 
 whiteSpace :: Parser ()
 whiteSpace = L.space space1 lineCmnt blockCmnt
@@ -83,6 +84,7 @@ parseAnnotation = do
     <|> keyword "apply"
       *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
     <|> keyword "exempt" *> pure Exempt
+    <|> keyword "net" *> (Net <$> parseAmount)
     <|> keyword "balance" *> (Balance <$> parseAmount)
     <|> keyword "account" *> (Account <$> parseText)
     <|> keyword "trade" *> (Trade <$> parseText)
@@ -105,11 +107,11 @@ parseAnnotation = do
       Open <$ keyword "open"
         <|> Close <$ keyword "close"
 
-printJournal :: Bool -> Journal -> Text
-printJournal b =
+printJournal :: Journal -> Text
+printJournal =
   TL.concat
     . intersperse "\n"
-    . map (printTimed (printAction b))
+    . map (printTimed printAction)
     . view actions
 
 printTimed :: (a -> Text) -> Timed a -> Text
@@ -119,80 +121,68 @@ printTimed printItem t =
       printItem (t ^. item)
     ]
 
-printAction :: Bool -> Action -> Text
-printAction b = \case
-  Buy lot -> "buy " <> printLot b lot
-  Sell lot -> "sell " <> printLot b lot
-  Wash lot -> "wash " <> printLot b lot
-  Deposit lot -> "deposit " <> printLot b lot
-  Withdraw lot -> "withdraw " <> printLot b lot
-  Assign lot -> "assign " <> printLot b lot
-  Expire lot -> "expire " <> printLot b lot
-  Dividend lot -> "dividend " <> printLot b lot
+printAction :: Action -> Text
+printAction = \case
+  Buy lot -> "buy " <> printLot lot
+  Sell lot -> "sell " <> printLot lot
+  Wash lot -> "wash " <> printLot lot
+  Deposit lot -> "deposit " <> printLot lot
+  Withdraw lot -> "withdraw " <> printLot lot
+  Assign lot -> "assign " <> printLot lot
+  Expire lot -> "expire " <> printLot lot
+  Dividend lot -> "dividend " <> printLot lot
 
-printLot :: Bool -> Lot -> Text
-printLot b lot
-  | not b = basic
-  | otherwise =
-    basic
-      <> "\n  total "
-      <> printAmount 4 (lot ^. amount . coerced * lot ^. price)
-      <> " "
-      <> ( TL.concat
-             $ intersperse " "
-             $ map
-               (printAnnotationSum (lot ^. amount . coerced))
-               (sort (lot ^. details))
-         )
+printLot :: Lot -> Text
+printLot lot =
+  ( TL.concat $
+      intersperse
+        " "
+        ( [ printAmount 0 (lot ^. amount),
+            TL.fromStrict (lot ^. symbol),
+            printAmount 4 (lot ^. price)
+          ]
+            ++ inlineAnns
+        )
+  )
+    <> case separateAnns of
+      [] -> ""
+      xs ->
+        ( TL.concat $
+            intersperse "\n  " ("" : xs)
+        )
   where
-    basic =
-      TL.concat $ intersperse " " $
-        [ printAmount 0 (lot ^. amount),
-          TL.fromStrict (lot ^. symbol),
-          printAmount 4 (lot ^. price)
-        ]
-          ++ map printAnnotation (sort (lot ^. details))
+    annotations = map printAnnotation (sort (lot ^. details))
+    inlineAnns = mapMaybe (either Just (const Nothing)) annotations
+    separateAnns = mapMaybe (either (const Nothing) Just) annotations
     printAnnotation = \case
-      Position eff -> case eff of
+      Position eff -> Right $ case eff of
         Open -> "open"
         Close -> "close"
-      Fees x -> "fees " <> printAmount 2 x
-      Commission x -> "commission " <> printAmount 2 x
-      Gain x -> "gain " <> printAmount 6 x
-      Loss x -> "loss " <> printAmount 6 x
-      Washed amt -> "washed " <> printAmount 6 amt
-      WashTo Nothing _ -> "wash dropped"
+      Fees x -> Left $ "fees " <> printAmount 2 (totaled lot x)
+      Commission x -> Left $ "commission " <> printAmount 2 (totaled lot x)
+      Gain x -> Right $ "gain " <> printAmount 6 (totaled lot x)
+      Loss x -> Right $ "loss " <> printAmount 6 (totaled lot x)
+      Washed x -> Right $ "washed " <> printAmount 6 (totaled lot x)
+      WashTo Nothing _ -> Right $ "wash dropped"
       WashTo (Just x) (Just (q, p)) ->
-        "wash "
-          <> printAmount 0 q
-          <> " @ "
-          <> printAmount 4 p
-          <> " to "
-          <> TL.fromStrict x
-      WashTo (Just x) Nothing -> "wash to " <> TL.fromStrict x
-      WashApply x amt -> "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
-      Exempt -> "exempt"
-      Balance x -> "balance " <> printAmount 2 (x ^. coerced)
-      Account x -> "account " <> printText x
-      Trade x -> "trade " <> printText x
-      Order x -> "order " <> printText x
-      Transaction x -> "transaction " <> printText x
-      Meta k v -> "meta " <> printText k <> " " <> printText v
-    printAnnotationSum n = \case
-      Fees x ->
-        "fees " <> printAmount 2 (x * n)
-      Commission x ->
-        "commission " <> printAmount 2 (x * n)
-      Gain x ->
-        "basis " <> printAmount 2 (lot ^. price - x - lotFees lot) <> " "
-          <> "gain "
-          <> printAmount 6 (x * n)
-      Loss x ->
-        "basis " <> printAmount 2 (lot ^. price + x - lotFees lot) <> " "
-          <> "loss "
-          <> printAmount 6 (x * n)
-      Washed amt -> "washed " <> printAmount 6 (lot ^. price + amt)
-      _ -> ""
+        Right $
+          "wash "
+            <> printAmount 0 q
+            <> " @ "
+            <> printAmount 4 p
+            <> " to "
+            <> TL.fromStrict x
+      WashTo (Just x) Nothing -> Left $ "wash to " <> TL.fromStrict x
+      WashApply x amt ->
+        Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
+      Exempt -> Left "exempt"
+      Net x -> Right $ "net " <> printAmount 2 (x ^. coerced)
+      Balance x -> Right $ "balance " <> printAmount 2 (x ^. coerced)
+      Account x -> Left $ "account " <> printText x
+      Trade x -> Left $ "trade " <> printText x
+      Order x -> Left $ "order " <> printText x
+      Transaction x -> Left $ "transaction " <> printText x
+      Meta k v -> Right $ "meta " <> printText k <> " " <> printText v
     printText t
       | T.all isAlphaNum t = TL.fromStrict t
       | otherwise = "\"" <> TL.replace "\"" "\\\"" (TL.fromStrict t) <> "\""

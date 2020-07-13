@@ -17,7 +17,8 @@ import Data.Map (Map)
 import Data.Text (Text)
 import Data.Time
 import Data.Time.Format.ISO8601
-import GHC.Generics
+import GHC.Generics hiding (to)
+import GHC.TypeLits
 import Journal.Amount
 import Journal.Split
 import Text.Show.Pretty
@@ -36,6 +37,7 @@ data Annotation
   | WashTo (Maybe Text) (Maybe (Amount 6, Amount 6))
   | WashApply Text (Amount 6)
   | Exempt
+  | Net (Amount 2)
   | Balance (Amount 2)
   | Account Text
   | Trade Text
@@ -46,16 +48,29 @@ data Annotation
 
 makePrisms ''Annotation
 
+-- | The '_Adjustments' traversal returns any adjust to the price of an
+-- action. For example, a prior wash sale may increase the cost basis of a
+-- position, or a gain might decrease it.
+adjustment :: Traversal' Annotation (Amount 6)
+adjustment f = \case
+  Fees x -> Fees <$> f x
+  Commission x -> Commission <$> f x
+  Gain x -> Gain . negate <$> f (- x)
+  Loss x -> Loss <$> f x
+  Washed x -> Washed <$> f x
+  x -> x <$ f 0
+
 instance PrettyVal UTCTime where
   prettyVal = String . iso8601Show
 
 -- | A 'Lot' represents a collection of shares, with a given price and a
 --   transaction date.
 data Lot = Lot
-  { _amount :: Amount 6, -- positive is long, negative is short
+  { _amount :: Amount 6,
     _symbol :: Text,
     _price :: Amount 6,
-    -- | All details are expressed "per share", just like the price.
+    -- | All annotations that relate to lot shares are expressed "per share",
+    -- just like the price.
     _details :: [Annotation]
   }
   deriving (Show, Eq, Ord, Generic, PrettyVal)
@@ -65,8 +80,17 @@ makeLenses ''Lot
 alignLots :: Lot -> Lot -> (Split Lot, Split Lot)
 alignLots = align amount amount
 
-lotFees :: Lot -> Amount 6
-lotFees x = sum (x ^.. details . traverse . failing _Fees _Commission)
+totaled :: KnownNat n => Lot -> Amount n -> Amount n
+totaled lot n = lot ^. amount . coerced * n
+
+fees :: Traversal' Lot (Amount 6)
+fees = details . traverse . failing _Fees _Commission
+
+-- | The '_Adjustments' traversal returns any adjust to the price of an
+-- action. For example, a prior wash sale may increase the cost basis of a
+-- position, or a gain might decrease it.
+adjustments :: Traversal' Lot (Amount 6)
+adjustments = details . traverse . adjustment
 
 data Action
   = Buy Lot
@@ -87,6 +111,28 @@ data Action
 
 makePrisms ''Action
 
+foldAction :: (Lot -> a) -> Action -> a
+foldAction f = \case
+  Buy lot -> f lot
+  Sell lot -> f lot
+  Wash lot -> f lot
+  Deposit lot -> f lot
+  Withdraw lot -> f lot
+  Assign lot -> f lot
+  Expire lot -> f lot
+  Dividend lot -> f lot
+
+mapAction :: (Lot -> Lot) -> Action -> Action
+mapAction f = \case
+  Buy lot -> Buy (f lot)
+  Sell lot -> Sell (f lot)
+  Wash lot -> Wash (f lot)
+  Deposit lot -> Deposit (f lot)
+  Withdraw lot -> Withdraw (f lot)
+  Assign lot -> Assign (f lot)
+  Expire lot -> Expire (f lot)
+  Dividend lot -> Dividend (f lot)
+
 _Lot :: Lens' Action Lot
 _Lot f = \case
   Buy lot -> Buy <$> f lot
@@ -97,6 +143,22 @@ _Lot f = \case
   Assign lot -> Assign <$> f lot
   Expire lot -> Expire <$> f lot
   Dividend lot -> Dividend <$> f lot
+
+lotNetAmount :: Lot -> Amount 6
+lotNetAmount lot = totaled lot (lot ^. price + sum (lot ^.. adjustments))
+
+-- | The 'netAmount' indicates the exact effect on account balance this action
+-- represents.
+netAmount :: Action -> Amount 2
+netAmount = view coerced . \case
+  Buy lot -> - lotNetAmount lot
+  Sell lot -> lotNetAmount lot
+  Wash _lot -> 0
+  Deposit lot -> lotNetAmount lot
+  Withdraw lot -> - lotNetAmount lot
+  Assign _lot -> 0 -- jww (2020-07-12): NYI
+  Expire _lot -> 0 -- jww (2020-07-12): NYI
+  Dividend lot -> lotNetAmount lot
 
 data Event
   = Opened Bool Lot
@@ -164,6 +226,7 @@ newInstrumentState = InstrumentState mempty mempty
 
 data AccountState = AccountState
   { _nextId :: Int,
+    _balance :: Amount 2,
     _instruments :: Map Text InstrumentState
   }
   deriving
@@ -176,7 +239,7 @@ data AccountState = AccountState
 makeLenses ''AccountState
 
 newAccountState :: AccountState
-newAccountState = AccountState 1 mempty
+newAccountState = AccountState 1 0 mempty
 
 data JournalState = JournalState
   { _accounts :: Map (Maybe Text) AccountState
@@ -213,6 +276,8 @@ data JournalError
   = ChangeNotFromImpliedChanges Change
   | UnexpectedRemainder (Timed Action)
   | UnappliedWashSale (Timed Action)
+  | NetAmountDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
+  | BalanceDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
   deriving
     ( Show,
       Eq,

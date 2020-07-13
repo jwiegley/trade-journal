@@ -38,15 +38,15 @@ newConfig =
       rounding = mempty
     }
 
-parseProcessPrint :: MonadFail m => Bool -> FilePath -> TL.Text -> m TL.Text
-parseProcessPrint showTotals path journal = do
+parseProcessPrint :: MonadFail m => FilePath -> TL.Text -> m TL.Text
+parseProcessPrint path journal = do
   actions <- case parse parseJournal path journal of
     Left e -> fail $ errorBundlePretty e
     Right res -> pure res
   case processJournal actions of
     Left err ->
       error $ "Error processing journal " ++ path ++ ": " ++ show err
-    Right j -> pure $ printJournal showTotals j
+    Right j -> pure $ printJournal j
 
 main :: IO ()
 main = do
@@ -54,4 +54,4 @@ main = do
   forM_ (opts ^. files) $ \path -> do
     putStrLn $ "Reading journal " ++ path
     journal <- TL.decodeUtf8 <$> BL.readFile path
-    TL.putStrLn =<< parseProcessPrint (opts ^. totals) path journal
+    TL.putStrLn =<< parseProcessPrint path journal
