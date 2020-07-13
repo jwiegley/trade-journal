@@ -39,6 +39,15 @@ zipped f g k s = case liftA2 (,) (s ^? f) (s ^? g) of
   Nothing -> pure s
   Just p -> k p <&> \(a, b) -> s & f .~ a & g .~ b
 
+zipped3 ::
+  Traversal' s a ->
+  Traversal' s b ->
+  Traversal' s c ->
+  Traversal' s (a, b, c)
+zipped3 f g h k s = case liftA3 (,,) (s ^? f) (s ^? g) (s ^? h) of
+  Nothing -> pure s
+  Just p -> k p <&> \(a, b, c) -> s & f .~ a & g .~ b & h .~ c
+
 contractList :: (a -> a -> Maybe a) -> [a] -> [a]
 contractList _ [] = []
 contractList _ [x] = [x]
