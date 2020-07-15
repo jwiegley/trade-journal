@@ -15,6 +15,7 @@ dependencies:
   - aeson
   - base
   - bytestring
+  - cassava
   - containers
   - lens
   - megaparsec
@@ -34,11 +35,12 @@ library:
     - gmp
   exposed-modules:
     - Journal.Amount
-    - Journal.Split
-    - Journal.Utils
     - Journal.Model
     - Journal.Parse
+    - Journal.Split
+    - Journal.ThinkOrSwim
     - Journal.Types
+    - Journal.Utils
   dependencies:
     - data-default
     - pretty

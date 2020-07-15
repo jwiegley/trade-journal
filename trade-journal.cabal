@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 56420e9ff96d4de9743b6d41aae279581ff09bd9017a5df92ca36b67b5c63023
+-- hash: 06ac28129c77f89ebdd84b8154eed3f18b378810be46ab24c0ac673245a0c4ac
 
 name:           trade-journal
 version:        1.0.0
@@ -17,11 +17,12 @@ build-type:     Simple
 library
   exposed-modules:
       Journal.Amount
-      Journal.Split
-      Journal.Utils
       Journal.Model
       Journal.Parse
+      Journal.Split
+      Journal.ThinkOrSwim
       Journal.Types
+      Journal.Utils
   other-modules:
       Paths_trade_journal
   hs-source-dirs:
@@ -36,6 +37,7 @@ library
       aeson
     , base
     , bytestring
+    , cassava
     , containers
     , data-default
     , lens
@@ -61,6 +63,7 @@ executable trade-journal
       aeson
     , base
     , bytestring
+    , cassava
     , containers
     , lens
     , megaparsec
@@ -89,6 +92,7 @@ test-suite trade-journal-tests
     , aeson
     , base
     , bytestring
+    , cassava
     , containers
     , hedgehog
     , here

@@ -7,8 +7,8 @@ module Journal.Parse (parseJournal, printJournal) where
 
 import Control.Lens
 import Data.Char
+import Data.Either
 import Data.List (intersperse, sort)
-import Data.Maybe
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -152,17 +152,17 @@ printLot lot =
         )
   where
     annotations = map printAnnotation (sort (lot ^. details))
-    inlineAnns = mapMaybe (either Just (const Nothing)) annotations
-    separateAnns = mapMaybe (either (const Nothing) Just) annotations
+    (inlineAnns, separateAnns) = partitionEithers annotations
+    totalAmount n x = printAmount n (totaled lot x)
     printAnnotation = \case
       Position eff -> Right $ case eff of
         Open -> "open"
         Close -> "close"
-      Fees x -> Left $ "fees " <> printAmount 2 (totaled lot x)
-      Commission x -> Left $ "commission " <> printAmount 2 (totaled lot x)
-      Gain x -> Right $ "gain " <> printAmount 6 (totaled lot x)
-      Loss x -> Right $ "loss " <> printAmount 6 (totaled lot x)
-      Washed x -> Right $ "washed " <> printAmount 6 (totaled lot x)
+      Fees x -> Left $ "fees " <> totalAmount 2 x
+      Commission x -> Left $ "commission " <> totalAmount 2 x
+      Gain x -> Right $ "gain " <> totalAmount 6 x
+      Loss x -> Right $ "loss " <> totalAmount 6 x
+      Washed x -> Right $ "washed " <> totalAmount 6 x
       WashTo Nothing _ -> Right $ "wash dropped"
       WashTo (Just x) (Just (q, p)) ->
         Right $
@@ -191,14 +191,14 @@ parseText :: Parser T.Text
 parseText =
   T.pack
     <$> ( char '"' *> manyTill L.charLiteral (char '"')
-            <|> some (satisfy isAlphaNum)
+            <|> some alphaNumChar
         )
 
 parseTime :: Parser UTCTime
 parseTime = do
-  dateString <- some (satisfy (\c -> isDigit c || c == '-')) <* whiteSpace
+  dateString <- some (digitChar <|> char '-') <* whiteSpace
   timeString <-
-    optional (some (satisfy (\c -> isDigit c || c == ':')) <* whiteSpace)
+    optional (some (digitChar <|> char ':') <* whiteSpace)
   case timeString of
     Nothing -> parseTimeM False defaultTimeLocale "%Y-%m-%d" dateString
     Just str ->
@@ -213,7 +213,7 @@ printTime = TL.pack . formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S%Q"
 
 parseAmount :: KnownNat n => Parser (Amount n)
 parseAmount =
-  read <$> some (satisfy (\c -> isDigit c || c == '.')) <* whiteSpace
+  read <$> some (digitChar <|> char '.') <* whiteSpace
 
 printAmount :: Int -> Amount 6 -> Text
 printAmount n = TL.pack . amountToString n

@@ -151,14 +151,14 @@ lotNetAmount lot = totaled lot (lot ^. price + sum (lot ^.. adjustments))
 -- represents.
 netAmount :: Action -> Amount 2
 netAmount = view coerced . \case
-  Buy lot -> - lotNetAmount lot
-  Sell lot -> lotNetAmount lot
+  Buy lot -> - totaled lot (lot ^. price + sum (lot ^.. fees))
+  Sell lot -> totaled lot (lot ^. price - sum (lot ^.. fees))
   Wash _lot -> 0
-  Deposit lot -> lotNetAmount lot
-  Withdraw lot -> - lotNetAmount lot
-  Assign _lot -> 0 -- jww (2020-07-12): NYI
-  Expire _lot -> 0 -- jww (2020-07-12): NYI
-  Dividend lot -> lotNetAmount lot
+  Deposit lot -> lot ^. amount
+  Withdraw lot -> - (lot ^. amount)
+  Assign _lot -> 0
+  Expire _lot -> 0
+  Dividend lot -> lot ^. amount
 
 data Event
   = Opened Bool Lot
