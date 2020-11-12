@@ -34,7 +34,7 @@ data Annotation
   | Gain (Amount 6)
   | Loss (Amount 6)
   | Washed (Amount 6)
-  | WashTo (Maybe Text) (Maybe (Amount 6, Amount 6))
+  | WashTo Text (Maybe (Amount 6, Amount 6))
   | WashApply Text (Amount 6)
   | Exempt
   | Net (Amount 2)
@@ -71,7 +71,8 @@ data Lot = Lot
     _price :: Amount 6,
     -- | All annotations that relate to lot shares are expressed "per share",
     -- just like the price.
-    _details :: [Annotation]
+    _details :: [Annotation],
+    _computed :: [Annotation]
   }
   deriving (Show, Eq, Ord, Generic, PrettyVal)
 
@@ -89,8 +90,14 @@ fees = details . traverse . failing _Fees _Commission
 -- | The '_Adjustments' traversal returns any adjust to the price of an
 -- action. For example, a prior wash sale may increase the cost basis of a
 -- position, or a gain might decrease it.
-adjustments :: Traversal' Lot (Amount 6)
-adjustments = details . traverse . adjustment
+adjustments :: Fold Lot (Amount 6)
+adjustments f s =
+  error "Never used"
+    <$ traverse
+      f
+      ( s ^.. details . traverse . adjustment
+          ++ s ^.. computed . traverse . adjustment
+      )
 
 data Action
   = Buy Lot
@@ -275,7 +282,6 @@ newJournal = Journal []
 data JournalError
   = ChangeNotFromImpliedChanges Change
   | UnexpectedRemainder (Timed Action)
-  | UnappliedWashSale (Timed Action)
   | NetAmountDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
   | BalanceDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
   deriving

@@ -16,6 +16,7 @@ import Control.Arrow
 import Control.Exception hiding (handle)
 import Control.Lens
 import Control.Monad.Except
+import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Writer
 import Data.Foldable
@@ -94,9 +95,10 @@ processAction ::
   MonadError JournalError m =>
   Timed Action ->
   StateT (Int, Amount 2, InstrumentState) m ([Change], [Timed Action])
-processAction = fmap unzipBoth . mapM go <=< impliedChanges
+processAction =
+    fmap unzipBoth . mapM applyChange <=< readonly . impliedChanges
   where
-    go chg = case chg of
+    applyChange chg = case chg of
       SawAction _ -> throwError $ ChangeNotFromImpliedChanges chg
       Result e -> do
         e' <- zoom _2 $ checkBalance e
@@ -134,9 +136,9 @@ shortFoldM z xs f = foldM (flip f) (Just z) xs
 impliedChanges ::
   MonadError JournalError m =>
   Timed Action ->
-  StateT (Int, Amount 2, InstrumentState) m [Change]
+  ReaderT (Int, Amount 2, InstrumentState) m [Change]
 impliedChanges x = do
-  hist <- gets (sortOn fst . toListOf (_3 . events . ifolded . withIndex))
+  hist <- asks (sortOn fst . toListOf (_3 . events . ifolded . withIndex))
   (mx, changes) <- runWriterT $ shortFoldM x (tails hist) $
     \hs -> \case
       Nothing -> pure Nothing
@@ -159,7 +161,7 @@ handle ::
   Timed Action ->
   WriterT
     [Change]
-    (StateT (Int, Amount 2, InstrumentState) m)
+    (ReaderT (Int, Amount 2, InstrumentState) m)
     (Maybe (Timed Action))
 handle
   ((n, open@(view item -> Opened buyToOpen _)) : _)
@@ -178,10 +180,7 @@ handle
 -- apply to a future opening.
 handle [] act@(preview wash -> Just x) = do
   case x ^? details . traverse . _WashTo of
-    Nothing -> throwError $ UnappliedWashSale act
-    Just (Nothing, _) ->
-      pure Nothing
-    Just (Just name, mres) ->
+    Just (name, mres) ->
       Nothing
         <$ tell
           [ SaveWash
@@ -191,12 +190,14 @@ handle [] act@(preview wash -> Just x) = do
                     Just (_amount, _price) ->
                       let _symbol = x ^. symbol
                           _details = []
+                          _computed = []
                        in Lot {..}
                 )
                   <$ act
               ),
             Result (Wash x <$ act)
           ]
+    _ -> pure Nothing
 -- Otherwise, if there is no history to examine then this buy or sale must
 -- open a new position.
 handle [] action = do
@@ -207,7 +208,7 @@ handle [] action = do
       Just (act@(preview buyOrSell -> Just open)) -> do
         sales <-
           lift $
-            gets
+            asks
               ( toListOf
                   ( _3 . washSales
                       . ix name
@@ -223,6 +224,7 @@ handle [] action = do
         let _price = sum sales / _amount
             _symbol = open ^. symbol
             _details = []
+            _computed = []
         washNewPosition Lot {..} act
       _ -> pure Nothing
   case mact of

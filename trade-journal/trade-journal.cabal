@@ -4,10 +4,11 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 06ac28129c77f89ebdd84b8154eed3f18b378810be46ab24c0ac673245a0c4ac
+-- hash: bcab8d5bdeae3d554c45f80204fd191d5ad66fc5bcca8615b115e202dd2787cd
 
 name:           trade-journal
-version:        1.0.0
+version:        0.0.1
+description:    Command-line reporting utility for processing trade journals.
 author:         John Wiegley
 maintainer:     johnw@newartisans.com
 license:        BSD3
@@ -27,7 +28,6 @@ library
       Paths_trade_journal
   hs-source-dirs:
       src
-  ghc-options: -Wall -debug -g3 -fno-ignore-asserts
   c-sources:
       src/Journal/mpfr_printf.c
   extra-libraries:
@@ -35,7 +35,7 @@ library
       gmp
   build-depends:
       aeson
-    , base
+    , base >=4.5 && <5.0
     , bytestring
     , cassava
     , containers
@@ -58,10 +58,9 @@ executable trade-journal
   main-is: Main.hs
   other-modules:
       Options
-  ghc-options: -Wall -debug -g3 -fno-ignore-asserts
   build-depends:
       aeson
-    , base
+    , base >=4.5 && <5.0
     , bytestring
     , cassava
     , containers
@@ -86,11 +85,10 @@ test-suite trade-journal-tests
       Paths_trade_journal
   hs-source-dirs:
       test
-  ghc-options: -Wall -debug -g3 -fno-ignore-asserts
   build-depends:
       HUnit
     , aeson
-    , base
+    , base >=4.5 && <5.0
     , bytestring
     , cassava
     , containers

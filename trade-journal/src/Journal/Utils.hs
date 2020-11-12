@@ -6,6 +6,9 @@ module Journal.Utils where
 import Control.Applicative
 import Control.Arrow
 import Control.Lens
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 import Data.Coerce
 import Data.Foldable
 import Data.Text (Text)
@@ -15,6 +18,9 @@ import Data.Time.Format.ISO8601
 import Debug.Trace (traceM)
 import Text.PrettyPrint as P
 import Prelude hiding ((<>), Double, Float)
+
+readonly :: Monad m => ReaderT s m a -> StateT s m a
+readonly f = lift . runReaderT f =<< get
 
 justify :: [a] -> [Maybe a]
 justify [] = [Nothing]
