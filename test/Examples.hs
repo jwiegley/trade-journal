@@ -40,7 +40,8 @@ journalBuySellProfit = ii @--> oo
     oo =
       [i|
 2020-07-02 00:00:00 buy 100 AAPL 260.0000 open
-2020-07-03 00:00:00 sell 100 AAPL 300.0000 close fees 0.002 gain 39.998000
+2020-07-03 00:00:00 sell 100 AAPL 300.0000 close fees 0.20
+  gain 3999.800000
         |]
 
 journalBuySellLossBuy :: Assertion
@@ -55,9 +56,11 @@ journalBuySellLossBuy = ii @--> oo
     oo =
       [i|
 2020-07-02 00:00:00 buy 100 AAPL 260.0000 open
-2020-07-03 00:00:00 sell 100 AAPL 240.0000 close fees 0.002 loss 20.002000 wash to A
-2020-07-03 00:00:00 wash 100 AAPL 20.0020 fees 0.002 wash to A
-2020-07-04 00:00:00 buy 100 AAPL 260.0000 open washed 20.002000 apply A 100
+2020-07-03 00:00:00 sell 100 AAPL 240.0000 close fees 0.20 wash to A
+  loss 2000.200000
+2020-07-03 00:00:00 wash 100 AAPL 20.0020 fees 0.20 wash to A
+2020-07-04 00:00:00 buy 100 AAPL 260.0000 open apply A 100
+  washed 2000.200000
         |]
 
 realWorld :: TestTree
@@ -121,7 +124,7 @@ zoomHistory = ii @--> oo
 | Sell |   400 | 07/29 |  98.5516 |  95.6549 | -1158.67 |    |                     |
 | Wash | [200] | 07/30 |          |          |    26.06 | C> | 96.00 -> 96.1303    |
 
-2019-07-29 sell 100 ZM 96.1841 fees 0.21 wash dropped
+2019-07-29 sell 100 ZM 96.1841 fees 0.21
 | Sell |   100 | 07/29 | 100.4077 |   96.182 |  -422.57 |    |                     |
 
 2019-07-30 buy 200 ZM 96.00 apply C 200
@@ -129,7 +132,7 @@ zoomHistory = ii @--> oo
 2019-09-06 buy 100 ZM 85.97 commission 5.00
 | Buy  |   100 |       |          |    86.02 |          |    |                     |
 
-2020-02-18 sell 300 ZM 95.00 fees 0.67 wash dropped
+2020-02-18 sell 300 ZM 95.00 fees 0.67
 | Sell |   200 | 07/30 | 96.1303  |   95.00  |   897.78 |    |                     |
 | Sell |   100 | 09/06 | 85.9245  |   95.00  |  -226.51 |    |                     |
         |]
@@ -140,31 +143,48 @@ zoomHistory = ii @--> oo
 2019-06-24 00:00:00 buy 30 ZM 106.6800 open exempt
 2019-06-25 00:00:00 buy 170 ZM 85.8415 open exempt
 2019-07-01 00:00:00 buy 50 ZM 85.8000 open
-2019-07-01 00:00:00 sell 50 ZM 86.6750 close fees 0.002 loss 13.106200
-2019-07-01 00:00:00 wash 50 ZM 13.1062 washed 85.800000
+2019-07-01 00:00:00 sell 50 ZM 86.6750 close fees 0.10
+  loss 655.310000
+2019-07-01 00:00:00 wash 50 ZM 13.1062
+  washed 4290.000000
 2019-07-02 00:00:00 buy 50 ZM 85.5000 open
-2019-07-03 00:00:00 sell 90 ZM 86.7765 close fees 0.0019 loss 13.004600 wash to A
-2019-07-03 00:00:00 wash 50 ZM 13.0046 washed 85.500000
-2019-07-03 00:00:00 wash 40 ZM 13.0046 fees 0.0019 wash to A
-2019-07-03 00:00:00 sell 10 ZM 86.7765 close fees 0.0019 loss 3.010400 wash to A
-2019-07-03 00:00:00 wash 10 ZM 3.0104 fees 0.0019 wash to A
-2019-07-03 00:00:00 sell 30 ZM 88.1400 close fees 0.002 loss 18.542000 wash to A
-2019-07-03 00:00:00 wash 30 ZM 18.5420 fees 0.002 wash to A
-2019-07-03 00:00:00 sell 70 ZM 88.1400 close fees 0.002 gain 2.296500 wash to A
-2019-07-12 00:00:00 sell 100 ZM 94.0850 close fees 0.00205 gain 8.241450 wash to B
-2019-07-12 00:00:00 sell 50 ZM 94.0850 close fees 0.00205 loss 4.823250 wash to B
-2019-07-12 00:00:00 wash 50 ZM 4.82325 fees 0.00205 wash to B
-2019-07-12 00:00:00 sell 50 ZM 94.0850 close fees 0.00205 loss 4.421650 wash to B
-2019-07-12 00:00:00 wash 50 ZM 4.42165 fees 0.00205 wash to B
-2019-07-29 00:00:00 buy 400 ZM 95.7852 open washed 2.766370 apply A 400 apply B 100
-2019-07-29 00:00:00 buy 100 ZM 95.7852 open washed 4.622450 apply A 400 apply B 100
-2019-07-29 00:00:00 sell 400 ZM 95.6570 close fees 0.0021 loss 2.896670 wash 200 @ 0.1303 to C
-2019-07-29 00:00:00 wash 400 ZM 2.89667 fees 0.0021 wash 200 @ 0.1303 to C
-2019-07-29 00:00:00 sell 100 ZM 96.1841 close fees 0.0021 loss 4.225650 wash dropped
-2019-07-30 00:00:00 buy 200 ZM 96.0000 open washed 0.130300 apply C 200
-2019-09-06 00:00:00 buy 100 ZM 85.9700 open commission 0.05
-2020-02-18 00:00:00 sell 200 ZM 95.0000 close fees 0.002233 loss 1.132533 wash dropped
-2020-02-18 00:00:00 sell 100 ZM 95.0000 close fees 0.002233 gain 8.977767 wash dropped
+2019-07-03 00:00:00 sell 90 ZM 86.7765 close fees 0.171 wash to A
+  loss 1170.414000
+2019-07-03 00:00:00 wash 50 ZM 13.0046
+  washed 4275.000000
+2019-07-03 00:00:00 wash 40 ZM 13.0046 fees 0.076 wash to A
+2019-07-03 00:00:00 sell 10 ZM 86.7765 close fees 0.019 wash to A
+  loss 30.104000
+2019-07-03 00:00:00 wash 10 ZM 3.0104 fees 0.019 wash to A
+2019-07-03 00:00:00 sell 30 ZM 88.1400 close fees 0.06 wash to A
+  loss 556.260000
+2019-07-03 00:00:00 wash 30 ZM 18.5420 fees 0.06 wash to A
+2019-07-03 00:00:00 sell 70 ZM 88.1400 close fees 0.14 wash to A
+  gain 160.755000
+2019-07-12 00:00:00 sell 100 ZM 94.0850 close fees 0.205 wash to B
+  gain 824.145000
+2019-07-12 00:00:00 sell 50 ZM 94.0850 close fees 0.1025 wash to B
+  loss 241.162500
+2019-07-12 00:00:00 wash 50 ZM 4.82325 fees 0.1025 wash to B
+2019-07-12 00:00:00 sell 50 ZM 94.0850 close fees 0.1025 wash to B
+  loss 221.082500
+2019-07-12 00:00:00 wash 50 ZM 4.42165 fees 0.1025 wash to B
+2019-07-29 00:00:00 buy 400 ZM 95.7852 open apply A 400 apply B 100
+  washed 1106.548000
+2019-07-29 00:00:00 buy 100 ZM 95.7852 open apply A 400 apply B 100
+  washed 462.245000
+2019-07-29 00:00:00 sell 400 ZM 95.6570 close fees 0.84 wash 200 @ 0.1303 to C
+  loss 1158.668000
+2019-07-29 00:00:00 wash 400 ZM 2.89667 fees 0.84 wash 200 @ 0.1303 to C
+2019-07-29 00:00:00 sell 100 ZM 96.1841 close fees 0.21
+  loss 422.565000
+2019-07-30 00:00:00 buy 200 ZM 96.0000 open apply C 200
+  washed 26.060000
+2019-09-06 00:00:00 buy 100 ZM 85.9700 open commission 5.00
+2020-02-18 00:00:00 sell 200 ZM 95.0000 close fees 0.446667
+  loss 226.506667
+2020-02-18 00:00:00 sell 100 ZM 95.0000 close fees 0.223333
+  gain 897.776667
         |]
 
 (@-->) :: Text -> Text -> Assertion
@@ -186,4 +206,4 @@ x @--> y = do
       case processJournal actions of
         Left err ->
           error $ "Error processing journal " ++ path ++ ": " ++ show err
-        Right j -> pure $ printJournal False j
+        Right j -> pure $ printJournal j

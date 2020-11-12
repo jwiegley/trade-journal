@@ -100,7 +100,7 @@ genLot :: MonadGen m => m Lot
 genLot = do
   q <- genAmount (Range.linear 1 1000)
   p <- genAmount (Range.linear 1 2000)
-  pure $ Lot q "FOO" p []
+  pure $ Lot q "FOO" p [] []
 
 baseline :: TestTree
 baseline =
@@ -121,6 +121,7 @@ baseline =
 simpleBuy :: Property
 simpleBuy = property $ do
   b <- forAll $ genTimed genLot
+  let c = (b ^. item . amount) * (b ^. item . price)
   -- A simple buy
   lift $
     processActionsWithChanges
@@ -130,12 +131,20 @@ simpleBuy = property $ do
             AddEvent (Opened True <$> b),
             Result (Buy <$> (b & item . details <>~ [Position Open]))
           ],
-          [Buy <$> (b & item . details <>~ [Position Open])]
+          [ Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  )
+          ]
         )
 
 buyBuy :: Property
 buyBuy = property $ do
   b <- forAll $ genTimed genLot
+  let c = (b ^. item . amount) * (b ^. item . price)
   lift $
     processActionsWithChanges
       [ Buy <$> b,
@@ -149,8 +158,20 @@ buyBuy = property $ do
             AddEvent (Opened True <$> b),
             Result (Buy <$> (b & item . details <>~ [Position Open]))
           ],
-          [ Buy <$> (b & item . details <>~ [Position Open]),
-            Buy <$> (b & item . details <>~ [Position Open])
+          [ Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  ),
+            Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (2 * (c ^. coerced . to negate)),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  )
           ]
         )
 
@@ -240,7 +261,6 @@ buySellLoss = property $ do
   let s = b
       sl =
         s & item . price -~ 1
-          & item . details <>~ [WashTo Nothing Nothing]
   -- A buy and sell at a loss
   lift $
     processActionsWithChanges
@@ -273,7 +293,7 @@ buySellLossBuy = property $ do
   let s = b
       sl =
         s & item . price -~ 1
-          & item . details <>~ [WashTo (Just "A") Nothing]
+          & item . details <>~ [WashTo "A" Nothing]
       b2 =
         b & item . details <>~ [WashApply "A" (b ^. item . amount)]
   -- A buy and sell at a loss, followed by a buy

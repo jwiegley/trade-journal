@@ -1,12 +1,11 @@
-{ ghcCompiler ? "ghc883"
-, coqPackages ? "coqPackages_8_11"
+{ ghcCompiler ? "ghc884"
 
 , doBenchmark ? false
 , doProfiling ? true
 , doStrict    ? true
 
-, rev    ? "4855aa62fa13052fb1a3daea68971503ab07a744"
-, sha256 ? "17sk264qw397zzw12x11ry5vj9qidgbmjsyj544ysg857b4qq9sj"
+, rev    ? "970b2b853d41ec80a3c2aba3e585f52818fbbfa3"
+, sha256 ? "0cwm2gvnb7dfw9pjrwzlxb2klix58chc36nnymahjqaa1qmnpbpq"
 
 , pkgs ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
@@ -53,9 +52,7 @@
 
 let haskellPackages = pkgs.haskell.packages.${ghcCompiler};
 
-in with pkgs.${coqPackages};
-
-haskellPackages.developPackage rec {
+in haskellPackages.developPackage rec {
   name = "haskell-${ghcCompiler}-trade-journal";
   root = ./.;
 
@@ -77,10 +74,6 @@ haskellPackages.developPackage rec {
       haskellPackages.hasktags
       haskellPackages.ghcid
       haskellPackages.ormolu
-      coq
-      coq.ocaml
-      coq.camlp5
-      coq.findlib
       pkgs.mpfr.out
       pkgs.mpfr.dev
     ];
@@ -99,7 +92,6 @@ haskellPackages.developPackage rec {
 
     passthru = {
       nixpkgs = pkgs;
-      compatibleCoqVersions = v: builtins.elem v [ "8.11" ];
       inherit haskellPackages;
     };
 
