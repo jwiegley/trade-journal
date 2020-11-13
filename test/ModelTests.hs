@@ -178,6 +178,7 @@ buyBuy = property $ do
 buySellBreakeven :: Property
 buySellBreakeven = property $ do
   b <- forAll $ genTimed genLot
+  let c = (b ^. item . amount) * (b ^. item . price)
   -- A buy and sell at break-even
   lift $
     processActionsWithChanges
@@ -195,8 +196,21 @@ buySellBreakeven = property $ do
               ),
             RemoveEvent 1
           ],
-          [ Buy <$> (b & item . details <>~ [Position Open]),
-            Sell <$> (b & item . details <>~ [Position Close, Gain 0])
+          [ Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  ),
+            Sell
+              <$> ( b & item . details
+                      <>~ [ Position Close,
+                            Gain 0,
+                            Balance 0,
+                            Net (c ^. coerced)
+                          ]
+                  )
           ]
         )
 
@@ -205,6 +219,8 @@ buySellProfit = property $ do
   b <- forAll $ genTimed genLot
   let s = b
       sp = s & item . price +~ 10
+      c = (b ^. item . amount) * (b ^. item . price)
+      sc = (sp ^. item . amount) * (sp ^. item . price)
   -- A buy and sell at a profit
   lift $
     processActionsWithChanges
@@ -222,8 +238,21 @@ buySellProfit = property $ do
               ),
             RemoveEvent 1
           ],
-          [ Buy <$> (b & item . details <>~ [Position Open]),
-            Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
+          [ Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  ),
+            Sell
+              <$> ( sp & item . details
+                      <>~ [ Position Close,
+                            Gain 10,
+                            Balance (c ^. coerced . to negate + sc ^. coerced),
+                            Net (sc ^. coerced)
+                          ]
+                  )
           ]
         )
 
@@ -233,6 +262,8 @@ buySellPartProfit = property $ do
   let b2 = b & item . amount *~ 2
       s = b
       sp = s & item . price +~ 10
+      c2 = (b2 ^. item . amount) * (b2 ^. item . price)
+      sc = (sp ^. item . amount) * (sp ^. item . price)
   -- A buy and sell at a partial profit
   lift $
     processActionsWithChanges
@@ -250,8 +281,21 @@ buySellPartProfit = property $ do
               ),
             ReplaceEvent 1 (Opened True <$> b)
           ],
-          [ Buy <$> (b2 & item . details <>~ [Position Open]),
-            Sell <$> (sp & item . details <>~ [Position Close, Gain 10])
+          [ Buy
+              <$> ( b2 & item . details
+                      <>~ [ Position Open,
+                            Balance (c2 ^. coerced . to negate),
+                            Net (c2 ^. coerced . to negate)
+                          ]
+                  ),
+            Sell
+              <$> ( sp & item . details
+                      <>~ [ Position Close,
+                            Gain 10,
+                            Balance (c2 ^. coerced . to negate + sc ^. coerced),
+                            Net (sc ^. coerced)
+                          ]
+                  )
           ]
         )
 
@@ -259,8 +303,9 @@ buySellLoss :: Property
 buySellLoss = property $ do
   b <- forAll $ genTimed genLot
   let s = b
-      sl =
-        s & item . price -~ 1
+      sl = s & item . price -~ 1
+      c = (b ^. item . amount) * (b ^. item . price)
+      sc = (sl ^. item . amount) * (sl ^. item . price)
   -- A buy and sell at a loss
   lift $
     processActionsWithChanges
@@ -282,8 +327,24 @@ buySellLoss = property $ do
             Submit (sl & item . price .~ 1),
             SubmitEnd
           ],
-          [ Buy <$> (b & item . details <>~ [Position Open]),
-            Sell <$> (sl & item . details <>~ [Position Close, Loss 1])
+          [ Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  ),
+            Sell
+              <$> ( sl & item . details
+                      <>~ [ Position Close,
+                            Loss 1,
+                            Balance
+                              ( c ^. coerced . to negate
+                                  + sc ^. coerced
+                              ),
+                            Net (sc ^. coerced)
+                          ]
+                  )
           ]
         )
 
@@ -296,6 +357,9 @@ buySellLossBuy = property $ do
           & item . details <>~ [WashTo "A" Nothing]
       b2 =
         b & item . details <>~ [WashApply "A" (b ^. item . amount)]
+      c = (b ^. item . amount) * (b ^. item . price)
+      c2 = (b2 ^. item . amount) * (b2 ^. item . price)
+      sc = (sl ^. item . amount) * (sl ^. item . price)
   -- A buy and sell at a loss, followed by a buy
   lift $
     processActionsWithChanges
@@ -335,18 +399,44 @@ buySellLossBuy = property $ do
                       )
               )
           ],
-          [ Buy <$> (b & item . details <>~ [Position Open]),
+          [ Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  ),
             Sell
               <$> ( sl & item . details
                       <>~ [ Position Close,
-                            Loss 1
+                            Loss 1,
+                            Balance
+                              ( c ^. coerced . to negate
+                                  + sc ^. coerced
+                              ),
+                            Net (sc ^. coerced)
                           ]
                   ),
-            Wash <$> (sl & item . price .~ 1),
+            Wash
+              <$> ( sl & item . price .~ 1
+                      & item . details
+                        <>~ [ Balance
+                                ( c ^. coerced . to negate
+                                    + sc ^. coerced
+                                ),
+                              Net 0
+                            ]
+                  ),
             Buy
               <$> ( b2 & item . details
                       <>~ [ Position Open,
-                            Washed 1
+                            Washed 1,
+                            Balance
+                              ( c ^. coerced . to negate
+                                  + sc ^. coerced
+                                  + c2 ^. coerced . to negate
+                              ),
+                            Net (c2 ^. coerced . to negate)
                           ]
                   )
           ]
@@ -357,6 +447,8 @@ buyBuySellLoss = property $ do
   b <- forAll $ genTimed genLot
   let s = b
       sl = s & item . price -~ 1
+      c = (b ^. item . amount) * (b ^. item . price)
+      sc = (sl ^. item . amount) * (sl ^. item . price)
   -- A buy, a buy and then a sell at a loss
   lift $
     processActionsWithChanges
@@ -395,13 +487,41 @@ buyBuySellLoss = property $ do
               ),
             SubmitEnd
           ],
-          [ Buy <$> (b & item . details <>~ [Position Open]),
-            Buy <$> (b & item . details <>~ [Position Open]),
+          [ Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  ),
+            Buy
+              <$> ( b & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced . to negate * 2),
+                            Net (c ^. coerced . to negate)
+                          ]
+                  ),
             Sell
-              <$> (sl & item . details <>~ [Position Close, Loss 1]),
+              <$> ( sl & item . details
+                      <>~ [ Position Close,
+                            Loss 1,
+                            Balance
+                              ( c ^. coerced . to negate * 2
+                                  + sc ^. coerced
+                              ),
+                            Net (sc ^. coerced)
+                          ]
+                  ),
             Wash
               <$> ( b & item . price .~ 1
-                      & item . details <>~ [Washed (b ^. item . price)]
+                      & item . details
+                        <>~ [ Washed (b ^. item . price),
+                              Balance
+                                ( c ^. coerced . to negate * 2
+                                    + sc ^. coerced
+                                ),
+                              Net 0
+                            ]
                   )
           ]
         )
@@ -409,6 +529,7 @@ buyBuySellLoss = property $ do
 simpleSell :: Property
 simpleSell = property $ do
   s <- forAll $ genTimed genLot
+  let c = (s ^. item . amount) * (s ^. item . price)
   -- A simple sell
   lift $
     processActionsWithChanges
@@ -418,13 +539,21 @@ simpleSell = property $ do
             AddEvent (Opened False <$> s),
             Result (Sell <$> (s & item . details <>~ [Position Open]))
           ],
-          [Sell <$> (s & item . details <>~ [Position Open])]
+          [ Sell
+              <$> ( s & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced),
+                            Net (c ^. coerced)
+                          ]
+                  )
+          ]
         )
 
 sellBuyProfit :: Property
 sellBuyProfit = property $ do
   b <- forAll $ genTimed genLot
   let s = b
+      c = (s ^. item . amount) * (s ^. item . price)
   -- A sell and buy at a profit
   lift $
     processActionsWithChanges
@@ -442,7 +571,20 @@ sellBuyProfit = property $ do
               ),
             RemoveEvent 1
           ],
-          [ Sell <$> (s & item . details <>~ [Position Open]),
-            Buy <$> (b & item . details <>~ [Position Close, Gain 0])
+          [ Sell
+              <$> ( s & item . details
+                      <>~ [ Position Open,
+                            Balance (c ^. coerced),
+                            Net (c ^. coerced)
+                          ]
+                  ),
+            Buy
+              <$> ( b & item . details
+                      <>~ [ Position Close,
+                            Gain 0,
+                            Balance 0,
+                            Net (c ^. coerced . to negate)
+                          ]
+                  )
           ]
         )
