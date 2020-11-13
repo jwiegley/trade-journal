@@ -17,7 +17,7 @@ import Data.Time
 import Data.Time.Format.ISO8601
 import Debug.Trace (traceM)
 import Text.PrettyPrint as P
-import Prelude hiding ((<>), Double, Float)
+import Prelude hiding (Double, Float, (<>))
 
 readonly :: Monad m => ReaderT s m a -> StateT s m a
 readonly f = lift . runReaderT f =<< get
@@ -104,6 +104,7 @@ tshow = text . show
 -- while traversing, and if your original Text contains only isolated split
 -- strings.
 splitOn :: Applicative f => Text -> IndexedLensLike' Int f Text Text
-splitOn s f = fmap (T.intercalate s) . go . T.splitOn s
-  where
-    go = conjoined traverse (indexing traverse) f
+splitOn s f =
+  fmap (T.intercalate s)
+    . conjoined traverse (indexing traverse) f
+    . T.splitOn s
