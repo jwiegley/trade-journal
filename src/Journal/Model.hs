@@ -20,8 +20,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Writer
 import Data.Foldable
-import Data.List (sortOn)
-import Data.List (tails)
+import Data.List (sortOn, tails)
 import Journal.Amount
 import Journal.Split
 import Journal.Types
@@ -32,8 +31,7 @@ import Prelude hiding (Double, Float)
 --   buy and sell at given prices -- into a record of transactions with the
 --   broker where all gains and losses have been calculated.
 processJournal :: MonadError JournalError m => Journal -> m Journal
-processJournal =
-  fmap (Journal . snd) . processActionsWithChanges . view actions
+processJournal = fmap snd . processJournalWithChanges
 
 processJournalWithChanges ::
   MonadError JournalError m =>
@@ -69,8 +67,8 @@ checkNetAmount x
   | Just itemNet <- x ^? item . _Lot . details . traverse . _Net = do
     let calcNet = netAmount (x ^. item)
     if itemNet == calcNet
-      then throwError $ NetAmountDoesNotMatch x calcNet itemNet
-      else pure x
+      then pure x
+      else throwError $ NetAmountDoesNotMatch x calcNet itemNet
   | otherwise =
     pure $ x & item . _Lot . details <>~ [Net (netAmount (x ^. item))]
 
@@ -96,7 +94,7 @@ processAction ::
   Timed Action ->
   StateT (Int, Amount 2, InstrumentState) m ([Change], [Timed Action])
 processAction =
-    fmap unzipBoth . mapM applyChange <=< readonly . impliedChanges
+  fmap unzipBoth . mapM applyChange <=< readonly . impliedChanges
   where
     applyChange chg = case chg of
       SawAction _ -> throwError $ ChangeNotFromImpliedChanges chg
@@ -124,25 +122,14 @@ processAction =
           %= \case Nothing -> Just [lot]; Just xs -> Just (lot : xs)
         pure ([chg], [])
 
--- | A specialized variant of 'foldM' with some arguments shifted around.
-shortFoldM ::
-  Monad m =>
-  a ->
-  [b] ->
-  (b -> Maybe a -> m (Maybe a)) ->
-  m (Maybe a)
-shortFoldM z xs f = foldM (flip f) (Just z) xs
-
 impliedChanges ::
   MonadError JournalError m =>
   Timed Action ->
   ReaderT (Int, Amount 2, InstrumentState) m [Change]
 impliedChanges x = do
   hist <- asks (sortOn fst . toListOf (_3 . events . ifolded . withIndex))
-  (mx, changes) <- runWriterT $ shortFoldM x (tails hist) $
-    \hs -> \case
-      Nothing -> pure Nothing
-      Just x' -> handle hs x'
+  (mx, changes) <-
+    runWriterT $ foldAM x (tails hist) $ maybe (pure Nothing) . handle
   forM_ mx $ throwError . UnexpectedRemainder
   pure changes
 
@@ -201,7 +188,7 @@ handle [] act@(preview wash -> Just x) = do
 -- Otherwise, if there is no history to examine then this buy or sale must
 -- open a new position.
 handle [] action = do
-  mact <- shortFoldM
+  mact <- foldAM
     action
     (action ^.. buyOrSell . details . traverse . _WashApply)
     $ \(name, _amount) -> \case

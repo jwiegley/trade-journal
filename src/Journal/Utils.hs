@@ -6,6 +6,7 @@ module Journal.Utils where
 import Control.Applicative
 import Control.Arrow
 import Control.Lens
+import Control.Monad (foldM)
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
@@ -21,29 +22,36 @@ import Prelude hiding (Double, Float, (<>))
 
 readonly :: Monad m => ReaderT s m a -> StateT s m a
 readonly f = lift . runReaderT f =<< get
+{-# INLINE readonly #-}
 
 justify :: [a] -> [Maybe a]
 justify [] = [Nothing]
 justify (x : xs) = Just x : justify xs
+{-# INLINE justify #-}
 
 unzipBoth :: [([a], [b])] -> ([a], [b])
 unzipBoth = (concat *** concat) . unzip
+{-# INLINE unzipBoth #-}
 
 distance :: UTCTime -> UTCTime -> Integer
 distance x y = abs (utctDay x `diffDays` utctDay y)
+{-# INLINE distance #-}
 
 renderM :: Applicative f => Doc -> f ()
 renderM = traceM . render
+{-# INLINE renderM #-}
 
 percent :: (Num a, Num b, Coercible b a) => a -> Lens' b b
 percent n f s = f part <&> \v -> v + (s - part)
   where
     part = s * coerce n
+{-# INLINE percent #-}
 
 zipped :: Traversal' s a -> Traversal' s b -> Traversal' s (a, b)
 zipped f g k s = case liftA2 (,) (s ^? f) (s ^? g) of
   Nothing -> pure s
   Just p -> k p <&> \(a, b) -> s & f .~ a & g .~ b
+{-# INLINE zipped #-}
 
 zipped3 ::
   Traversal' s a ->
@@ -60,6 +68,16 @@ contractList _ [x] = [x]
 contractList f (x : y : xs) = case f x y of
   Nothing -> x : contractList f (y : xs)
   Just z -> contractList f (z : xs)
+
+-- | A specialized variant of 'foldM' with some arguments shifted around.
+foldAM ::
+  (Monad m, Applicative f) =>
+  a ->
+  [b] ->
+  (b -> f a -> m (f a)) ->
+  m (f a)
+foldAM z xs f = foldM (flip f) (pure z) xs
+{-# INLINE foldAM #-}
 
 renderList :: (a -> Doc) -> [a] -> Doc
 renderList _ [] = brackets P.empty
@@ -90,6 +108,7 @@ instance Render UTCTime where
 
 tshow :: Show a => a -> Doc
 tshow = text . show
+{-# INLINE tshow #-}
 
 -- A Fold over the individual components of a Text split on a separator.
 --
@@ -108,3 +127,4 @@ splitOn s f =
   fmap (T.intercalate s)
     . conjoined traverse (indexing traverse) f
     . T.splitOn s
+{-# INLINE splitOn #-}

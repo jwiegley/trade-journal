@@ -117,10 +117,11 @@ printJournal =
 
 printTimed :: (a -> Text) -> Timed a -> Text
 printTimed printItem t =
-  TL.concat $ intersperse " " $
-    [ printTime (t ^. time),
-      printItem (t ^. item)
-    ]
+  TL.concat $
+    intersperse " " $
+      [ printTime (t ^. time),
+        printItem (t ^. item)
+      ]
 
 printAction :: Action -> Text
 printAction = \case
@@ -159,22 +160,24 @@ printLot lot =
     (inlineAnns, separateAnns) = partitionEithers annotations
     totalAmount n x = printAmount n (totaled lot x)
     printAnnotation = \case
-      Position eff -> Just $ Left $ case eff of
-        Open -> "open"
-        Close -> "close"
+      Position eff -> Just $
+        Left $ case eff of
+          Open -> "open"
+          Close -> "close"
       Fees x -> Just $ Left $ "fees " <> totalAmount 2 x
       Commission x -> Just $ Left $ "commission " <> totalAmount 2 x
       Gain x -> Just $ Right $ "gain " <> totalAmount 6 x
       Loss x -> Just $ Right $ "loss " <> totalAmount 6 x
       Washed x -> Just $ Right $ "washed " <> totalAmount 6 x
       WashTo x (Just (q, p)) ->
-        Just $ Left $
-          "wash "
-            <> printAmount 0 q
-            <> " @ "
-            <> printAmount 4 p
-            <> " to "
-            <> TL.fromStrict x
+        Just $
+          Left $
+            "wash "
+              <> printAmount 0 q
+              <> " @ "
+              <> printAmount 4 p
+              <> " to "
+              <> TL.fromStrict x
       WashTo x Nothing -> Just $ Left $ "wash to " <> TL.fromStrict x
       WashApply x amt ->
         Just $ Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt

@@ -55,19 +55,12 @@ import Text.Show.Pretty as P
 import Prelude hiding (Double, Float)
 
 mpfr_RNDN, mpfr_RNDZ, mpfr_RNDU, mpfr_RNDD, mpfr_RNDA, mpfr_RNDF :: CUInt
-
 mpfr_RNDNA :: CUInt
-
 mpfr_RNDN = 0 -- round to nearest, with ties to even
-
 mpfr_RNDZ = 1 -- round toward zero
-
 mpfr_RNDU = 2 -- round toward +Inf
-
 mpfr_RNDD = 3 -- round toward -Inf
-
 mpfr_RNDA = 4 -- round away from zero
-
 mpfr_RNDF = 5 -- faithful rounding
 
 mpfr_RNDNA = 6 -- round to nearest, with ties away from zero (mpfr_round)
@@ -98,17 +91,18 @@ instance KnownNat n => PrettyVal (Amount n) where
 
 showAmount :: forall n. KnownNat n => CUInt -> Amount n -> String
 showAmount rnd (Amount r) =
-  unsafePerformIO $ alloca $ \bufPtr -> do
-    c'rational_to_str
-      (CLong (numerator r))
-      (CULong (fromIntegral (denominator r)))
-      rnd
-      (CSize (fromIntegral (natVal (Proxy :: Proxy n))))
-      bufPtr
-    buf <- peek bufPtr
-    str <- peekCString buf
-    c'mpfr_free_str buf
-    return str
+  unsafePerformIO $
+    alloca $ \bufPtr -> do
+      c'rational_to_str
+        (CLong (numerator r))
+        (CULong (fromIntegral (denominator r)))
+        rnd
+        (CSize (fromIntegral (natVal (Proxy :: Proxy n))))
+        bufPtr
+      buf <- peek bufPtr
+      str <- peekCString buf
+      c'mpfr_free_str buf
+      return str
 
 instance KnownNat n => Eq (Amount n) where
   (==) = (==) `on` show
@@ -161,15 +155,17 @@ amountToString n = touchup . cleanup n . showAmount mpfr_RNDNA
       | last s == '.' = take (length s - 1) s
       | otherwise = s
     cleanup m t
-      | len > m && last t == '0' = cleanup m (take (length t - 1) t)
+      | len > m && last t == '0' && '.' `elem` t =
+        cleanup m (take (length t - 1) t)
       | otherwise = t
       where
         len = length (last (splitOn "." t))
 
 thousands :: forall n. KnownNat n => Amount n -> String
 thousands d = intercalate "." $ case splitOn "." str of
-  x : xs -> (reverse . go . reverse) x
-    : case xs of
+  x : xs ->
+    (reverse . go . reverse) x :
+    case xs of
       y : ys -> expand y : ys
       _ | isInt -> ["00"]
       _ -> []

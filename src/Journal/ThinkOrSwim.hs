@@ -13,6 +13,7 @@ import Control.Monad.State
 import qualified Data.ByteString as B
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BL
+import Data.Char
 import qualified Data.Csv as Csv
 import Data.Foldable
 import Data.Map (Map)
@@ -154,7 +155,7 @@ data TOSEntry
 data PutCall = Put | Call
   deriving (Eq, Show)
 
-data TOSDevice = Desktop | IPhone | IPad
+data TOSDevice = Desktop | IPhone | IPad | Keys [Text] Text
   deriving (Eq, Show)
 
 data TOSOption = TOSOption
@@ -168,7 +169,7 @@ data TOSTrade = TOSTrade
   { tdQuantity :: Amount 0,
     tdSymbol :: Symbol,
     tdOptDetails :: [TOSOption],
-    tdPrice :: Amount 0,
+    tdPrice :: Amount 2,
     tdExchange :: Maybe Text
   }
   deriving (Eq, Show)
@@ -177,10 +178,10 @@ type Parser = ParsecT Void Text Identity
 
 parseTrade :: Parser TOSTrade
 parseTrade = do
-  tdQuantity <- pure 0
-  tdSymbol <- pure ""
+  tdQuantity <- parseAmount
+  tdSymbol <- parseSymbol
   tdOptDetails <- pure []
-  tdPrice <- pure 0
+  tdPrice <- char '@' *> parseAmount
   tdExchange <- optional parseExchange
   pure TOSTrade {..}
 
@@ -188,20 +189,38 @@ parseDevice :: Parser TOSDevice
 parseDevice =
   (IPhone <$ symbol "tIP")
     <|> (IPad <$ symbol "tIPAD")
+    <|> ( Keys
+            <$> ( symbol "KEY:"
+                    *> some
+                      ( symbol "Ctrl"
+                          <|> symbol "Shift"
+                          <|> symbol "Alt"
+                      )
+                )
+              <*> ( TL.pack . (: [])
+                      <$> oneOf ['A' .. 'Z'] <* space
+                  )
+        )
     <|> pure Desktop
 
 parseAmount :: KnownNat n => Parser (Amount n)
-parseAmount = undefined
+parseAmount = do
+  str <- many $ satisfy $ \c -> isDigit c || c `elem` ['.', '-', '+']
+  whiteSpace
+  case str ^? _Amount of
+    Nothing -> fail $ "Could not parse amount: " ++ str
+    Just n -> pure n
 
 parseSymbol :: Parser Symbol
-parseSymbol = TL.pack <$> some (oneOf ['A' .. 'Z'])
+parseSymbol =
+  fmap TL.pack $ many $ satisfy (\c -> isAlphaNum c || c == '/') <* whiteSpace
 
 parseEntry :: Parser TOSEntry
 parseEntry =
   (AchCredit <$ symbol "ACH CREDIT RECEIVED")
     <|> (AchDebit <$ symbol "ACH DEBIT RECEIVED")
     <|> (AdrFee <$> (symbol "ADR FEE~" *> parseSymbol))
-    <|> (Bought <$> parseDevice <*> (symbol "BOT" *> parseTrade))
+    <|> try (Bought <$> parseDevice <*> (symbol "BOT" *> parseTrade))
     <|> ( CashAltInterest
             <$> parseAmount
             <*> (symbol "CASH ALTERNATIVES INTEREST" *> parseSymbol)
@@ -304,3 +323,6 @@ symbol = lexeme . string
 
 testParser :: Text -> Either (ParseErrorBundle Text Void) TOSEntry
 testParser = parse parseEntry ""
+
+test :: IO ()
+test = parseTest parseEntry "KEY: Ctrl Shift S SOLD -100 CRWD @66.66"
