@@ -5,6 +5,10 @@ author:      John Wiegley
 maintainer:  johnw@newartisans.com
 description: Command-line reporting utility for processing trade journals.
 
+ghc-options:
+   - -Wall
+   - -Wno-missing-home-modules
+
 # ghc-options:
 #   - -Wall
 #   # - -Werror

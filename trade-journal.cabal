@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 57139492680a59de2779610c2e2a97994abdbf405b12b6482afe8dcc8264cfa2
+-- hash: 786965258a7c466f5fd078dd4e97e4597b8c5ccca1e9eb96915cb06279429a45
 
 name:           trade-journal
 version:        0.0.2
@@ -28,6 +28,7 @@ library
       Paths_trade_journal
   hs-source-dirs:
       src
+  ghc-options: -Wall -Wno-missing-home-modules
   c-sources:
       src/Journal/mpfr_printf.c
   extra-libraries:
@@ -58,6 +59,7 @@ executable trade-journal
   main-is: Main.hs
   other-modules:
       Options
+  ghc-options: -Wall -Wno-missing-home-modules
   build-depends:
       aeson
     , base >=4.5 && <5.0
@@ -82,9 +84,11 @@ test-suite trade-journal-tests
   other-modules:
       Examples
       ModelTests
+      ThinkOrSwim
       Paths_trade_journal
   hs-source-dirs:
       test
+  ghc-options: -Wall -Wno-missing-home-modules
   build-depends:
       HUnit
     , aeson

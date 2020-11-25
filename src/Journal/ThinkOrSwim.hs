@@ -4,10 +4,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Journal.ThinkOrSwim where
 
+import Control.Applicative (liftA2)
 import Control.Lens
 import Control.Monad.State
 import qualified Data.ByteString as B
@@ -20,6 +22,8 @@ import Data.Map (Map)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
+import qualified Data.Text.Lazy.IO as TL
+import Data.Time
 import Data.Void (Void)
 import GHC.TypeLits (KnownNat)
 import Journal.Amount
@@ -153,37 +157,266 @@ data TOSEntry
   deriving (Eq, Show)
 
 data PutCall = Put | Call
-  deriving (Eq, Show)
+  deriving (Eq)
+
+instance Show PutCall where
+  show Put = "PUT"
+  show Call = "CALL"
 
 data TOSDevice = Desktop | IPhone | IPad | Keys [Text] Text
   deriving (Eq, Show)
 
-data TOSOption = TOSOption
-  { optMultiple :: Amount 0,
-    optExpirationDate :: Amount 0,
-    optKind :: PutCall
+data OptionExpirationDate = OptionExpirationDate
+  { expirationDay :: Day,
+    expirationName :: Text
   }
   deriving (Eq, Show)
+
+data TOSOption = TOSOption
+  { opMult :: Int,
+    opEx :: OptionExpirationDate,
+    opStrike :: Amount 2,
+    opKind :: PutCall
+  }
+  deriving (Eq)
+
+instance Show TOSOption where
+  show TOSOption {..} =
+    show opMult
+      ++ " "
+      ++ show opEx
+      ++ " "
+      ++ show opStrike
+      ++ " "
+      ++ show opKind
+
+data FutureOptionExpirationDate = FutureOptionExpirationDate
+  { futExpirationMon :: Int,
+    futExpirationYear :: Int,
+    futExpirationName :: Text
+  }
+  deriving (Eq, Show)
+
+data TOSFuturesOption = TOSFuturesOption
+  { futOpMultNum :: Int,
+    futOpMultDen :: Int,
+    futOpEx :: FutureOptionExpirationDate,
+    futOpContract :: Symbol,
+    futOpStrike :: Amount 2,
+    futOpKind :: PutCall
+  }
+  deriving (Eq, Show)
+
+data TOSOptionTrade
+  = SingleOption TOSOption
+  | OptionStrategy Text [Either Symbol TOSOption]
+  | SingleFuturesOption TOSFuturesOption
+  | FuturesOptionStrategy Text [Either Symbol TOSFuturesOption]
+  deriving (Eq)
+
+instance Show TOSOptionTrade where
+  show (SingleOption opt) = show opt
+  show (OptionStrategy _ opts) = show opts
+  show (SingleFuturesOption fut) = show fut
+  show (FuturesOptionStrategy _ futs) = show futs
 
 data TOSTrade = TOSTrade
   { tdQuantity :: Amount 0,
     tdSymbol :: Symbol,
-    tdOptDetails :: [TOSOption],
+    tdOptDetails :: Maybe TOSOptionTrade,
     tdPrice :: Amount 2,
     tdExchange :: Maybe Text
   }
-  deriving (Eq, Show)
+  deriving (Eq)
+
+instance Show TOSTrade where
+  show TOSTrade {..} =
+    show tdQuantity
+      ++ case tdOptDetails of
+        Just (OptionStrategy strat _) -> " " ++ TL.unpack strat
+        Just (FuturesOptionStrategy strat _) -> " " ++ TL.unpack strat
+        _ -> ""
+      ++ " "
+      ++ TL.unpack tdSymbol
+      ++ " "
+      ++ show tdOptDetails
+      ++ " @"
+      ++ show tdPrice
+      ++ maybe "" (\x -> " " ++ TL.unpack x) tdExchange
 
 type Parser = ParsecT Void Text Identity
+
+parseStrategy :: Parser Text
+parseStrategy =
+  symbol "VERTICAL"
+    <|> symbol "COMBO"
+    <|> symbol "COVERED"
+    <|> symbol "DIAGONAL"
 
 parseTrade :: Parser TOSTrade
 parseTrade = do
   tdQuantity <- parseAmount
+  strategy <- optional parseStrategy
   tdSymbol <- parseSymbol
-  tdOptDetails <- pure []
+  tdOptDetails <-
+    case strategy of
+      Nothing ->
+        try (Just . SingleFuturesOption <$> parseFuturesOption)
+          <|> Just . SingleOption <$> parseOption
+          <|> pure Nothing
+      Just strat ->
+        try (Just . FuturesOptionStrategy strat <$> parseFuturesOptionStrategy)
+          <|> try (Just . OptionStrategy strat <$> parseOptionStrategy)
   tdPrice <- char '@' *> parseAmount
   tdExchange <- optional parseExchange
   pure TOSTrade {..}
+
+matchup :: [a] -> [b] -> [c] -> [(a, b, c)]
+matchup xs ys zs =
+  let n = lcm (length xs) (lcm (length ys) (length zs))
+   in zip3
+        (concat (replicate (n `div` length xs) xs))
+        (concat (replicate (n `div` length ys) ys))
+        (concat (replicate (n `div` length zs) zs))
+
+parseFuturesOptionStrategy :: Parser [Either Symbol TOSFuturesOption]
+parseFuturesOptionStrategy = do
+  futOpMultNum <- read <$> some (satisfy isDigit)
+  _ <- char '/'
+  futOpMultDen <- read <$> some (satisfy isDigit)
+  whiteSpace
+  futOpExs <- parseSeparated (char '/') parseFutOpExDate
+  futOpContract <- parseSymbol
+  futOpStrikes <- parseSeparated (char '/') (parseAmount @2)
+  futOpKinds <-
+    parseSeparated
+      (char '/')
+      (Right <$> parsePutCall <|> Left <$> parseSymbol)
+  pure $
+    flip map (matchup futOpExs futOpStrikes futOpKinds) $
+      \(futOpEx, futOpStrike, e) ->
+        case e of
+          Left sym -> Left sym
+          Right futOpKind -> Right TOSFuturesOption {..}
+
+parseFuturesOption :: Parser TOSFuturesOption
+parseFuturesOption = do
+  futOpMultNum <- read <$> some (satisfy isDigit)
+  _ <- char '/'
+  futOpMultDen <- read <$> some (satisfy isDigit)
+  whiteSpace
+  futOpEx <- parseFutOpExDate
+  futOpContract <- parseSymbol
+  futOpStrike <- parseAmount @2
+  futOpKind <- parsePutCall
+  pure TOSFuturesOption {..}
+
+parseFutOpExDate :: Parser FutureOptionExpirationDate
+parseFutOpExDate = do
+  mon <- parseMonth <* whiteSpace
+  year <- some (satisfy isDigit) <* whiteSpace
+  postDesc <- many $
+    try $ do
+      whiteSpace
+      _ <- char '('
+      desc <- some (satisfy isAlphaNum)
+      _ <- char ')'
+      pure $ TL.pack $ "(" ++ desc ++ ")"
+  whiteSpace
+  pure
+    FutureOptionExpirationDate
+      { futExpirationMon = monToInt mon,
+        futExpirationYear = 2000 + read year,
+        futExpirationName =
+          mon
+            <> " "
+            <> TL.pack year
+            <> TL.concat [" " <> x | x <- postDesc]
+      }
+
+parseOptionStrategy :: Parser [Either Symbol TOSOption]
+parseOptionStrategy = do
+  opMult <- read <$> some (satisfy isDigit)
+  whiteSpace
+  opExs <- parseSeparated (char '/') parseOpExDate
+  opStrikes <- parseSeparated (char '/') (parseAmount @2)
+  opKinds <-
+    parseSeparated
+      (char '/')
+      (Right <$> parsePutCall <|> Left <$> parseSymbol)
+  pure $
+    flip map (matchup opExs opStrikes opKinds) $
+      \(opEx, opStrike, e) ->
+        case e of
+          Left sym -> Left sym
+          Right opKind -> Right TOSOption {..}
+
+parseOption :: Parser TOSOption
+parseOption = do
+  opMult <- read <$> some (satisfy isDigit)
+  whiteSpace
+  opEx <- parseOpExDate
+  opStrike <- parseAmount
+  opKind <- parsePutCall
+  pure TOSOption {..}
+
+parseOpExDate :: Parser OptionExpirationDate
+parseOpExDate = do
+  preDesc <- many $ do
+    _ <- char '('
+    desc <- some (satisfy isAlphaNum)
+    _ <- char ')'
+    whiteSpace
+    pure $ TL.pack $ "(" ++ desc ++ ")"
+  day <- many (satisfy isDigit) <* whiteSpace
+  mon <- parseMonth <* whiteSpace
+  year <- some (satisfy isDigit) <* whiteSpace
+  whiteSpace
+  pure
+    OptionExpirationDate
+      { expirationDay =
+          fromGregorian (2000 + read year) (monToInt mon) (read day),
+        expirationName =
+          TL.concat [x <> " " | x <- preDesc]
+            <> TL.pack day
+            <> " "
+            <> mon
+            <> " "
+            <> TL.pack year
+      }
+
+monToInt :: Text -> Int
+monToInt "JAN" = 1
+monToInt "FEB" = 2
+monToInt "MAR" = 3
+monToInt "APR" = 4
+monToInt "MAY" = 5
+monToInt "JUN" = 6
+monToInt "JUL" = 7
+monToInt "AUG" = 8
+monToInt "SEP" = 9
+monToInt "OCT" = 10
+monToInt "NOV" = 11
+monToInt "DEC" = 12
+monToInt m = error $ "Unexpected month: " ++ TL.unpack m
+
+parseMonth :: Parser Text
+parseMonth =
+  symbol "JAN"
+    <|> symbol "FEB"
+    <|> symbol "MAR"
+    <|> symbol "APR"
+    <|> symbol "MAY"
+    <|> symbol "JUN"
+    <|> symbol "JUL"
+    <|> symbol "AUG"
+    <|> symbol "SEP"
+    <|> symbol "OCT"
+    <|> symbol "NOV"
+    <|> symbol "DEC"
+
+parsePutCall :: Parser PutCall
+parsePutCall = Put <$ symbol "PUT" <|> Call <$ symbol "CALL"
 
 parseDevice :: Parser TOSDevice
 parseDevice =
@@ -205,15 +438,24 @@ parseDevice =
 
 parseAmount :: KnownNat n => Parser (Amount n)
 parseAmount = do
-  str <- many $ satisfy $ \c -> isDigit c || c `elem` ['.', '-', '+']
+  _ <- optional $ char '+'
+  str <- some $ satisfy $ \c -> isDigit c || c `elem` ['.', '-', '+', ',']
   whiteSpace
-  case str ^? _Amount of
+  case ( if head str == '.'
+           then '0' : str
+           else str
+       )
+    ^? _Amount of
     Nothing -> fail $ "Could not parse amount: " ++ str
     Just n -> pure n
 
 parseSymbol :: Parser Symbol
 parseSymbol =
-  fmap TL.pack $ many $ satisfy (\c -> isAlphaNum c || c == '/') <* whiteSpace
+  fmap TL.pack (many (satisfy (\c -> isAlphaNum c || c `elem` ['/', ':'])))
+    <* whiteSpace
+
+parseSeparated :: Parser b -> Parser a -> Parser [a]
+parseSeparated s p = liftA2 (:) p (many (s *> p))
 
 parseEntry :: Parser TOSEntry
 parseEntry =
@@ -269,8 +511,8 @@ parseEntry =
     <|> ( symbol "REMOVAL OF OPTION DUE TO EXPIRATION"
             *> ( RemoveOptionDueToExpiration
                    <$> parseAmount
-                     <*> parseSymbol
-                     <*> parseOption
+                   <*> parseSymbol
+                   <*> parseOption
                )
         )
     <|> (Sold <$> parseDevice <*> (symbol "SOLD" *> parseTrade))
@@ -284,9 +526,6 @@ parseEntry =
     <|> (TransferOfCash <$ symbol "INTERNAL TRANSFER OF CASH")
     <|> (TransferToForexAccount <$ symbol "TRANSFER TO FOREX ACCOUNT")
     <|> (WireIncoming <$ symbol "WIRE INCOMING")
-
-parseOption :: Parser TOSOption
-parseOption = undefined
 
 parseExchange :: Parser Text
 parseExchange =
@@ -324,5 +563,7 @@ symbol = lexeme . string
 testParser :: Text -> Either (ParseErrorBundle Text Void) TOSEntry
 testParser = parse parseEntry ""
 
-test :: IO ()
-test = parseTest parseEntry "KEY: Ctrl Shift S SOLD -100 CRWD @66.66"
+test :: FilePath -> IO ()
+test path = do
+  contents <- TL.readFile path
+  forM_ (TL.lines contents) $ parseTest parseEntry
