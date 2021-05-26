@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -13,8 +14,8 @@ import Control.Applicative (liftA2)
 import Control.Lens
 import Control.Monad.State
 import qualified Data.ByteString as B
-import Data.ByteString.Lazy (ByteString)
-import qualified Data.ByteString.Lazy as BL
+-- import           Data.ByteString.Lazy (ByteString)
+-- import qualified Data.ByteString.Lazy as BL
 import Data.Char
 import qualified Data.Csv as Csv
 import Data.Foldable
@@ -25,15 +26,47 @@ import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Text.Lazy.IO as TL
 import Data.Time
 import Data.Void (Void)
+import Debug.Trace
 import GHC.TypeLits (KnownNat)
 import Journal.Amount
-import System.IO
+-- import           System.IO
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
+type Parser = ParsecT Void Text Identity
+
+data ForexAccountSummary = ForexAccountSummary
+  { _forexCash :: Amount 2,
+    _forexUnrealizedPL :: Amount 2,
+    _forexFloatingPL :: Amount 2,
+    _forexEquity :: Amount 2,
+    _forexMargin :: Amount 2,
+    _forexBuyingPower :: Amount 2,
+    _forexRiskLevel :: Amount 2,
+    _forexCommissionsYTD :: Amount 2
+  }
+  deriving (Eq, Show)
+
+makeLenses ''ForexAccountSummary
+
+data AccountSummary = AccountSummary
+  { _netLiquidatingValue :: Amount 2,
+    _stockBuyingPower :: Amount 2,
+    _optionBuyingPower :: Amount 2,
+    _equityCommissionsFeesYTD :: Amount 2,
+    _futuresCommissionsFeesYTD :: Amount 2,
+    _totalCommissionsFeesYTD :: Amount 2
+  }
+  deriving (Eq, Show)
+
+makeLenses ''AccountSummary
+
 data ThinkOrSwim = ThinkOrSwim
   { _account :: Text,
+    _name :: Text,
+    _since :: Day,
+    _until :: Day,
     _xacts :: [Csv.NamedRecord],
     _futures :: [Csv.NamedRecord],
     _forex :: [Csv.NamedRecord],
@@ -41,7 +74,9 @@ data ThinkOrSwim = ThinkOrSwim
     _trades :: [Csv.NamedRecord],
     _equities :: [Csv.NamedRecord],
     _options :: [Csv.NamedRecord],
-    _pandl :: [Csv.NamedRecord],
+    _profitAndLoss :: [Csv.NamedRecord],
+    _forexSummary :: ForexAccountSummary,
+    _accountSummary :: AccountSummary,
     _byOrderId ::
       Map
         B.ByteString
@@ -51,55 +86,150 @@ data ThinkOrSwim = ThinkOrSwim
 
 makeLenses ''ThinkOrSwim
 
-readSection :: Handle -> IO [Csv.NamedRecord]
-readSection h =
-  fmap (toList . snd)
-    . check
-    . Csv.decodeByNameWithP pure Csv.defaultDecodeOptions
-    =<< readUntilBlank
-  where
-    readUntilBlank = do
-      line <- BL.fromStrict <$> B.hGetLine h
-      if BL.null line
-        then pure line
-        else do
-          rest <- readUntilBlank
-          pure $ line <> "\n" <> rest
-    check :: MonadFail m => Either String a -> m a
-    check (Left err) = fail $ "Error: " ++ err
-    check (Right res) = pure res
+parseSection :: Parser [Csv.NamedRecord]
+parseSection = do
+  traceM "parseSection..1"
+  text <- someTill anySingle (try (newline <* many (char ' ') <* newline))
+  traceM "parseSection..2"
+  let bs = TL.encodeUtf8 . TL.pack $ text
+  traceM "parseSection..3"
+  case Csv.decodeByName bs of
+    Left err -> fail $ "Error: " ++ err
+    Right (_, res) -> pure $ toList res
 
-readCsv :: FilePath -> IO ThinkOrSwim
-readCsv path = withFile path ReadMode $ \h -> do
-  "\65279Account" : "Statement" : "for" : _account : _ <-
-    TL.words . TL.decodeUtf8 <$> readLine h
-  "" <- readLine h
-  "Cash Balance" <- readLine h
-  _xacts <- readSection h
-  "Futures Statements" <- readLine h
-  _futures <- readSection h
-  "Forex Statements" <- readLine h
-  _forex <- readSection h
-  _ <- readLine h
-  "\"Total" : "Cash" : _ <-
-    TL.words . TL.decodeUtf8 <$> readLine h
-  "" <- readLine h
-  "" <- readLine h
-  "Account Order History" <- readLine h
-  _orders <- readSection h
-  "Account Trade History" <- readLine h
-  _trades <- readSection h
-  "Equities" <- readLine h
-  _equities <- readSection h
-  "Options" <- readLine h
-  _options <- readSection h
-  "Profits and Losses" <- readLine h
-  _pandl <- readSection h
+parseMDY :: Parser Day
+parseMDY = do
+  mon <- L.decimal
+  _ <- char '/'
+  day <- L.decimal
+  _ <- char '/'
+  year <- L.decimal
+  whiteSpace
+  pure $ fromGregorian (2000 + year) mon day
+
+parseDollars :: Parser (Amount 2)
+parseDollars = char '$' *> parseAmount
+
+maybeQuoted :: Parser a -> Parser a
+maybeQuoted parser = do
+  _ <- optional $ char '"' <* whiteSpace
+  res <- parser
+  _ <- optional $ whiteSpace *> char '"'
+  pure res
+
+parseCsv :: Parser ThinkOrSwim
+parseCsv = do
+  traceM "parseCsv..1"
+  _ <- optional (char '\65279')
+
+  traceM "parseCsv..2"
+  symbol_ "Account Statement for"
+  _account <- TL.pack . (show :: Integer -> String) <$> L.decimal <* whiteSpace
+  _name <- symbol "(" <* someTill (alphaNumChar <* whiteSpace) (symbol ")")
+  symbol_ "since"
+  _since <- parseMDY
+  symbol_ "through"
+  _until <- parseMDY
+
+  traceM "parseCsv..3"
+  symbol_ "Cash Balance"
+  _xacts <- parseSection
+
+  traceM "parseCsv..4"
+  symbol_ "Futures Statements"
+  traceM "Futures Statements"
+  _futures <- parseSection
+
+  traceM "parseCsv..5"
+  symbol_ "Forex Statements"
+  traceM "Forex Statements"
+  _forex <- parseSection
+
+  traceM "parseCsv..6"
+  _total <- maybeQuoted $ symbol_ "Total Cash" *> parseDollars
+
+  traceM "parseCsv..7"
+  symbol_ "Account Order History"
+  traceM "Account Order History"
+  _orders <- parseSection
+
+  traceM "parseCsv..8"
+  symbol_ "Account Trade History"
+  traceM "Account Trade History"
+  _trades <- parseSection
+
+  traceM "parseCsv..9"
+  symbol_ "Equities"
+  traceM "Equities"
+  _equities <- parseSection
+
+  traceM "parseCsv..10"
+  symbol_ "Options"
+  traceM "Options"
+  _options <- parseSection
+
+  traceM "parseCsv..11"
+  symbol_ "Profits and Losses"
+  traceM "Profits and Losses"
+  _profitAndLoss <- parseSection
+
+  traceM "parseCsv..12"
+  symbol_ "Forex Account Summary"
+  traceM "Forex Account Summary"
+  _forexCash <- symbol_ "Forex Cash" *> maybeQuoted parseDollars
+  _forexUnrealizedPL <-
+    symbol_ "Forex Unrealized P/L"
+      *> maybeQuoted parseDollars
+  _forexFloatingPL <- symbol_ "Forex Floating P/L" *> maybeQuoted parseDollars
+  _forexEquity <- symbol_ "Forex Equity" *> maybeQuoted parseDollars
+  _forexMargin <- symbol_ "Forex Margin" *> maybeQuoted parseDollars
+  _forexBuyingPower <- symbol_ "Forex Buying Power" *> maybeQuoted parseDollars
+  _forexRiskLevel <-
+    symbol_ "Forex Risk Level"
+      *> (parseAmount :: Parser (Amount 2)) <* char '%'
+  _forexCommissionsYTD <-
+    symbol_ "Forex Commissions YTD"
+      *> maybeQuoted parseDollars
+
+  let _forexSummary = ForexAccountSummary {..}
+
+  traceM "parseCsv..13"
+  symbol_ "Account Summary"
+  traceM "Account Summary"
+  _netLiquidatingValue <-
+    symbol_ "Net Liquidating Value"
+      *> maybeQuoted parseDollars
+  _stockBuyingPower <-
+    symbol_ "Stock Buying Power"
+      *> maybeQuoted parseDollars
+  _optionBuyingPower <-
+    symbol_ "Option Buying Power"
+      *> maybeQuoted parseDollars
+  _equityCommissionsFeesYTD <-
+    symbol_ "Equity Commissions & Fees YTD"
+      *> maybeQuoted parseDollars
+  _futuresCommissionsFeesYTD <-
+    symbol_ "Futures Commissions & Fees YTD"
+      *> maybeQuoted parseDollars
+  _totalCommissionsFeesYTD <-
+    symbol_ "Total Commissions & Fees YTD"
+      *> maybeQuoted parseDollars
+
+  let _accountSummary = AccountSummary {..}
+  traceM "_accountSummary"
+
+  traceM "parseCsv..14"
   let _byOrderId = flip execState mempty $ do
         forM_ _xacts $ \xact -> do
           entry (xact ^?! ix "REF #") . _1 <>= [xact]
         scanOrders _2 _orders
         scanOrders _3 _trades
+  traceM "_byOrderId"
+
+  traceM "parseCsv..15"
+  eof
+
+  traceM "parseCsv..16"
   pure ThinkOrSwim {..}
   where
     entry oid = at oid . non ([], [], [])
@@ -118,11 +248,6 @@ readCsv path = withFile path ReadMode $ \h -> do
         if null x
           then lx
           else Just oid
-    readLine :: Handle -> IO ByteString
-    readLine h = do
-      line <- BL.fromStrict <$> B.hGetLine h
-      -- print line
-      pure line
 
 type Symbol = Text
 
@@ -243,8 +368,6 @@ instance Show TOSTrade where
       ++ " @"
       ++ show tdPrice
       ++ maybe "" (\x -> " " ++ TL.unpack x) tdExchange
-
-type Parser = ParsecT Void Text Identity
 
 parseStrategy :: Parser Text
 parseStrategy =
@@ -560,6 +683,9 @@ lexeme p = p <* whiteSpace
 symbol :: Text -> Parser Text
 symbol = lexeme . string
 
+symbol_ :: Text -> Parser ()
+symbol_ = void . lexeme . string
+
 testParser :: Text -> Either (ParseErrorBundle Text Void) TOSEntry
 testParser = parse parseEntry ""
 
@@ -567,3 +693,10 @@ test :: FilePath -> IO ()
 test path = do
   contents <- TL.readFile path
   forM_ (TL.lines contents) $ parseTest parseEntry
+
+parseFile :: Show a => Parser a -> FilePath -> IO ()
+parseFile parser = parseTest parser <=< TL.readFile
+
+readCsv :: FilePath -> IO (Either (ParseErrorBundle Text Void) ThinkOrSwim)
+readCsv path = parse parseCsv path <$> TL.readFile path
+
