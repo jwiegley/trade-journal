@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.2.
+-- This file has been generated from package.yaml by hpack version 0.34.4.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 786965258a7c466f5fd078dd4e97e4597b8c5ccca1e9eb96915cb06279429a45
+-- hash: 907cdc16af216bc79b50d71945b86c4466a9cbf652c6955cb5566b6cbda456b3
 
 name:           trade-journal
 version:        0.0.2
@@ -25,6 +25,9 @@ library
       Journal.Types
       Journal.Utils
   other-modules:
+      Journal.ThinkOrSwim.Parser
+      Journal.ThinkOrSwim.Process
+      Journal.ThinkOrSwim.Types
       Paths_trade_journal
   hs-source-dirs:
       src

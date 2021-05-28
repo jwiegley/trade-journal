@@ -12,6 +12,7 @@ import Control.Lens
 import Data.Aeson hiding ((.=))
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable
+import Data.List (isSuffixOf)
 import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
@@ -21,6 +22,7 @@ import GHC.Generics hiding (to)
 import Journal.Amount
 import Journal.Model
 import Journal.Parse
+import Journal.ThinkOrSwim
 import Options
 import Text.Megaparsec (parse)
 import Text.Megaparsec.Error
@@ -51,7 +53,18 @@ parseProcessPrint path journal = do
 main :: IO ()
 main = do
   opts <- getOptions
-  forM_ (opts ^. files) $ \path -> do
-    putStrLn $ "Reading journal " ++ path
-    journal <- TL.decodeUtf8 <$> BL.readFile path
-    TL.putStrLn =<< parseProcessPrint path journal
+  forM_ (opts ^. files) $ \path ->
+      if ".csv" `isSuffixOf` path
+      then do
+          putStrLn $ "Reading ThinkOrSwim CSV export " ++ path
+          etos <- readCsv path
+          case etos of
+              Left err -> error $ "Error " ++ show err
+              Right tos -> do
+                  print tos
+                  TL.putStrLn $ printJournal $ thinkOrSwimToJournal tos
+      else do
+          putStrLn $ "Reading journal " ++ path
+          TL.putStrLn
+              =<< parseProcessPrint path
+              =<< TL.decodeUtf8 <$> BL.readFile path
