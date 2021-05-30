@@ -51,6 +51,7 @@ data ThinkOrSwim = ThinkOrSwim
     _orders :: [Csv.NamedRecord],
     _trades :: [Csv.NamedRecord],
     _equities :: [Csv.NamedRecord],
+    _futuresOptions :: [Csv.NamedRecord],
     _options :: [Csv.NamedRecord],
     _profitAndLoss :: [Csv.NamedRecord],
     _forexSummary :: ForexAccountSummary,
@@ -94,6 +95,7 @@ data TOSEntry
   | TransferOfCash
   | TransferToForexAccount
   | WireIncoming
+  | Total
   deriving (Eq, Show)
 
 data PutCall = Put | Call

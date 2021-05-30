@@ -14,6 +14,7 @@ import qualified Data.ByteString as B
 import Data.Char
 import qualified Data.Csv as Csv
 import Data.Foldable
+import Data.Maybe (fromMaybe)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
@@ -32,14 +33,18 @@ type Parser = ParsecT Void Text Identity
 
 parseSection :: Parser [Csv.NamedRecord]
 parseSection = do
-  traceM "parseSection..1"
-  text <- someTill anySingle (try (newline <* many (char ' ') <* newline))
-  traceM "parseSection..2"
-  let bs = TL.encodeUtf8 . TL.pack $ text
-  traceM "parseSection..3"
-  case Csv.decodeByName bs of
-    Left err -> fail $ "Error: " ++ err
-    Right (_, res) -> pure $ toList res
+  text <-
+    manyTill
+      anySingle
+      (try (newline <* many (char ' ') <* newline))
+  if length text == 0 || length (lines text) < 2
+    then [] <$ whiteSpace
+    else do
+      -- traceM $ "parseSection: " ++ text
+      let bs = TL.encodeUtf8 . TL.pack $ text
+      case Csv.decodeByName bs of
+        Left err -> fail $ "Error: " ++ err
+        Right (_, res) -> pure $ toList res
 
 parseMDY :: Parser Day
 parseMDY = do
@@ -58,7 +63,7 @@ maybeQuoted :: Parser a -> Parser a
 maybeQuoted parser = do
   _ <- optional $ char '"' <* whiteSpace
   res <- parser
-  _ <- optional $ whiteSpace *> char '"'
+  _ <- optional $ char '"' <* whiteSpace
   pure res
 
 parseCsv :: Parser ThinkOrSwim
@@ -90,7 +95,7 @@ parseCsv = do
   _forex <- parseSection
 
   traceM "parseCsv..6"
-  _total <- maybeQuoted $ symbol_ "Total Cash" *> parseDollars
+  _total <- whiteSpace *> maybeQuoted (symbol_ "Total Cash" *> parseDollars)
 
   traceM "parseCsv..7"
   symbol_ "Account Order History"
@@ -113,56 +118,80 @@ parseCsv = do
   _options <- parseSection
 
   traceM "parseCsv..11"
+  _futuresOptions <- fmap (fromMaybe []) $
+    optional $ do
+      symbol_ "Futures Options"
+      traceM "Futures Options"
+      parseSection
+
+  traceM "parseCsv..12"
   symbol_ "Profits and Losses"
   traceM "Profits and Losses"
   _profitAndLoss <- parseSection
 
-  traceM "parseCsv..12"
+  traceM "parseCsv..13"
   symbol_ "Forex Account Summary"
   traceM "Forex Account Summary"
-  _forexCash <- symbol_ "Forex Cash" *> maybeQuoted parseDollars
+  _forexCash <- symbol_ "Forex Cash" *> char ',' *> maybeQuoted parseDollars
+  traceM "parseCsv..14"
   _forexUnrealizedPL <-
-    symbol_ "Forex Unrealized P/L"
+    symbol_ "Forex Unrealized P/L" *> char ','
       *> maybeQuoted parseDollars
-  _forexFloatingPL <- symbol_ "Forex Floating P/L" *> maybeQuoted parseDollars
-  _forexEquity <- symbol_ "Forex Equity" *> maybeQuoted parseDollars
-  _forexMargin <- symbol_ "Forex Margin" *> maybeQuoted parseDollars
-  _forexBuyingPower <- symbol_ "Forex Buying Power" *> maybeQuoted parseDollars
+  traceM "parseCsv..15"
+  _forexFloatingPL <-
+    symbol_ "Forex Floating P/L" *> char ','
+      *> maybeQuoted parseDollars
+  traceM "parseCsv..16"
+  _forexEquity <- symbol_ "Forex Equity" *> char ',' *> maybeQuoted parseDollars
+  traceM "parseCsv..17"
+  _forexMargin <- symbol_ "Forex Margin" *> char ',' *> maybeQuoted parseDollars
+  traceM "parseCsv..18"
+  _forexBuyingPower <-
+    symbol_ "Forex Buying Power" *> char ','
+      *> maybeQuoted parseDollars
+  traceM "parseCsv..19"
   _forexRiskLevel <-
-    symbol_ "Forex Risk Level"
-      *> (parseAmount :: Parser (Amount 2)) <* char '%'
+    symbol_ "Forex Risk Level" *> char ','
+      *> (parseAmount :: Parser (Amount 2)) <* char '%' <* whiteSpace
+  traceM "parseCsv..20"
   _forexCommissionsYTD <-
-    symbol_ "Forex Commissions YTD"
+    symbol_ "Forex Commissions YTD" *> char ','
       *> maybeQuoted parseDollars
+  traceM $ "parseCsv..20b: " ++ show _forexCommissionsYTD
 
   let _forexSummary = ForexAccountSummary {..}
 
-  traceM "parseCsv..13"
+  traceM "parseCsv..21"
   symbol_ "Account Summary"
   traceM "Account Summary"
   _netLiquidatingValue <-
-    symbol_ "Net Liquidating Value"
+    symbol_ "Net Liquidating Value" *> char ','
       *> maybeQuoted parseDollars
+  traceM "parseCsv..22"
   _stockBuyingPower <-
-    symbol_ "Stock Buying Power"
+    symbol_ "Stock Buying Power" *> char ','
       *> maybeQuoted parseDollars
+  traceM "parseCsv..23"
   _optionBuyingPower <-
-    symbol_ "Option Buying Power"
+    symbol_ "Option Buying Power" *> char ','
       *> maybeQuoted parseDollars
+  traceM "parseCsv..24"
   _equityCommissionsFeesYTD <-
-    symbol_ "Equity Commissions & Fees YTD"
+    symbol_ "Equity Commissions & Fees YTD" *> char ','
       *> maybeQuoted parseDollars
+  traceM "parseCsv..25"
   _futuresCommissionsFeesYTD <-
-    symbol_ "Futures Commissions & Fees YTD"
+    symbol_ "Futures Commissions & Fees YTD" *> char ','
       *> maybeQuoted parseDollars
+  traceM "parseCsv..26"
   _totalCommissionsFeesYTD <-
-    symbol_ "Total Commissions & Fees YTD"
+    symbol_ "Total Commissions & Fees YTD" *> char ','
       *> maybeQuoted parseDollars
 
   let _accountSummary = AccountSummary {..}
   traceM "_accountSummary"
 
-  traceM "parseCsv..14"
+  traceM "parseCsv..27"
   let _byOrderId = flip execState mempty $ do
         forM_ _xacts $ \xact -> do
           entry (xact ^?! ix "REF #") . _1 <>= [xact]
@@ -170,10 +199,10 @@ parseCsv = do
         scanOrders _3 _trades
   traceM "_byOrderId"
 
-  traceM "parseCsv..15"
+  traceM "parseCsv..28"
   eof
 
-  traceM "parseCsv..16"
+  traceM "parseCsv..29"
   pure ThinkOrSwim {..}
   where
     entry oid = at oid . non ([], [], [])
@@ -367,8 +396,8 @@ parsePutCall = Put <$ symbol "PUT" <|> Call <$ symbol "CALL"
 
 parseDevice :: Parser TOSDevice
 parseDevice =
-  (IPhone <$ symbol "tIP")
-    <|> (IPad <$ symbol "tIPAD")
+  (IPad <$ try (symbol "tIPAD"))
+    <|> (IPhone <$ symbol "tIP")
     <|> ( Keys
             <$> ( symbol "KEY:"
                     *> some
@@ -377,22 +406,22 @@ parseDevice =
                           <|> symbol "Alt"
                       )
                 )
-              <*> ( TL.pack . (: [])
-                      <$> oneOf ['A' .. 'Z'] <* space
-                  )
+            <*> ( TL.pack . (: [])
+                    <$> oneOf ['A' .. 'Z'] <* space
+                )
         )
     <|> pure Desktop
 
 parseAmount :: KnownNat n => Parser (Amount n)
 parseAmount = do
   _ <- optional $ char '+'
-  str <- some $ satisfy $ \c -> isDigit c || c `elem` ['.', '-', '+', ',']
+  str <- some $ satisfy $ \c -> isDigit c || c `elem` ['.', '-', ',']
   whiteSpace
   case ( if head str == '.'
            then '0' : str
            else str
        )
-    ^? _Amount of
+    ^.. folded . filtered (/= ',') ^? _Amount of
     Nothing -> fail $ "Could not parse amount: " ++ str
     Just n -> pure n
 
@@ -406,7 +435,7 @@ parseSeparated s p = liftA2 (:) p (many (s *> p))
 
 parseEntry :: Parser TOSEntry
 parseEntry =
-  (AchCredit <$ symbol "ACH CREDIT RECEIVED")
+  try (AchCredit <$ symbol "ACH CREDIT RECEIVED")
     <|> (AchDebit <$ symbol "ACH DEBIT RECEIVED")
     <|> (AdrFee <$> (symbol "ADR FEE~" *> parseSymbol))
     <|> try (Bought <$> parseDevice <*> (symbol "BOT" *> parseTrade))
@@ -473,6 +502,7 @@ parseEntry =
     <|> (TransferOfCash <$ symbol "INTERNAL TRANSFER OF CASH")
     <|> (TransferToForexAccount <$ symbol "TRANSFER TO FOREX ACCOUNT")
     <|> (WireIncoming <$ symbol "WIRE INCOMING")
+    <|> (Total <$ symbol "TOTAL")
 
 parseExchange :: Parser Text
 parseExchange =

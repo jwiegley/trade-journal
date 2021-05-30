@@ -54,17 +54,15 @@ main :: IO ()
 main = do
   opts <- getOptions
   forM_ (opts ^. files) $ \path ->
-      if ".csv" `isSuffixOf` path
+    if ".csv" `isSuffixOf` path
       then do
-          putStrLn $ "Reading ThinkOrSwim CSV export " ++ path
-          etos <- readCsv path
-          case etos of
-              Left err -> error $ "Error " ++ show err
-              Right tos -> do
-                  print tos
-                  TL.putStrLn $ printJournal $ thinkOrSwimToJournal tos
+        putStrLn $ "Reading ThinkOrSwim CSV export " ++ path
+        etos <- readCsv path
+        case etos of
+          Left err -> error $ "Error " ++ show err
+          Right tos -> TL.putStrLn $ printJournal $ thinkOrSwimToJournal tos
       else do
-          putStrLn $ "Reading journal " ++ path
-          TL.putStrLn
-              =<< parseProcessPrint path
-              =<< TL.decodeUtf8 <$> BL.readFile path
+        putStrLn $ "Reading journal " ++ path
+        TL.putStrLn
+          =<< parseProcessPrint path
+          =<< TL.decodeUtf8 <$> BL.readFile path
