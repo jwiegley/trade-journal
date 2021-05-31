@@ -108,6 +108,7 @@ data Action
   | Assign Lot
   | Expire Lot
   | Dividend Lot
+  | Credit Lot
   deriving
     ( Show,
       Eq,
@@ -128,6 +129,7 @@ foldAction f = \case
   Assign lot -> f lot
   Expire lot -> f lot
   Dividend lot -> f lot
+  Credit lot -> f lot
 
 mapAction :: (Lot -> Lot) -> Action -> Action
 mapAction f = \case
@@ -139,6 +141,7 @@ mapAction f = \case
   Assign lot -> Assign (f lot)
   Expire lot -> Expire (f lot)
   Dividend lot -> Dividend (f lot)
+  Credit lot -> Credit (f lot)
 
 _Lot :: Lens' Action Lot
 _Lot f = \case
@@ -150,6 +153,7 @@ _Lot f = \case
   Assign lot -> Assign <$> f lot
   Expire lot -> Expire <$> f lot
   Dividend lot -> Dividend <$> f lot
+  Credit lot -> Credit <$> f lot
 
 lotNetAmount :: Lot -> Amount 6
 lotNetAmount lot = totaled lot (lot ^. price + sum (lot ^.. adjustments))
@@ -166,6 +170,7 @@ netAmount = view coerced . \case
   Assign _lot -> 0
   Expire _lot -> 0
   Dividend lot -> lot ^. amount
+  Credit lot -> lot ^. amount
 
 data Event
   = Opened Bool Lot

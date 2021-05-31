@@ -11,6 +11,7 @@ import Control.Applicative (liftA2)
 import Control.Lens
 import Control.Monad.State
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Char
 import qualified Data.Csv as Csv
 import Data.Foldable
@@ -31,7 +32,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = ParsecT Void Text Identity
 
-parseSection :: Parser [Csv.NamedRecord]
+parseSection :: Csv.FromNamedRecord a => Parser [a]
 parseSection = do
   text <-
     manyTill
@@ -194,7 +195,7 @@ parseCsv = do
   traceM "parseCsv..27"
   let _byOrderId = flip execState mempty $ do
         forM_ _xacts $ \xact -> do
-          entry (xact ^?! ix "REF #") . _1 <>= [xact]
+          entry (xactRefNo xact) . _1 <>= [xact]
         scanOrders _2 _orders
         scanOrders _3 _trades
   traceM "_byOrderId"
@@ -209,12 +210,12 @@ parseCsv = do
     scanOrders l = flip foldM_ Nothing $ \lx x -> do
       let oid = x ^?! ix "Order ID"
       entry
-        ( case lx of
+        (TL.decodeUtf8 (BL.fromStrict ( case lx of
             Nothing -> oid
             Just o
               | B.null oid -> o
               | otherwise -> oid
-        )
+        )))
         . l
         <>= [x]
       pure $

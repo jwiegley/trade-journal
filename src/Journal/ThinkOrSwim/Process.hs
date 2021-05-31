@@ -9,16 +9,10 @@ module Journal.ThinkOrSwim.Process (thinkOrSwimToJournal) where
 
 import Control.Arrow (left)
 import Control.Lens
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
-import Data.Char
 import Data.Coerce
-import qualified Data.Csv as Csv
 import Data.List (intercalate)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
 -- import Journal.Amount
 import Data.Time
 import Data.Void (Void)
@@ -29,30 +23,28 @@ import Journal.Types
 import Text.Megaparsec
 import Text.Printf
 
-entryTime :: Csv.NamedRecord -> UTCTime
+entryTime :: TOSTransaction -> UTCTime
 entryTime record =
   case parseTimeM False defaultTimeLocale "%m/%d/%y %H:%M:%S" timeString of
     Nothing -> error $ "Could not parse date/time from " ++ show record
     Just t -> t
   where
-    toStr = TL.unpack . TL.decodeUtf8 . BL.fromStrict
-
-    splitString :: ByteString -> Char -> String
+    splitString :: (TOSTransaction -> Text) -> Char -> String
     splitString key ch =
       intercalate [ch] $
         map
-          (printf "%02d" . (read :: String -> Int) . toStr)
-          (B.split (fromIntegral (ord ch)) (record ^?! ix key))
+          (printf "%02d" . (read :: String -> Int) . TL.unpack)
+          (TL.split (== ch) (key record))
 
     timeString =
-      concat [splitString "DATE" '/', " ", splitString "TIME" ':']
+      concat [splitString xactDate '/', " ", splitString xactTime ':']
 
-entryParse :: Csv.NamedRecord -> Either (ParseErrorBundle Text Void) TOSEntry
+entryParse :: TOSTransaction -> Either (ParseErrorBundle Text Void) TOSEntry
 entryParse record =
   parse
     parseEntry
     ""
-    (TL.decodeUtf8 (BL.fromStrict (record ^?! ix "DESCRIPTION")))
+    (xactDescription record)
 
 entryToAction :: TOSEntry -> Either String Action
 entryToAction = \case
@@ -70,15 +62,48 @@ entryToAction = \case
     Right $
       Sell
         Lot
-          { _amount = abs (coerce tdQuantity),
+          { _amount = coerce (abs tdQuantity),
             _symbol = TL.toStrict tdSymbol,
             _price = coerce tdPrice,
             _details = [], -- jww (2021-05-29): ???
             _computed = []
           }
+  -- AchCredit -> undefined
+  -- AchDebit -> undefined
+  -- AdrFee _symbol -> undefined
+  -- CashAltInterest _amount _symbol -> undefined
+  -- CourtesyAdjustment -> undefined
+  -- CourtesyCredit -> undefined
+  -- ForeignTaxWithheld _symbol -> undefined
+  -- FundDisbursement -> undefined
+  -- IncomingAccountTransfer -> undefined
+  -- InterestAdjustment -> undefined
+  -- InterestIncome _symbol -> undefined
+  -- MarkToMarket -> undefined
+  -- MiscellaneousJournalEntry -> undefined
+  -- OffCycleInterest _symbol -> undefined
+  -- OrdinaryDividend _symbol -> undefined
+  -- QualifiedDividend _symbol -> undefined
+  -- Rebate -> undefined
+  -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
+  -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
+  -- TransferBetweenAccounts -> undefined
+  -- TransferFromForexAccount -> undefined
+  -- TransferInSecurityOrOption -> undefined
+  -- TransferOfCash -> undefined
+  -- TransferToForexAccount -> undefined
+  -- WireIncoming -> undefined
+  -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
 
-entry :: Csv.NamedRecord -> Either String (Timed Action)
+  -- Wash Lot
+  -- Deposit Lot
+  -- Withdraw Lot
+  -- Assign Lot
+  -- Expire Lot
+  -- Dividend Lot
+
+entry :: TOSTransaction -> Either String (Timed Action)
 entry record = do
   ent <- left show $ entryParse record
   act <- entryToAction ent

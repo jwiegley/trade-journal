@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -6,12 +8,13 @@
 module Journal.ThinkOrSwim.Types where
 
 import Control.Lens
-import qualified Data.ByteString as B
+import Data.Csv ((.:))
 import qualified Data.Csv as Csv
 import Data.Map (Map)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
+import GHC.Generics
 import Journal.Amount
 
 data ForexAccountSummary = ForexAccountSummary
@@ -40,12 +43,40 @@ data AccountSummary = AccountSummary
 
 makeLenses ''AccountSummary
 
+data TOSTransaction = TOSTransaction
+  { xactDate :: !Text,
+    xactTime :: !Text,
+    xactType :: !Text,
+    xactRefNo :: !Text,
+    xactDescription :: !Text,
+    xactMiscFees :: !Text,
+    xactCommissionsAndFees :: !Text,
+    xactAmount :: !Text,
+    xactBalance :: !Text
+  }
+  deriving (Generic, Eq, Show)
+
+instance Csv.FromRecord TOSTransaction
+
+instance Csv.FromNamedRecord TOSTransaction where
+  parseNamedRecord m =
+    TOSTransaction
+      <$> m .: "DATE"
+      <*> m .: "TIME"
+      <*> m .: "TYPE"
+      <*> m .: "REF #"
+      <*> m .: "DESCRIPTION"
+      <*> m .: "Misc Fees"
+      <*> m .: "Commissions & Fees"
+      <*> m .: "AMOUNT"
+      <*> m .: "BALANCE"
+
 data ThinkOrSwim = ThinkOrSwim
   { _account :: Text,
     _name :: Text,
     _since :: Day,
     _until :: Day,
-    _xacts :: [Csv.NamedRecord],
+    _xacts :: [TOSTransaction],
     _futures :: [Csv.NamedRecord],
     _forex :: [Csv.NamedRecord],
     _orders :: [Csv.NamedRecord],
@@ -58,8 +89,8 @@ data ThinkOrSwim = ThinkOrSwim
     _accountSummary :: AccountSummary,
     _byOrderId ::
       Map
-        B.ByteString
-        ([Csv.NamedRecord], [Csv.NamedRecord], [Csv.NamedRecord])
+        Text
+        ([TOSTransaction], [Csv.NamedRecord], [Csv.NamedRecord])
   }
   deriving (Eq, Show)
 
