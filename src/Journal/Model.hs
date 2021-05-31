@@ -47,9 +47,9 @@ processActionsWithChanges ::
 processActionsWithChanges xs =
   fmap unzipBoth . (`evalStateT` newJournalState) $ do
     forM xs $ \x -> do
-      let lot = x ^. item . _Lot
-          macct = lot ^? details . traverse . _Account
-          sym = lot ^. symbol
+      let lot = x ^? item . _Lot
+          macct = lot ^? _Just . details . traverse . _Account
+          sym = lot ^. _Just . symbol
       zoom (accounts . at macct . non newAccountState) $ do
         zoom
           ( zipped3

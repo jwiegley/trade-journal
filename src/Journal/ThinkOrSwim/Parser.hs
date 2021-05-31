@@ -4,14 +4,15 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 module Journal.ThinkOrSwim.Parser where
 
 import Control.Applicative (liftA2)
 import Control.Lens
 import Control.Monad.State
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
+-- import qualified Data.ByteString as B
+-- import qualified Data.ByteString.Lazy as BL
 import Data.Char
 import qualified Data.Csv as Csv
 import Data.Foldable
@@ -195,9 +196,9 @@ parseCsv = do
   traceM "parseCsv..27"
   let _byOrderId = flip execState mempty $ do
         forM_ _xacts $ \xact -> do
-          entry (xactRefNo xact) . _1 <>= [xact]
-        scanOrders _2 _orders
-        scanOrders _3 _trades
+          entry (xact ^. xactRefNo) . _1 <>= [xact]
+        scanOrders _2 orderOrderID _orders
+        scanOrders _3 tradeOrderID _trades
   traceM "_byOrderId"
 
   traceM "parseCsv..28"
@@ -205,23 +206,50 @@ parseCsv = do
 
   traceM "parseCsv..29"
   pure ThinkOrSwim {..}
-  where
-    entry oid = at oid . non ([], [], [])
-    scanOrders l = flip foldM_ Nothing $ \lx x -> do
-      let oid = x ^?! ix "Order ID"
-      entry
-        (TL.decodeUtf8 (BL.fromStrict ( case lx of
-            Nothing -> oid
-            Just o
-              | B.null oid -> o
-              | otherwise -> oid
-        )))
-        . l
-        <>= [x]
-      pure $
-        if null x
-          then lx
-          else Just oid
+
+entry ::
+  ( At m,
+    Functor f,
+    Eq a,
+    Eq b,
+    Eq c,
+    IxValue m ~ ([a], [b], [c])
+  ) =>
+  Index m ->
+  (([a], [b], [c]) -> f ([a], [b], [c])) ->
+  m ->
+  f m
+entry oid = at oid . non ([], [], [])
+
+scanOrders ::
+  ( Foldable t,
+    MonadState s m,
+    At s,
+    Eq a,
+    Eq b,
+    Eq c,
+    IxValue s ~ ([a], [b], [c]),
+    Index s ~ Text
+  ) =>
+  ( ([d] -> Identity [d]) ->
+    ([a], [b], [c]) ->
+    Identity ([a], [b], [c])
+  ) ->
+  Getting Text d Text ->
+  t d ->
+  m ()
+scanOrders l p = flip foldM_ Nothing $ \lx x -> do
+  let oid = x ^. p
+  entry
+    ( case lx of
+        Nothing -> oid
+        Just o
+          | TL.null oid -> o
+          | otherwise -> oid
+    )
+    . l
+    <>= [x]
+  pure $ Just oid
 
 parseStrategy :: Parser Text
 parseStrategy =
@@ -230,8 +258,8 @@ parseStrategy =
     <|> symbol "COVERED"
     <|> symbol "DIAGONAL"
 
-parseTrade :: Parser TOSTrade
-parseTrade = do
+parseTrade' :: Parser TOSTrade'
+parseTrade' = do
   tdQuantity <- parseAmount
   strategy <- optional parseStrategy
   tdSymbol <- parseSymbol
@@ -239,14 +267,14 @@ parseTrade = do
     case strategy of
       Nothing ->
         try (Just . SingleFuturesOption <$> parseFuturesOption)
-          <|> Just . SingleOption <$> parseOption
+          <|> Just . SingleOption <$> parseOption'
           <|> pure Nothing
       Just strat ->
         try (Just . FuturesOptionStrategy strat <$> parseFuturesOptionStrategy)
           <|> try (Just . OptionStrategy strat <$> parseOptionStrategy)
   tdPrice <- char '@' *> parseAmount
   tdExchange <- optional parseExchange
-  pure TOSTrade {..}
+  pure TOSTrade' {..}
 
 matchup :: [a] -> [b] -> [c] -> [(a, b, c)]
 matchup xs ys zs =
@@ -256,7 +284,7 @@ matchup xs ys zs =
         (concat (replicate (n `div` length ys) ys))
         (concat (replicate (n `div` length zs) zs))
 
-parseFuturesOptionStrategy :: Parser [Either Symbol TOSFuturesOption]
+parseFuturesOptionStrategy :: Parser [Either Symbol TOSFuturesOption']
 parseFuturesOptionStrategy = do
   futOpMultNum <- read <$> some (satisfy isDigit)
   _ <- char '/'
@@ -274,9 +302,9 @@ parseFuturesOptionStrategy = do
       \(futOpEx, futOpStrike, e) ->
         case e of
           Left sym -> Left sym
-          Right futOpKind -> Right TOSFuturesOption {..}
+          Right futOpKind -> Right TOSFuturesOption' {..}
 
-parseFuturesOption :: Parser TOSFuturesOption
+parseFuturesOption :: Parser TOSFuturesOption'
 parseFuturesOption = do
   futOpMultNum <- read <$> some (satisfy isDigit)
   _ <- char '/'
@@ -286,7 +314,7 @@ parseFuturesOption = do
   futOpContract <- parseSymbol
   futOpStrike <- parseAmount @2
   futOpKind <- parsePutCall
-  pure TOSFuturesOption {..}
+  pure TOSFuturesOption' {..}
 
 parseFutOpExDate :: Parser FutureOptionExpirationDate
 parseFutOpExDate = do
@@ -311,7 +339,7 @@ parseFutOpExDate = do
             <> TL.concat [" " <> x | x <- postDesc]
       }
 
-parseOptionStrategy :: Parser [Either Symbol TOSOption]
+parseOptionStrategy :: Parser [Either Symbol TOSOption']
 parseOptionStrategy = do
   opMult <- read <$> some (satisfy isDigit)
   whiteSpace
@@ -326,16 +354,16 @@ parseOptionStrategy = do
       \(opEx, opStrike, e) ->
         case e of
           Left sym -> Left sym
-          Right opKind -> Right TOSOption {..}
+          Right opKind -> Right TOSOption' {..}
 
-parseOption :: Parser TOSOption
-parseOption = do
+parseOption' :: Parser TOSOption'
+parseOption' = do
   opMult <- read <$> some (satisfy isDigit)
   whiteSpace
   opEx <- parseOpExDate
   opStrike <- parseAmount
   opKind <- parsePutCall
-  pure TOSOption {..}
+  pure TOSOption' {..}
 
 parseOpExDate :: Parser OptionExpirationDate
 parseOpExDate = do
@@ -439,7 +467,7 @@ parseEntry =
   try (AchCredit <$ symbol "ACH CREDIT RECEIVED")
     <|> (AchDebit <$ symbol "ACH DEBIT RECEIVED")
     <|> (AdrFee <$> (symbol "ADR FEE~" *> parseSymbol))
-    <|> try (Bought <$> parseDevice <*> (symbol "BOT" *> parseTrade))
+    <|> try (Bought <$> parseDevice <*> (symbol "BOT" *> parseTrade'))
     <|> ( CashAltInterest
             <$> parseAmount
             <*> (symbol "CASH ALTERNATIVES INTEREST" *> parseSymbol)
@@ -482,17 +510,17 @@ parseEntry =
             *> ( RemoveOptionDueToAssignment
                    <$> parseAmount
                    <*> parseSymbol
-                   <*> parseOption
+                   <*> parseOption'
                )
         )
     <|> ( symbol "REMOVAL OF OPTION DUE TO EXPIRATION"
             *> ( RemoveOptionDueToExpiration
                    <$> parseAmount
                    <*> parseSymbol
-                   <*> parseOption
+                   <*> parseOption'
                )
         )
-    <|> (Sold <$> parseDevice <*> (symbol "SOLD" *> parseTrade))
+    <|> (Sold <$> parseDevice <*> (symbol "SOLD" *> parseTrade'))
     <|> ( TransferBetweenAccounts
             <$ symbol "INTERNAL TRANSFER BETWEEN ACCOUNTS OR ACCOUNT TYPES"
         )

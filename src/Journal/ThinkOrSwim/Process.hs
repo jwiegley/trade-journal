@@ -37,18 +37,18 @@ entryTime record =
           (TL.split (== ch) (key record))
 
     timeString =
-      concat [splitString xactDate '/', " ", splitString xactTime ':']
+      concat [splitString _xactDate '/', " ", splitString _xactTime ':']
 
 entryParse :: TOSTransaction -> Either (ParseErrorBundle Text Void) TOSEntry
 entryParse record =
   parse
     parseEntry
     ""
-    (xactDescription record)
+    (record ^. xactDescription)
 
-entryToAction :: TOSEntry -> Either String Action
-entryToAction = \case
-  Bought _device TOSTrade {..} ->
+entryToAction :: TOSTransaction -> TOSEntry -> Either String Action
+entryToAction xact = \case
+  Bought _device TOSTrade' {..} ->
     Right $
       Buy
         Lot
@@ -58,7 +58,7 @@ entryToAction = \case
             _details = [], -- jww (2021-05-29): ???
             _computed = []
           }
-  Sold _device TOSTrade {..} ->
+  Sold _device TOSTrade' {..} ->
     Right $
       Sell
         Lot
@@ -73,7 +73,9 @@ entryToAction = \case
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
-  -- CourtesyCredit -> undefined
+  CourtesyCredit ->
+    Right $
+      Credit (TL.toStrict (xact ^. xactDescription)) (xact ^. xactAmount)
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined
@@ -103,10 +105,10 @@ entryToAction = \case
   -- Expire Lot
   -- Dividend Lot
 
-entry :: TOSTransaction -> Either String (Timed Action)
-entry record = do
+xactAction :: TOSTransaction -> Either String (Timed Action)
+xactAction record = do
   ent <- left show $ entryParse record
-  act <- entryToAction ent
+  act <- entryToAction record ent
   pure $
     Timed
       { _time = entryTime record,
@@ -117,6 +119,6 @@ thinkOrSwimToJournal :: ThinkOrSwim -> Journal
 thinkOrSwimToJournal tos =
   Journal $
     flip concatMap (tos ^. xacts) $ \xact ->
-      case entry xact of
+      case xactAction xact of
         Left err -> trace err []
         Right x -> [x]

@@ -8,6 +8,7 @@ module Journal.Parse (parseJournal, printJournal) where
 
 import Control.Lens
 import Data.Char
+import Data.Coerce
 import Data.Either
 import Data.List (intersperse, sort)
 import Data.Maybe (mapMaybe)
@@ -62,7 +63,7 @@ parseAction =
     <|> keyword "withdraw" *> (Withdraw <$> parseLot)
     <|> keyword "assign" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
-    <|> keyword "dividend" *> (Dividend <$> parseLot)
+    <|> keyword "dividend" *> (Dividend <$> parseLot <*> parseAmount)
 
 parseLot :: Parser Lot
 parseLot = do
@@ -132,7 +133,12 @@ printAction = \case
   Withdraw lot -> "withdraw " <> printLot lot
   Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
-  Dividend lot -> "dividend " <> printLot lot
+  Dividend lot amt ->
+    "dividend " <> printLot lot <> " " <> printAmount 2 (coerce amt)
+  Credit desc amt ->
+    "credit " <> printAmount 2 (coerce amt) <> " " <> TL.fromStrict desc
+  Debit desc amt ->
+    "debit " <> printAmount 2 (coerce amt) <> " " <> TL.fromStrict desc
 
 printLot :: Lot -> Text
 printLot lot =

@@ -107,8 +107,9 @@ data Action
   | Withdraw Lot
   | Assign Lot
   | Expire Lot
-  | Dividend Lot
-  | Credit Lot
+  | Dividend Lot (Amount 2)
+  | Credit Text (Amount 2)
+  | Debit Text (Amount 2)
   deriving
     ( Show,
       Eq,
@@ -119,18 +120,6 @@ data Action
 
 makePrisms ''Action
 
-foldAction :: (Lot -> a) -> Action -> a
-foldAction f = \case
-  Buy lot -> f lot
-  Sell lot -> f lot
-  Wash lot -> f lot
-  Deposit lot -> f lot
-  Withdraw lot -> f lot
-  Assign lot -> f lot
-  Expire lot -> f lot
-  Dividend lot -> f lot
-  Credit lot -> f lot
-
 mapAction :: (Lot -> Lot) -> Action -> Action
 mapAction f = \case
   Buy lot -> Buy (f lot)
@@ -140,10 +129,11 @@ mapAction f = \case
   Withdraw lot -> Withdraw (f lot)
   Assign lot -> Assign (f lot)
   Expire lot -> Expire (f lot)
-  Dividend lot -> Dividend (f lot)
-  Credit lot -> Credit (f lot)
+  Dividend lot amt -> Dividend (f lot) amt
+  Credit desc amt -> Credit desc amt
+  Debit desc amt -> Debit desc amt
 
-_Lot :: Lens' Action Lot
+_Lot :: Traversal' Action Lot
 _Lot f = \case
   Buy lot -> Buy <$> f lot
   Sell lot -> Sell <$> f lot
@@ -152,8 +142,9 @@ _Lot f = \case
   Withdraw lot -> Withdraw <$> f lot
   Assign lot -> Assign <$> f lot
   Expire lot -> Expire <$> f lot
-  Dividend lot -> Dividend <$> f lot
-  Credit lot -> Credit <$> f lot
+  Dividend lot amt -> Dividend <$> f lot <*> pure amt
+  Credit desc amt -> pure $ Credit desc amt
+  Debit desc amt -> pure $ Debit desc amt
 
 lotNetAmount :: Lot -> Amount 6
 lotNetAmount lot = totaled lot (lot ^. price + sum (lot ^.. adjustments))
@@ -169,8 +160,9 @@ netAmount = view coerced . \case
   Withdraw lot -> - (lot ^. amount)
   Assign _lot -> 0
   Expire _lot -> 0
-  Dividend lot -> lot ^. amount
-  Credit lot -> lot ^. amount
+  Dividend _lot amt -> amt ^. coerced
+  Credit _desc amt -> amt ^. coerced
+  Debit _desc amt -> amt ^. coerced
 
 data Event
   = Opened Bool Lot
