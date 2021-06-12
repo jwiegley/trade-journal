@@ -1,17 +1,21 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Journal.Parse (parseJournal, printJournal) where
 
-import Control.Lens
+import Control.Lens hiding (noneOf)
 import Data.Char
 import Data.Coerce
 import Data.Either
 import Data.List (intersperse, sort)
 import Data.Maybe (mapMaybe)
+import Data.Proxy
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -54,16 +58,43 @@ parseTimed p = do
   _item <- p
   pure Timed {..}
 
+quotedString :: Parser T.Text
+quotedString = identPQuoted >>= return . T.pack
+  where
+    escape :: Parser String
+    escape = do
+      d <- char '\\'
+      c <- oneOf ['\\', '\"', '0', 'n', 'r', 'v', 't', 'b', 'f']
+      return [d, c]
+
+    nonEscape :: Parser Char
+    nonEscape = noneOf ['\\', '\"', '\0', '\n', '\r', '\v', '\t', '\b', '\f']
+
+    identPQuoted :: Parser String
+    identPQuoted =
+      let inner = fmap return (try nonEscape) <|> escape
+       in do
+            _ <- char '"'
+            strings <- many inner
+            _ <- char '"'
+            return $ concat strings
+
 parseAction :: Parser Action
 parseAction =
-  keyword "buy" *> (Buy <$> parseLot)
+  keyword "deposit" *> (Deposit <$> parseAmount <*> quotedString)
+    <|> keyword "withdraw" *> (Withdraw <$> parseAmount <*> quotedString)
+    <|> keyword "buy" *> (Buy <$> parseLot)
     <|> keyword "sell" *> (Sell <$> parseLot)
+    <|> keyword "in" *> (TransferIn <$> parseLot <*> quotedString)
+    <|> keyword "out" *> (TransferOut <$> parseLot <*> quotedString)
     <|> keyword "wash" *> (Wash <$> parseLot)
-    <|> keyword "deposit" *> (Deposit <$> parseLot)
-    <|> keyword "withdraw" *> (Withdraw <$> parseLot)
     <|> keyword "assign" *> (Assign <$> parseLot)
+    <|> keyword "exercise" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
-    <|> keyword "dividend" *> (Dividend <$> parseLot <*> parseAmount)
+    <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
+    <|> keyword "interest" *> (Interest <$> parseAmount <*> quotedString)
+    <|> keyword "income" *> (Income <$> parseAmount <*> quotedString)
+    <|> keyword "credit" *> (Credit <$> parseAmount <*> quotedString)
 
 parseLot :: Parser Lot
 parseLot = do
@@ -124,30 +155,34 @@ printTimed printItem t =
         printItem (t ^. item)
       ]
 
+printString :: T.Text -> Text
+printString = TL.pack . show . TL.fromStrict
+
 printAction :: Action -> Text
 printAction = \case
+  Deposit amt desc -> "deposit " <> printAmount amt <> " " <> printString desc
+  Withdraw amt desc -> "withdraw " <> printAmount amt <> " " <> printString desc
   Buy lot -> "buy " <> printLot lot
   Sell lot -> "sell " <> printLot lot
+  TransferIn lot desc -> "in " <> printLot lot <> " " <> TL.fromStrict desc
+  TransferOut lot desc -> "out " <> printLot lot <> " " <> TL.fromStrict desc
   Wash lot -> "wash " <> printLot lot
-  Deposit lot -> "deposit " <> printLot lot
-  Withdraw lot -> "withdraw " <> printLot lot
   Assign lot -> "assign " <> printLot lot
+  Exercise lot -> "exercise " <> printLot lot
   Expire lot -> "expire " <> printLot lot
-  Dividend lot amt ->
-    "dividend " <> printLot lot <> " " <> printAmount 2 (coerce amt)
-  Credit desc amt ->
-    "credit " <> printAmount 2 (coerce amt) <> " " <> TL.fromStrict desc
-  Debit desc amt ->
-    "debit " <> printAmount 2 (coerce amt) <> " " <> TL.fromStrict desc
+  Dividend amt lot -> "dividend " <> printAmount amt <> " " <> printLot lot
+  Interest amt desc -> "interest " <> printAmount amt <> " " <> printString desc
+  Income amt desc -> "income " <> printAmount amt <> " " <> printString desc
+  Credit amt desc -> "credit " <> printAmount amt <> " " <> printString desc
 
 printLot :: Lot -> Text
 printLot lot =
   ( TL.concat $
       intersperse
         " "
-        ( [ printAmount 0 (lot ^. amount),
+        ( [ printAmount @0 (lot ^. amount . coerced),
             TL.fromStrict (lot ^. symbol),
-            printAmount 4 (lot ^. price)
+            printAmount @4 (lot ^. price . coerced)
           ]
             ++ inlineAnns
         )
@@ -164,29 +199,30 @@ printLot lot =
         printAnnotation
         (sort (lot ^. details ++ lot ^. computed))
     (inlineAnns, separateAnns) = partitionEithers annotations
-    totalAmount n x = printAmount n (totaled lot x)
+    totalAmount :: forall n. KnownNat n => Amount n -> Text
+    totalAmount x = printAmount @n (totaled @n lot x)
     printAnnotation = \case
       Position eff -> Just $
         Left $ case eff of
           Open -> "open"
           Close -> "close"
-      Fees x -> Just $ Left $ "fees " <> totalAmount 2 x
-      Commission x -> Just $ Left $ "commission " <> totalAmount 2 x
-      Gain x -> Just $ Right $ "gain " <> totalAmount 6 x
-      Loss x -> Just $ Right $ "loss " <> totalAmount 6 x
-      Washed x -> Just $ Right $ "washed " <> totalAmount 6 x
+      Fees x -> Just $ Left $ "fees " <> totalAmount @2 (coerce x)
+      Commission x -> Just $ Left $ "commission " <> totalAmount @2 (coerce x)
+      Gain x -> Just $ Right $ "gain " <> totalAmount @6 x
+      Loss x -> Just $ Right $ "loss " <> totalAmount @6 x
+      Washed x -> Just $ Right $ "washed " <> totalAmount @6 x
       WashTo x (Just (q, p)) ->
         Just $
           Left $
             "wash "
-              <> printAmount 0 q
+              <> printAmount @0 (coerce q)
               <> " @ "
-              <> printAmount 4 p
+              <> printAmount @4 (coerce p)
               <> " to "
               <> TL.fromStrict x
       WashTo x Nothing -> Just $ Left $ "wash to " <> TL.fromStrict x
       WashApply x amt ->
-        Just $ Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
+        Just $ Left $ "apply " <> TL.fromStrict x <> " " <> printAmount @0 (coerce amt)
       Exempt -> Just $ Left "exempt"
       Net _x -> Nothing
       Balance _x -> Nothing
@@ -229,8 +265,8 @@ parseAmount :: KnownNat n => Parser (Amount n)
 parseAmount =
   read <$> some (digitChar <|> char '.') <* whiteSpace
 
-printAmount :: Int -> Amount 6 -> Text
-printAmount n = TL.pack . amountToString n
+printAmount :: forall n. KnownNat n => Amount n -> Text
+printAmount = TL.pack . amountToString (fromIntegral (natVal (Proxy :: Proxy n)))
 
 parseSymbol :: Parser Text
 parseSymbol =

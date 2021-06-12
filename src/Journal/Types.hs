@@ -100,16 +100,20 @@ adjustments f s =
       )
 
 data Action
-  = Buy Lot
-  | Sell Lot
-  | Wash Lot
-  | Deposit Lot
-  | Withdraw Lot
-  | Assign Lot
-  | Expire Lot
-  | Dividend Lot (Amount 2)
-  | Credit Text (Amount 2)
-  | Debit Text (Amount 2)
+  = Deposit (Amount 2) Text -- deposit money into the account
+  | Withdraw (Amount 2) Text -- withdraw money from the account
+  | Buy Lot -- buy securities using money in the account
+  | Sell Lot -- sell securities for a loss or gain
+  | TransferIn Lot Text -- buy securities using money in the account
+  | TransferOut Lot Text -- sell securities for a loss or gain
+  | Wash Lot -- wash a previous losing sale
+  | Assign Lot -- assignment of a short options position
+  | Expire Lot -- expiration of a short options position
+  | Exercise Lot -- exercise a long options position
+  | Dividend (Amount 2) Lot -- dividend paid on a long position
+  | Interest (Amount 2) Text -- interest earned
+  | Income (Amount 2) Text -- taxable income earned
+  | Credit (Amount 2) Text -- account credit received
   deriving
     ( Show,
       Eq,
@@ -122,29 +126,37 @@ makePrisms ''Action
 
 mapAction :: (Lot -> Lot) -> Action -> Action
 mapAction f = \case
+  Deposit amt desc -> Deposit amt desc
+  Withdraw amt desc -> Withdraw amt desc
   Buy lot -> Buy (f lot)
   Sell lot -> Sell (f lot)
+  TransferIn lot desc -> TransferIn (f lot) desc
+  TransferOut lot desc -> TransferOut (f lot) desc
   Wash lot -> Wash (f lot)
-  Deposit lot -> Deposit (f lot)
-  Withdraw lot -> Withdraw (f lot)
   Assign lot -> Assign (f lot)
+  Exercise lot -> Exercise (f lot)
   Expire lot -> Expire (f lot)
-  Dividend lot amt -> Dividend (f lot) amt
-  Credit desc amt -> Credit desc amt
-  Debit desc amt -> Debit desc amt
+  Dividend amt lot -> Dividend amt (f lot)
+  Interest amt desc -> Interest amt desc
+  Income amt desc -> Income amt desc
+  Credit amt desc -> Credit amt desc
 
 _Lot :: Traversal' Action Lot
 _Lot f = \case
+  Deposit amt desc -> pure $ Deposit amt desc
+  Withdraw amt desc -> pure $ Withdraw amt desc
   Buy lot -> Buy <$> f lot
   Sell lot -> Sell <$> f lot
+  TransferIn lot desc -> TransferIn <$> f lot <*> pure desc
+  TransferOut lot desc -> TransferOut <$> f lot <*> pure desc
   Wash lot -> Wash <$> f lot
-  Deposit lot -> Deposit <$> f lot
-  Withdraw lot -> Withdraw <$> f lot
   Assign lot -> Assign <$> f lot
+  Exercise lot -> Exercise <$> f lot
   Expire lot -> Expire <$> f lot
-  Dividend lot amt -> Dividend <$> f lot <*> pure amt
-  Credit desc amt -> pure $ Credit desc amt
-  Debit desc amt -> pure $ Debit desc amt
+  Dividend amt lot -> Dividend amt <$> f lot
+  Interest amt desc -> pure $ Interest amt desc
+  Income amt desc -> pure $ Income amt desc
+  Credit amt desc -> pure $ Credit amt desc
 
 lotNetAmount :: Lot -> Amount 6
 lotNetAmount lot = totaled lot (lot ^. price + sum (lot ^.. adjustments))
@@ -152,17 +164,21 @@ lotNetAmount lot = totaled lot (lot ^. price + sum (lot ^.. adjustments))
 -- | The 'netAmount' indicates the exact effect on account balance this action
 -- represents.
 netAmount :: Action -> Amount 2
-netAmount = view coerced . \case
-  Buy lot -> - totaled lot (lot ^. price + sum (lot ^.. fees))
-  Sell lot -> totaled lot (lot ^. price - sum (lot ^.. fees))
+netAmount = \case
+  Deposit amt _desc -> amt
+  Withdraw amt _desc -> - amt
+  Buy lot -> - totaled lot (lot ^. price + sum (lot ^.. fees)) ^. coerced
+  Sell lot -> totaled lot (lot ^. price - sum (lot ^.. fees)) ^. coerced
+  TransferIn lot _desc -> - totaled lot (lot ^. price + sum (lot ^.. fees)) ^. coerced
+  TransferOut lot _desc -> totaled lot (lot ^. price - sum (lot ^.. fees)) ^. coerced
   Wash _lot -> 0
-  Deposit lot -> lot ^. amount
-  Withdraw lot -> - (lot ^. amount)
   Assign _lot -> 0
+  Exercise _lot -> 0
   Expire _lot -> 0
-  Dividend _lot amt -> amt ^. coerced
-  Credit _desc amt -> amt ^. coerced
-  Debit _desc amt -> amt ^. coerced
+  Dividend amt _lot -> amt
+  Interest amt _desc -> amt
+  Income amt _desc -> amt
+  Credit amt _desc -> amt
 
 data Event
   = Opened Bool Lot

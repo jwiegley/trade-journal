@@ -75,7 +75,7 @@ entryToAction xact = \case
   -- CourtesyAdjustment -> undefined
   CourtesyCredit ->
     Right $
-      Credit (TL.toStrict (xact ^. xactDescription)) (xact ^. xactAmount)
+      Credit (xact ^. xactAmount) (TL.toStrict (xact ^. xactDescription))
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined

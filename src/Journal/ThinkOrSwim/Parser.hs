@@ -70,10 +70,8 @@ maybeQuoted parser = do
 
 parseCsv :: Parser ThinkOrSwim
 parseCsv = do
-  traceM "parseCsv..1"
   _ <- optional (char '\65279')
 
-  traceM "parseCsv..2"
   symbol_ "Account Statement for"
   _account <- TL.pack . (show :: Integer -> String) <$> L.decimal <* whiteSpace
   _name <- symbol "(" <* someTill (alphaNumChar <* whiteSpace) (symbol ")")
@@ -82,80 +80,62 @@ parseCsv = do
   symbol_ "through"
   _until <- parseMDY
 
-  traceM "parseCsv..3"
   symbol_ "Cash Balance"
   _xacts <- parseSection
 
-  traceM "parseCsv..4"
   symbol_ "Futures Statements"
   traceM "Futures Statements"
   _futures <- parseSection
 
-  traceM "parseCsv..5"
   symbol_ "Forex Statements"
   traceM "Forex Statements"
   _forex <- parseSection
 
-  traceM "parseCsv..6"
   _total <- whiteSpace *> maybeQuoted (symbol_ "Total Cash" *> parseDollars)
 
-  traceM "parseCsv..7"
   symbol_ "Account Order History"
   traceM "Account Order History"
   _orders <- parseSection
 
-  traceM "parseCsv..8"
   symbol_ "Account Trade History"
   traceM "Account Trade History"
   _trades <- parseSection
 
-  traceM "parseCsv..9"
   symbol_ "Equities"
   traceM "Equities"
   _equities <- parseSection
 
-  traceM "parseCsv..10"
   symbol_ "Options"
   traceM "Options"
   _options <- parseSection
 
-  traceM "parseCsv..11"
   _futuresOptions <- fmap (fromMaybe []) $
     optional $ do
       symbol_ "Futures Options"
       traceM "Futures Options"
       parseSection
 
-  traceM "parseCsv..12"
   symbol_ "Profits and Losses"
   traceM "Profits and Losses"
   _profitAndLoss <- parseSection
 
-  traceM "parseCsv..13"
   symbol_ "Forex Account Summary"
   traceM "Forex Account Summary"
   _forexCash <- symbol_ "Forex Cash" *> char ',' *> maybeQuoted parseDollars
-  traceM "parseCsv..14"
   _forexUnrealizedPL <-
     symbol_ "Forex Unrealized P/L" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..15"
   _forexFloatingPL <-
     symbol_ "Forex Floating P/L" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..16"
   _forexEquity <- symbol_ "Forex Equity" *> char ',' *> maybeQuoted parseDollars
-  traceM "parseCsv..17"
   _forexMargin <- symbol_ "Forex Margin" *> char ',' *> maybeQuoted parseDollars
-  traceM "parseCsv..18"
   _forexBuyingPower <-
     symbol_ "Forex Buying Power" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..19"
   _forexRiskLevel <-
     symbol_ "Forex Risk Level" *> char ','
       *> (parseAmount :: Parser (Amount 2)) <* char '%' <* whiteSpace
-  traceM "parseCsv..20"
   _forexCommissionsYTD <-
     symbol_ "Forex Commissions YTD" *> char ','
       *> maybeQuoted parseDollars
@@ -163,29 +143,23 @@ parseCsv = do
 
   let _forexSummary = ForexAccountSummary {..}
 
-  traceM "parseCsv..21"
   symbol_ "Account Summary"
   traceM "Account Summary"
   _netLiquidatingValue <-
     symbol_ "Net Liquidating Value" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..22"
   _stockBuyingPower <-
     symbol_ "Stock Buying Power" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..23"
   _optionBuyingPower <-
     symbol_ "Option Buying Power" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..24"
   _equityCommissionsFeesYTD <-
     symbol_ "Equity Commissions & Fees YTD" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..25"
   _futuresCommissionsFeesYTD <-
     symbol_ "Futures Commissions & Fees YTD" *> char ','
       *> maybeQuoted parseDollars
-  traceM "parseCsv..26"
   _totalCommissionsFeesYTD <-
     symbol_ "Total Commissions & Fees YTD" *> char ','
       *> maybeQuoted parseDollars
@@ -193,7 +167,6 @@ parseCsv = do
   let _accountSummary = AccountSummary {..}
   traceM "_accountSummary"
 
-  traceM "parseCsv..27"
   let _byOrderId = flip execState mempty $ do
         forM_ _xacts $ \xact -> do
           entry (xact ^. xactRefNo) . _1 <>= [xact]
@@ -201,10 +174,8 @@ parseCsv = do
         scanOrders _3 tradeOrderID _trades
   traceM "_byOrderId"
 
-  traceM "parseCsv..28"
   eof
 
-  traceM "parseCsv..29"
   pure ThinkOrSwim {..}
 
 entry ::
