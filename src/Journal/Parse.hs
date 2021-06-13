@@ -11,13 +11,10 @@ module Journal.Parse (parseJournal) where
 
 import Control.Lens hiding (noneOf)
 import Data.Char
-import Data.Either
-import Data.List (intersperse, sort)
-import Data.Maybe (mapMaybe)
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
-import Data.Time
+import Data.Time hiding (parseTime)
 import Data.Void
 import GHC.TypeLits
 import Journal.Amount
@@ -49,13 +46,18 @@ keyword = lexeme . string
 
 parseJournal :: Parser Journal
 parseJournal =
-  Journal <$> many (whiteSpace *> parseTimed parseAction) <* eof
+  Journal <$> many (whiteSpace *> parseAnnotated parseAction) <* eof
 
-parseTimed :: Parser a -> Parser (Timed a)
-parseTimed p = do
+parseAnnotated :: Parser a -> Parser (Annotated a)
+parseAnnotated parser = do
   _time <- Journal.Parse.parseTime
-  _item <- p
-  pure Timed {..}
+  _item <- parser
+  _details <- many parseAnnotation
+  let _computed = []
+  pure $
+    Annotated {..}
+
+-- & details . traverse . failing _Fees _Commission //~ _amount
 
 quotedString :: Parser T.Text
 quotedString = identPQuoted >>= return . T.pack
@@ -80,31 +82,27 @@ quotedString = identPQuoted >>= return . T.pack
 
 parseAction :: Parser Action
 parseAction =
-  keyword "deposit" *> (Deposit <$> parseAmount <*> quotedString)
-    <|> keyword "withdraw" *> (Withdraw <$> parseAmount <*> quotedString)
+  keyword "deposit" *> (Deposit <$> parseAmount)
+    <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
     <|> keyword "buy" *> (Buy <$> parseLot)
     <|> keyword "sell" *> (Sell <$> parseLot)
-    <|> keyword "in" *> (TransferIn <$> parseLot <*> quotedString)
-    <|> keyword "out" *> (TransferOut <$> parseLot <*> quotedString)
+    <|> keyword "in" *> (TransferIn <$> parseLot)
+    <|> keyword "out" *> (TransferOut <$> parseLot)
     <|> keyword "wash" *> (Wash <$> parseLot)
     <|> keyword "assign" *> (Assign <$> parseLot)
     <|> keyword "exercise" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
     <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
-    <|> keyword "interest" *> (Interest <$> parseAmount <*> quotedString)
-    <|> keyword "income" *> (Income <$> parseAmount <*> quotedString)
-    <|> keyword "credit" *> (Credit <$> parseAmount <*> quotedString)
+    <|> keyword "interest" *> (Interest <$> parseAmount)
+    <|> keyword "income" *> (Income <$> parseAmount)
+    <|> keyword "credit" *> (Credit <$> parseAmount)
 
 parseLot :: Parser Lot
 parseLot = do
   _amount <- parseAmount
   _symbol <- TL.toStrict <$> parseSymbol
   _price <- parseAmount
-  _details <- many parseAnnotation
-  let _computed = []
-  pure $
-    Lot {..}
-      & details . traverse . failing _Fees _Commission //~ _amount
+  pure Lot {..}
 
 parseAnnotation :: Parser Annotation
 parseAnnotation = do
@@ -118,12 +116,10 @@ parseAnnotation = do
     <|> keyword "apply"
       *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
     <|> keyword "exempt" *> pure Exempt
-    <|> keyword "net" *> (Net <$> parseAmount)
-    <|> keyword "balance" *> (Balance <$> parseAmount)
     <|> keyword "account" *> (Account <$> parseText)
-    <|> keyword "trade" *> (Trade <$> parseText)
     <|> keyword "order" *> (Order <$> parseText)
-    <|> keyword "xact" *> (Transaction <$> parseText)
+    <|> keyword "note" *> (Note <$> quotedString)
+    <|> keyword "time" *> (Time <$> parseTime)
     <|> keyword "meta" *> (Meta <$> parseText <*> parseText)
   where
     parseWash = do

@@ -26,15 +26,17 @@ import Test.HUnit.Lang (FailureReason (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Hedgehog
-import Text.Show.Pretty
+import Text.Show.Pretty hiding (Time)
 
 {--------------------------------------------------------------------------}
 
 data TestAction = TestAction
-  { _action :: Timed Action,
+  { _action :: Annotated Action,
     _annotations :: [Annotation],
     _regular :: Bool
   }
+
+makeLenses ''TestAction
 
 data TestState = TestState
   { _pending :: [TestAction],
@@ -43,7 +45,7 @@ data TestState = TestState
 
 makeLenses ''TestState
 
-buy :: Timed Lot -> [Annotation] -> State TestState ()
+buy :: Annotated Lot -> [Annotation] -> State TestState ()
 buy b anns =
   do
     -- bal <- use balance
@@ -58,7 +60,7 @@ buy b anns =
   where
     c = ((b ^. item . amount) * (b ^. item . price)) ^. coerced . to negate
 
-sell :: Timed Lot -> [Annotation] -> State TestState ()
+sell :: Annotated Lot -> [Annotation] -> State TestState ()
 sell b anns =
   do
     -- bal <- use balance
@@ -73,7 +75,7 @@ sell b anns =
   where
     c = ((b ^. item . amount) * (b ^. item . price)) ^. coerced
 
-wash :: Timed Lot -> [Annotation] -> State TestState ()
+wash :: Annotated Lot -> [Annotation] -> State TestState ()
 wash b anns =
   do
     -- bal <- use balance
@@ -85,23 +87,23 @@ wash b anns =
               False
           ]
 
-input :: State TestState a -> [Timed Action]
+input :: State TestState a -> [Annotated Action]
 input =
   map _action
     . filter _regular
     . _pending
     . flip execState (TestState [] 0)
 
-trades :: State TestState a -> [Timed Action]
+trades :: State TestState a -> [Annotated Action]
 trades =
-  map (\x -> _action x & item . _Lot . details <>~ _annotations x)
+  map (\x -> (x ^. action) & details <>~ (x ^. annotations))
     . _pending
     . flip execState (TestState [] 0)
 
 checkJournal ::
   (MonadIO m, MonadTrans t) =>
   State TestState a ->
-  [Timed Change] ->
+  [Annotated Change] ->
   t m ()
 checkJournal journal expected =
   lift $
@@ -129,19 +131,19 @@ testModel =
 
 simpleBuy :: Property
 simpleBuy = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
         buy b [Position Open]
     )
     [ SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open]))
+      Result <$> (Buy <$> b & details <>~ [Position Open])
     ]
 
 buyBuy :: Property
 buyBuy = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
         buy b [Position Open]
@@ -149,15 +151,15 @@ buyBuy = property $ do
     )
     [ SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b & details <>~ [Position Open]),
       SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open]))
+      Result <$> (Buy <$> b & details <>~ [Position Open])
     ]
 
 buySellBreakeven :: Property
 buySellBreakeven = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
         buy b [Position Open]
@@ -165,15 +167,15 @@ buySellBreakeven = property $ do
     )
     [ SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b & details <>~ [Position Open]),
       SawAction <$> (Sell <$> b),
-      Result <$> (Sell <$> (b & item . details <>~ [Position Close, Gain 0])),
+      Result <$> (Sell <$> b & details <>~ [Position Close, Gain 0]),
       RemoveEvent 1 <$ b
     ]
 
 buySellProfit :: Property
 buySellProfit = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   let sp = b & item . price +~ 10
   checkJournal
     ( do
@@ -182,15 +184,15 @@ buySellProfit = property $ do
     )
     [ SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b & details <>~ [Position Open]),
       SawAction <$> (Sell <$> sp),
-      Result <$> (Sell <$> (sp & item . details <>~ [Position Close, Gain 10])),
+      Result <$> (Sell <$> sp & details <>~ [Position Close, Gain 10]),
       RemoveEvent 1 <$ sp
     ]
 
 buySellPartProfit :: Property
 buySellPartProfit = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   let b2 = b & item . amount *~ 2
       sp = b & item . price +~ 10
   checkJournal
@@ -200,15 +202,15 @@ buySellPartProfit = property $ do
     )
     [ SawAction <$> (Buy <$> b2),
       AddEvent <$> (Opened True <$> b2),
-      Result <$> (Buy <$> (b2 & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b2 & details <>~ [Position Open]),
       SawAction <$> (Sell <$> sp),
-      Result <$> (Sell <$> (sp & item . details <>~ [Position Close, Gain 10])),
+      Result <$> (Sell <$> sp & details <>~ [Position Close, Gain 10]),
       ReplaceEvent 1 <$> (Opened True <$> b)
     ]
 
 buySellLoss :: Property
 buySellLoss = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   let sl = b & item . price -~ 1
   checkJournal
     ( do
@@ -217,9 +219,9 @@ buySellLoss = property $ do
     )
     [ SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b & details <>~ [Position Open]),
       SawAction <$> (Sell <$> sl),
-      Result <$> (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
+      Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
       RemoveEvent 1 <$ sl,
       Submit <$> (sl & item . price .~ 1),
       SubmitEnd <$ sl
@@ -227,12 +229,12 @@ buySellLoss = property $ do
 
 buySellLossBuy :: Property
 buySellLossBuy = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   let sl =
         b & item . price -~ 1
-          & item . details <>~ [WashTo "A" Nothing]
+          & details <>~ [WashTo "A" Nothing]
       b2 =
-        b & item . details <>~ [WashApply "A" (b ^. item . amount)]
+        b & details <>~ [WashApply "A" (b ^. item . amount)]
   checkJournal
     ( do
         buy b [Position Open]
@@ -242,22 +244,22 @@ buySellLossBuy = property $ do
     )
     [ SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b & details <>~ [Position Open]),
       SawAction <$> (Sell <$> sl),
-      Result <$> (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
+      Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
       RemoveEvent 1 <$ sl,
       Submit <$> (sl & item . price .~ 1),
       SaveWash "A" <$> (sl & item . price .~ 1),
       Result <$> (Wash <$> (sl & item . price .~ 1)),
       SubmitEnd <$ sl,
       SawAction <$> (Buy <$> b2),
-      AddEvent <$> (Opened True <$> (b2 & item . details <>~ [Washed 1])),
-      Result <$> (Buy <$> (b2 & item . details <>~ [Position Open, Washed 1]))
+      AddEvent <$> (Opened True <$> b2 & details <>~ [Washed 1]),
+      Result <$> (Buy <$> b2 & details <>~ [Position Open, Washed 1])
     ]
 
 buyBuySellLoss :: Property
 buyBuySellLoss = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   let sl = b & item . price -~ 1
   checkJournal
     ( do
@@ -268,20 +270,20 @@ buyBuySellLoss = property $ do
     )
     [ SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b & details <>~ [Position Open]),
       SawAction <$> (Buy <$> b),
       AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      Result <$> (Buy <$> b & details <>~ [Position Open]),
       SawAction <$> (Sell <$> sl),
-      Result <$> (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
+      Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
       RemoveEvent 1 <$ sl,
       Submit <$> (sl & item . price .~ 1),
       RemoveEvent 2 <$ sl,
-      AddEvent <$> (Opened True <$> (b & item . details <>~ [Washed 1])),
+      AddEvent <$> (Opened True <$> b & details <>~ [Washed 1]),
       Result
         <$> ( Wash
                 <$> ( b & item . price .~ 1
-                        & item . details <>~ [Washed (b ^. item . price)]
+                        & details <>~ [Washed (b ^. item . price)]
                     )
             ),
       SubmitEnd <$ b
@@ -289,19 +291,19 @@ buyBuySellLoss = property $ do
 
 simpleSell :: Property
 simpleSell = property $ do
-  s <- forAll $ genTimed genLot
+  s <- forAll $ genAnnotated genLot
   checkJournal
     ( do
         sell s [Position Open]
     )
     [ SawAction <$> (Sell <$> s),
       AddEvent <$> (Opened False <$> s),
-      Result <$> (Sell <$> (s & item . details <>~ [Position Open]))
+      Result <$> Sell <$> s & details <>~ [Position Open]
     ]
 
 sellBuyProfit :: Property
 sellBuyProfit = property $ do
-  b <- forAll $ genTimed genLot
+  b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
         sell b [Position Open]
@@ -309,9 +311,9 @@ sellBuyProfit = property $ do
     )
     [ SawAction <$> (Sell <$> b),
       AddEvent <$> (Opened False <$> b),
-      Result <$> (Sell <$> (b & item . details <>~ [Position Open])),
+      Result <$> Sell <$> b & details <>~ [Position Open],
       SawAction <$> (Buy <$> b),
-      Result <$> (Buy <$> (b & item . details <>~ [Position Close, Gain 0])),
+      Result <$> Buy <$> b & details <>~ [Position Close, Gain 0],
       RemoveEvent 1 <$ b
     ]
 
@@ -378,14 +380,16 @@ genAmount range = do
   n <- Gen.integral range
   pure $ Amount (d % n)
 
-genTimed :: MonadGen m => m a -> m (Timed a)
-genTimed gen = do
+genAnnotated :: MonadGen m => m a -> m (Annotated a)
+genAnnotated gen = do
   _time <- genUTCTime
   _item <- gen
-  pure Timed {..}
+  let _details = [Time _time]
+      _computed = []
+  pure Annotated {..}
 
 genLot :: MonadGen m => m Lot
 genLot = do
   q <- genAmount (Range.linear 1 1000)
   p <- genAmount (Range.linear 1 2000)
-  pure $ Lot q "FOO" p [] []
+  pure $ Lot q "FOO" p

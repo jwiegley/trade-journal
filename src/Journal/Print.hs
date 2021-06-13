@@ -13,7 +13,7 @@ import Control.Lens hiding (noneOf)
 import Data.Char
 import Data.Either
 import Data.List (intersperse, sort)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -27,48 +27,45 @@ printJournal :: Journal -> Text
 printJournal =
   TL.concat
     . intersperse "\n"
-    . map (printTimed printAction)
+    . map (\x -> printAction (x ^. item) <> printAnnotated x (x ^? item . _Lot))
     . view actions
-
-printTimed :: (a -> Text) -> Timed a -> Text
-printTimed printItem t =
-  TL.concat $
-    intersperse " " $
-      [ printTime (t ^. time),
-        printItem (t ^. item)
-      ]
 
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
 
 printAction :: Action -> Text
 printAction = \case
-  Deposit amt desc -> "deposit " <> printAmount 2 amt <> " " <> printString desc
-  Withdraw amt desc -> "withdraw " <> printAmount 2 amt <> " " <> printString desc
+  Deposit amt -> "deposit " <> printAmount 2 amt
+  Withdraw amt -> "withdraw " <> printAmount 2 amt
   Buy lot -> "buy " <> printLot lot
   Sell lot -> "sell " <> printLot lot
-  TransferIn lot desc -> "in " <> printLot lot <> " " <> TL.fromStrict desc
-  TransferOut lot desc -> "out " <> printLot lot <> " " <> TL.fromStrict desc
+  TransferIn lot -> "in " <> printLot lot
+  TransferOut lot -> "out " <> printLot lot
   Wash lot -> "wash " <> printLot lot
   Assign lot -> "assign " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot
-  Interest amt desc -> "interest " <> printAmount 2 amt <> " " <> printString desc
-  Income amt desc -> "income " <> printAmount 2 amt <> " " <> printString desc
-  Credit amt desc -> "credit " <> printAmount 2 amt <> " " <> printString desc
+  Interest amt -> "interest " <> printAmount 2 amt
+  Income amt -> "income " <> printAmount 2 amt
+  Credit amt -> "credit " <> printAmount 2 amt
 
 printLot :: Lot -> Text
 printLot lot =
+  TL.concat $
+    intersperse
+      " "
+      [ printAmount 0 (lot ^. amount),
+        TL.fromStrict (lot ^. symbol),
+        printAmount 4 (lot ^. price)
+      ]
+
+printAnnotated :: Annotated a -> Maybe Lot -> Text
+printAnnotated ann mlot =
   ( TL.concat $
       intersperse
         " "
-        ( [ printAmount 0 (lot ^. amount),
-            TL.fromStrict (lot ^. symbol),
-            printAmount 4 (lot ^. price)
-          ]
-            ++ inlineAnns
-        )
+        inlineAnns
   )
     <> case separateAnns of
       [] -> ""
@@ -80,10 +77,10 @@ printLot lot =
     annotations =
       mapMaybe
         printAnnotation
-        (sort (lot ^. details ++ lot ^. computed))
+        (sort (ann ^. details ++ ann ^. computed))
     (inlineAnns, separateAnns) = partitionEithers annotations
     totalAmount :: forall n. KnownNat n => Int -> Amount n -> Text
-    totalAmount n x = printAmount n (totaled lot x)
+    totalAmount n x = printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
     printAnnotation = \case
       Position eff -> Just $
         Left $ case eff of
@@ -107,14 +104,11 @@ printLot lot =
       WashApply x amt ->
         Just $ Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
       Exempt -> Just $ Left "exempt"
-      Net _x -> Nothing
-      Balance _x -> Nothing
-      -- Net x -> Right $ "net " <> printAmount 2 (x ^. coerced)
-      -- Balance x -> Right $ "balance " <> printAmount 2 (x ^. coerced)
       Account x -> Just $ Left $ "account " <> printText x
-      Trade x -> Just $ Left $ "trade " <> printText x
       Order x -> Just $ Left $ "order " <> printText x
-      Transaction x -> Just $ Left $ "transaction " <> printText x
+      Strategy x -> Just $ Left $ "strategy " <> printText x
+      Note x -> Just $ Left $ "note " <> printString x
+      Time x -> Just $ Left $ "time " <> printTime x
       Meta k v -> Just $ Right $ "meta " <> printText k <> " " <> printText v
     printText t
       | T.all isAlphaNum t = TL.fromStrict t

@@ -57,7 +57,7 @@ newJournalState :: JournalState
 newJournalState = JournalState mempty
 
 data Journal = Journal
-  { _actions :: [Timed Action]
+  { _actions :: [Annotated Action]
   }
   deriving
     ( Show,
@@ -74,9 +74,9 @@ newJournal = Journal []
 
 -- data JournalError
 --   = FromGainsKeeper GainsKeeperError
---   | UnexpectedRemainder (Timed Action)
---   | NetAmountDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
---   | BalanceDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
+--   | UnexpectedRemainder (Annotated Action)
+--   | NetAmountDoesNotMatch (Annotated Action) (Amount 2) (Amount 2)
+--   | BalanceDoesNotMatch (Annotated Action) (Amount 2) (Amount 2)
 --   deriving
 --     ( Show,
 --       Eq,
@@ -98,19 +98,19 @@ processJournal = fmap snd . processJournalWithChanges
 processJournalWithChanges ::
   MonadError GainsKeeperError m =>
   Journal ->
-  m ([Timed Change], Journal)
+  m ([Annotated Change], Journal)
 processJournalWithChanges =
   fmap (second Journal) . processActionsWithChanges . view actions
 
 processActionsWithChanges ::
   MonadError GainsKeeperError m =>
-  [Timed Action] ->
-  m ([Timed Change], [Timed Action])
+  [Annotated Action] ->
+  m ([Annotated Change], [Annotated Action])
 processActionsWithChanges xs =
   fmap unzipBoth . (`evalStateT` newJournalState) $ do
     forM xs $ \x -> do
       let lot = x ^? item . _Lot
-          macct = lot ^? _Just . details . traverse . _Account
+          macct = x ^? details . traverse . _Account
           sym = lot ^. _Just . symbol
       zoom (accounts . at macct . non newAccountState) $ do
         zoom
@@ -125,8 +125,8 @@ processActionsWithChanges xs =
 {-
 checkNetAmount ::
   MonadError GainsKeeperError m =>
-  Timed Action ->
-  m (Timed Action)
+  Annotated Action ->
+  m (Annotated Action)
 checkNetAmount x
   | Just itemNet <- x ^? item . _Lot . details . traverse . _Net = do
     let calcNet = netAmount (x ^. item)
@@ -138,8 +138,8 @@ checkNetAmount x
 
 checkBalance ::
   MonadError GainsKeeperError m =>
-  Timed Action ->
-  StateT (Amount 2) m (Timed Action)
+  Annotated Action ->
+  StateT (Amount 2) m (Annotated Action)
 checkBalance x
   | Just itemBal <- x ^? item . _Lot . details . traverse . _Balance = do
     bal <- get

@@ -8,15 +8,16 @@
 module Journal.ThinkOrSwim.Process (thinkOrSwimToJournal) where
 
 import Control.Arrow (left)
+import Control.Exception
 import Control.Lens
 import Data.Coerce
 import Data.List (intercalate)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
--- import Journal.Amount
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
+import Journal.Amount
 import Journal.Model (Journal (..))
 import Journal.ThinkOrSwim.Parser
 import Journal.ThinkOrSwim.Types
@@ -47,28 +48,26 @@ entryParse record =
     ""
     (record ^. xactDescription)
 
-entryToAction :: TOSTransaction -> TOSEntry -> Either String Action
+entryToAction :: TOSTransaction -> TOSEntry -> Either String (Annotated Action)
 entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
-      Buy
-        Lot
-          { _amount = coerce tdQuantity,
-            _symbol = TL.toStrict tdSymbol,
-            _price = coerce tdPrice,
-            _details = [], -- jww (2021-05-29): ???
-            _computed = []
-          }
+      annotate $
+        Buy
+          Lot
+            { _amount = coerce tdQuantity,
+              _symbol = TL.toStrict tdSymbol,
+              _price = coerce tdPrice
+            }
   Sold _device TOSTrade' {..} ->
     Right $
-      Sell
-        Lot
-          { _amount = coerce (abs tdQuantity),
-            _symbol = TL.toStrict tdSymbol,
-            _price = coerce tdPrice,
-            _details = [], -- jww (2021-05-29): ???
-            _computed = []
-          }
+      annotate $
+        Sell
+          Lot
+            { _amount = coerce (abs tdQuantity),
+              _symbol = TL.toStrict tdSymbol,
+              _price = coerce tdPrice
+            }
   -- AchCredit -> undefined
   -- AchDebit -> undefined
   -- AdrFee _symbol -> undefined
@@ -76,7 +75,8 @@ entryToAction xact = \case
   -- CourtesyAdjustment -> undefined
   CourtesyCredit ->
     Right $
-      Credit (xact ^. xactAmount) (TL.toStrict (xact ^. xactDescription))
+      annotate $
+        Credit (xact ^. xactAmount)
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined
@@ -98,28 +98,39 @@ entryToAction xact = \case
   -- WireIncoming -> undefined
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
+  where
+    annotate x =
+      Annotated
+        { _item = x,
+          _details = lotDetails,
+          _computed = []
+        }
+    lotDetails =
+      [ Time (entryTime xact),
+        Order (TL.toStrict (xact ^. xactRefNo)),
+        Note (TL.toStrict (xact ^. xactDescription))
+      ]
+        ++ [ Fees (- (xact ^. xactMiscFees . coerced))
+             | xact ^. xactMiscFees /= 0
+           ]
+        ++ [ Commission (- (xact ^. xactCommissionsAndFees . coerced))
+             | xact ^. xactCommissionsAndFees /= 0
+           ]
 
--- Wash Lot
--- Deposit Lot
--- Withdraw Lot
--- Assign Lot
--- Expire Lot
--- Dividend Lot
-
-xactAction :: TOSTransaction -> Either String (Timed Action)
-xactAction record = do
-  ent <- left show $ entryParse record
-  act <- entryToAction record ent
-  pure $
-    Timed
-      { _time = entryTime record,
-        _item = act
-      }
+xactAction :: TOSTransaction -> Amount 2 -> Either String (Annotated Action)
+xactAction xact bal = do
+  ent <- left show $ entryParse xact
+  act <- entryToAction xact ent
+  assert (netAmount act == xact ^. xactAmount) $
+    assert (bal == xact ^. xactBalance) $
+      pure act
 
 thinkOrSwimToJournal :: ThinkOrSwim -> Journal
 thinkOrSwimToJournal tos =
   Journal $
-    flip concatMap (tos ^. xacts) $ \xact ->
-      case xactAction xact of
-        Left err -> trace err []
-        Right x -> [x]
+    snd $
+      (\f -> foldr f (0 :: Amount 2, []) (tos ^. xacts)) $ \xact (bal, rest) ->
+        let next = bal + xact ^. xactAmount
+         in case xactAction xact next of
+              Left err -> trace err (bal, rest)
+              Right x -> (next, x : rest)
