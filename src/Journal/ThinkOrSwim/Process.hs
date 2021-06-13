@@ -17,6 +17,7 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
+import Journal.Model (Journal (..))
 import Journal.ThinkOrSwim.Parser
 import Journal.ThinkOrSwim.Types
 import Journal.Types
@@ -98,12 +99,12 @@ entryToAction xact = \case
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
 
-  -- Wash Lot
-  -- Deposit Lot
-  -- Withdraw Lot
-  -- Assign Lot
-  -- Expire Lot
-  -- Dividend Lot
+-- Wash Lot
+-- Deposit Lot
+-- Withdraw Lot
+-- Assign Lot
+-- Expire Lot
+-- Dividend Lot
 
 xactAction :: TOSTransaction -> Either String (Timed Action)
 xactAction record = do

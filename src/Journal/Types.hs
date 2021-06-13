@@ -12,8 +12,6 @@ module Journal.Types where
 
 import Control.Applicative
 import Control.Lens
-import Data.IntMap (IntMap)
-import Data.Map (Map)
 import Data.Text (Text)
 import Data.Time
 import Data.Time.Format.ISO8601
@@ -180,18 +178,6 @@ netAmount = \case
   Income amt _desc -> amt
   Credit amt _desc -> amt
 
-data Event
-  = Opened Bool Lot
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      PrettyVal
-    )
-
-makePrisms ''Event
-
 data Timed a = Timed
   { _time :: UTCTime,
     _item :: a
@@ -208,103 +194,3 @@ data Timed a = Timed
     )
 
 makeLenses ''Timed
-
-data Change
-  = SawAction (Timed Action)
-  | Submit (Timed Lot) -- can only be an adjustment
-  | SubmitEnd
-  | Result (Timed Action)
-  | AddEvent (Timed Event)
-  | RemoveEvent Int
-  | ReplaceEvent Int (Timed Event)
-  | SaveWash Text (Timed Lot)
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      PrettyVal
-    )
-
-makePrisms ''Change
-
-data InstrumentState = InstrumentState
-  { _events :: IntMap (Timed Event),
-    _washSales :: Map Text [Timed Lot]
-  }
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic
-    )
-
-makeLenses ''InstrumentState
-
-newInstrumentState :: InstrumentState
-newInstrumentState = InstrumentState mempty mempty
-
-data AccountState = AccountState
-  { _nextId :: Int,
-    _balance :: Amount 2,
-    _instruments :: Map Text InstrumentState
-  }
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic
-    )
-
-makeLenses ''AccountState
-
-newAccountState :: AccountState
-newAccountState = AccountState 1 0 mempty
-
-data JournalState = JournalState
-  { _accounts :: Map (Maybe Text) AccountState
-  }
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic
-    )
-
-makeLenses ''JournalState
-
-newJournalState :: JournalState
-newJournalState = JournalState mempty
-
-data Journal = Journal
-  { _actions :: [Timed Action]
-  }
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      PrettyVal
-    )
-
-makeLenses ''Journal
-
-newJournal :: Journal
-newJournal = Journal []
-
-data JournalError
-  = ChangeNotFromImpliedChanges Change
-  | UnexpectedRemainder (Timed Action)
-  | NetAmountDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
-  | BalanceDoesNotMatch (Timed Action) (Amount 2) (Amount 2)
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      PrettyVal
-    )
-
--- "Change not produced by impliedChanges"
--- "impliedChanges: unexpected remainder: "
--- "Unapplied wash sale requires use of \"wash to\""

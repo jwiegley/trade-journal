@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 907cdc16af216bc79b50d71945b86c4466a9cbf652c6955cb5566b6cbda456b3
+-- hash: 38bff0ccf21708536310320a4b63fdc5db967f97961ace05643f8d9f089927ea
 
 name:           trade-journal
 version:        0.0.2
@@ -18,8 +18,10 @@ build-type:     Simple
 library
   exposed-modules:
       Journal.Amount
+      Journal.GainsKeeper
       Journal.Model
       Journal.Parse
+      Journal.Print
       Journal.Split
       Journal.ThinkOrSwim
       Journal.Types

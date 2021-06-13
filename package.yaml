@@ -40,8 +40,10 @@ library:
     - gmp
   exposed-modules:
     - Journal.Amount
+    - Journal.GainsKeeper
     - Journal.Model
     - Journal.Parse
+    - Journal.Print
     - Journal.Split
     - Journal.ThinkOrSwim
     - Journal.Types

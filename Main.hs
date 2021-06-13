@@ -22,6 +22,7 @@ import GHC.Generics hiding (to)
 import Journal.Amount
 import Journal.Model
 import Journal.Parse
+import Journal.Print
 import Journal.ThinkOrSwim
 import Options
 import Text.Megaparsec (parse)
@@ -42,10 +43,10 @@ newConfig =
 
 parseProcessPrint :: MonadFail m => FilePath -> TL.Text -> m TL.Text
 parseProcessPrint path journal = do
-  actions <- case parse parseJournal path journal of
+  xs <- case parse parseJournal path journal of
     Left e -> fail $ errorBundlePretty e
     Right res -> pure res
-  case processJournal actions of
+  case processJournal xs of
     Left err ->
       error $ "Error processing journal " ++ path ++ ": " ++ show err
     Right j -> pure $ printJournal j

@@ -19,8 +19,9 @@ import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Journal.Amount
-import Journal.Model
-import Journal.Types hiding (balance)
+import Journal.GainsKeeper
+import Journal.Model hiding (balance)
+import Journal.Types
 import Test.HUnit.Lang (FailureReason (..))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -45,12 +46,13 @@ makeLenses ''TestState
 buy :: Timed Lot -> [Annotation] -> State TestState ()
 buy b anns =
   do
-    bal <- use balance
+    -- bal <- use balance
     balance += c
     pending
       <>= [ TestAction
               (Buy <$> b)
-              (anns ++ [Balance (bal + c), Net c])
+              ( anns -- ++ [Balance (bal + c), Net c]
+              )
               True
           ]
   where
@@ -59,12 +61,13 @@ buy b anns =
 sell :: Timed Lot -> [Annotation] -> State TestState ()
 sell b anns =
   do
-    bal <- use balance
+    -- bal <- use balance
     balance += c
     pending
       <>= [ TestAction
               (Sell <$> b)
-              (anns ++ [Balance (bal + c), Net c])
+              ( anns -- ++ [Balance (bal + c), Net c]
+              )
               True
           ]
   where
@@ -73,11 +76,12 @@ sell b anns =
 wash :: Timed Lot -> [Annotation] -> State TestState ()
 wash b anns =
   do
-    bal <- use balance
+    -- bal <- use balance
     pending
       <>= [ TestAction
               (Wash <$> (b & item . price .~ 1))
-              (anns ++ [Balance bal, Net 0])
+              ( anns -- ++ [Balance bal, Net 0]
+              )
               False
           ]
 
@@ -97,7 +101,7 @@ trades =
 checkJournal ::
   (MonadIO m, MonadTrans t) =>
   State TestState a ->
-  [Change] ->
+  [Timed Change] ->
   t m ()
 checkJournal journal expected =
   lift $
@@ -130,9 +134,9 @@ simpleBuy = property $ do
     ( do
         buy b [Position Open]
     )
-    [ SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open]))
+    [ SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open]))
     ]
 
 buyBuy :: Property
@@ -143,12 +147,12 @@ buyBuy = property $ do
         buy b [Position Open]
         buy b [Position Open]
     )
-    [ SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open])),
-      SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open]))
+    [ SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open]))
     ]
 
 buySellBreakeven :: Property
@@ -159,12 +163,12 @@ buySellBreakeven = property $ do
         buy b [Position Open]
         sell b [Position Close, Gain 0]
     )
-    [ SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open])),
-      SawAction (Sell <$> b),
-      Result (Sell <$> (b & item . details <>~ [Position Close, Gain 0])),
-      RemoveEvent 1
+    [ SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Sell <$> b),
+      Result <$> (Sell <$> (b & item . details <>~ [Position Close, Gain 0])),
+      RemoveEvent 1 <$ b
     ]
 
 buySellProfit :: Property
@@ -176,12 +180,12 @@ buySellProfit = property $ do
         buy b [Position Open]
         sell sp [Position Close, Gain 10]
     )
-    [ SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open])),
-      SawAction (Sell <$> sp),
-      Result (Sell <$> (sp & item . details <>~ [Position Close, Gain 10])),
-      RemoveEvent 1
+    [ SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Sell <$> sp),
+      Result <$> (Sell <$> (sp & item . details <>~ [Position Close, Gain 10])),
+      RemoveEvent 1 <$ sp
     ]
 
 buySellPartProfit :: Property
@@ -194,12 +198,12 @@ buySellPartProfit = property $ do
         buy b2 [Position Open]
         sell sp [Position Close, Gain 10]
     )
-    [ SawAction (Buy <$> b2),
-      AddEvent (Opened True <$> b2),
-      Result (Buy <$> (b2 & item . details <>~ [Position Open])),
-      SawAction (Sell <$> sp),
-      Result (Sell <$> (sp & item . details <>~ [Position Close, Gain 10])),
-      ReplaceEvent 1 (Opened True <$> b)
+    [ SawAction <$> (Buy <$> b2),
+      AddEvent <$> (Opened True <$> b2),
+      Result <$> (Buy <$> (b2 & item . details <>~ [Position Open])),
+      SawAction <$> (Sell <$> sp),
+      Result <$> (Sell <$> (sp & item . details <>~ [Position Close, Gain 10])),
+      ReplaceEvent 1 <$> (Opened True <$> b)
     ]
 
 buySellLoss :: Property
@@ -211,14 +215,14 @@ buySellLoss = property $ do
         buy b [Position Open]
         sell sl [Position Close, Loss 1]
     )
-    [ SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open])),
-      SawAction (Sell <$> sl),
-      Result (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
-      RemoveEvent 1,
-      Submit (sl & item . price .~ 1),
-      SubmitEnd
+    [ SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Sell <$> sl),
+      Result <$> (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
+      RemoveEvent 1 <$ sl,
+      Submit <$> (sl & item . price .~ 1),
+      SubmitEnd <$ sl
     ]
 
 buySellLossBuy :: Property
@@ -236,19 +240,19 @@ buySellLossBuy = property $ do
         wash sl []
         buy b2 [Position Open, Washed 1]
     )
-    [ SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open])),
-      SawAction (Sell <$> sl),
-      Result (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
-      RemoveEvent 1,
-      Submit (sl & item . price .~ 1),
-      SaveWash "A" (sl & item . price .~ 1),
-      Result (Wash <$> (sl & item . price .~ 1)),
-      SubmitEnd,
-      SawAction (Buy <$> b2),
-      AddEvent (Opened True <$> (b2 & item . details <>~ [Washed 1])),
-      Result (Buy <$> (b2 & item . details <>~ [Position Open, Washed 1]))
+    [ SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Sell <$> sl),
+      Result <$> (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
+      RemoveEvent 1 <$ sl,
+      Submit <$> (sl & item . price .~ 1),
+      SaveWash "A" <$> (sl & item . price .~ 1),
+      Result <$> (Wash <$> (sl & item . price .~ 1)),
+      SubmitEnd <$ sl,
+      SawAction <$> (Buy <$> b2),
+      AddEvent <$> (Opened True <$> (b2 & item . details <>~ [Washed 1])),
+      Result <$> (Buy <$> (b2 & item . details <>~ [Position Open, Washed 1]))
     ]
 
 buyBuySellLoss :: Property
@@ -262,25 +266,25 @@ buyBuySellLoss = property $ do
         sell sl [Position Close, Loss 1]
         wash sl [Washed (b ^. item . price)]
     )
-    [ SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open])),
-      SawAction (Buy <$> b),
-      AddEvent (Opened True <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Open])),
-      SawAction (Sell <$> sl),
-      Result (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
-      RemoveEvent 1,
-      Submit (sl & item . price .~ 1),
-      RemoveEvent 2,
-      AddEvent (Opened True <$> (b & item . details <>~ [Washed 1])),
+    [ SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Buy <$> b),
+      AddEvent <$> (Opened True <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Sell <$> sl),
+      Result <$> (Sell <$> (sl & item . details <>~ [Position Close, Loss 1])),
+      RemoveEvent 1 <$ sl,
+      Submit <$> (sl & item . price .~ 1),
+      RemoveEvent 2 <$ sl,
+      AddEvent <$> (Opened True <$> (b & item . details <>~ [Washed 1])),
       Result
-        ( Wash
-            <$> ( b & item . price .~ 1
-                    & item . details <>~ [Washed (b ^. item . price)]
-                )
-        ),
-      SubmitEnd
+        <$> ( Wash
+                <$> ( b & item . price .~ 1
+                        & item . details <>~ [Washed (b ^. item . price)]
+                    )
+            ),
+      SubmitEnd <$ b
     ]
 
 simpleSell :: Property
@@ -290,9 +294,9 @@ simpleSell = property $ do
     ( do
         sell s [Position Open]
     )
-    [ SawAction (Sell <$> s),
-      AddEvent (Opened False <$> s),
-      Result (Sell <$> (s & item . details <>~ [Position Open]))
+    [ SawAction <$> (Sell <$> s),
+      AddEvent <$> (Opened False <$> s),
+      Result <$> (Sell <$> (s & item . details <>~ [Position Open]))
     ]
 
 sellBuyProfit :: Property
@@ -303,12 +307,12 @@ sellBuyProfit = property $ do
         sell b [Position Open]
         buy b [Position Close, Gain 0]
     )
-    [ SawAction (Sell <$> b),
-      AddEvent (Opened False <$> b),
-      Result (Sell <$> (b & item . details <>~ [Position Open])),
-      SawAction (Buy <$> b),
-      Result (Buy <$> (b & item . details <>~ [Position Close, Gain 0])),
-      RemoveEvent 1
+    [ SawAction <$> (Sell <$> b),
+      AddEvent <$> (Opened False <$> b),
+      Result <$> (Sell <$> (b & item . details <>~ [Position Open])),
+      SawAction <$> (Buy <$> b),
+      Result <$> (Buy <$> (b & item . details <>~ [Position Close, Gain 0])),
+      RemoveEvent 1 <$ b
     ]
 
 {--------------------------------------------------------------------------}
