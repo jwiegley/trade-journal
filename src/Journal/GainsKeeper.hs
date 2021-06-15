@@ -31,7 +31,6 @@ import Data.IntMap (IntMap)
 import Data.List (sortOn, tails)
 import Data.Map (Map)
 import Data.Text (Text)
-import Debug.Trace
 import GHC.Generics hiding (to)
 import Journal.Amount
 import Journal.Split
@@ -274,8 +273,6 @@ closePosition n open close = do
     -- of its corresponding open, and there is another open within 30
     -- days of the loss, close it and re-open so it's repriced by the
     -- wash loss.
-    traceM $ "close = " ++ show close
-    traceM $ "open  = " ++ show open
     let mayWash = (close ^?! time) `distance` (open ^?! time) <= 30 && pl < 0
     tell
       [ case s ^? _SplitKept of
