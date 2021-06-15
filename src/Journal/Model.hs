@@ -6,6 +6,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# OPTIONS_GHC "-Wno-orphans" #-}
 
 module Journal.Model where
 
@@ -18,7 +19,7 @@ import Data.Map (Map)
 import Data.Text (Text)
 import GHC.Generics hiding (to)
 import Journal.Amount
-import Journal.GainsKeeper
+import qualified Journal.GainsKeeper as Gains
 import Journal.Types
 import Journal.Utils
 import Text.Show.Pretty
@@ -27,7 +28,7 @@ import Prelude hiding (Double, Float)
 data AccountState = AccountState
   { _nextId :: Int,
     _balance :: Amount 2,
-    _instruments :: Map Text InstrumentState
+    _instruments :: Map Text Gains.InstrumentState
   }
   deriving
     ( Show,
@@ -72,6 +73,11 @@ makeLenses ''Journal
 newJournal :: Journal
 newJournal = Journal []
 
+instance Gains.ActionLike Action where
+  _Buy = _Buy
+  _Sell = _Sell
+  _Wash = _Wash
+
 -- data JournalError
 --   = FromGainsKeeper GainsKeeperError
 --   | UnexpectedRemainder (Annotated Action)
@@ -92,20 +98,21 @@ newJournal = Journal []
 -- | Ideally, this module turns a stream of lots -- expressing intentions to
 --   buy and sell at given prices -- into a record of transactions with the
 --   broker where all gains and losses have been calculated.
-processJournal :: MonadError GainsKeeperError m => Journal -> m Journal
+processJournal ::
+  MonadError (Gains.GainsKeeperError Action) m => Journal -> m Journal
 processJournal = fmap snd . processJournalWithChanges
 
 processJournalWithChanges ::
-  MonadError GainsKeeperError m =>
+  MonadError (Gains.GainsKeeperError Action) m =>
   Journal ->
-  m ([Annotated Change], Journal)
+  m ([Annotated (Gains.Change Action)], Journal)
 processJournalWithChanges =
   fmap (second Journal) . processActionsWithChanges . view actions
 
 processActionsWithChanges ::
-  MonadError GainsKeeperError m =>
+  MonadError (Gains.GainsKeeperError Action) m =>
   [Annotated Action] ->
-  m ([Annotated Change], [Annotated Action])
+  m ([Annotated (Gains.Change Action)], [Annotated Action])
 processActionsWithChanges xs =
   fmap unzipBoth . (`evalStateT` newJournalState) $ do
     forM xs $ \x -> do
@@ -117,10 +124,10 @@ processActionsWithChanges xs =
           ( zipped3
               nextId
               balance
-              (instruments . at sym . non newInstrumentState)
+              (instruments . at sym . non Gains.newInstrumentState)
           )
-          $ first ((SawAction (x ^. item) <$ x) :)
-            <$> processAction x
+          $ first ((Gains.SawAction (x ^. item) <$ x) :)
+            <$> Gains.processAction x
 
 {-
 checkNetAmount ::

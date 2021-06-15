@@ -27,7 +27,17 @@ printJournal :: Journal -> Text
 printJournal =
   TL.concat
     . intersperse "\n"
-    . map (\x -> printAction (x ^. item) <> printAnnotated x (x ^? item . _Lot))
+    . map
+      ( \x ->
+          ( case x ^? time of
+              Just t -> printTime t <> " "
+              Nothing -> ""
+          )
+            <> printAction (x ^. item)
+            <> case printAnnotated x (x ^? item . _Lot) of
+              "" -> ""
+              anns -> " " <> anns
+      )
     . view actions
 
 printString :: T.Text -> Text
@@ -108,7 +118,7 @@ printAnnotated ann mlot =
       Order x -> Just $ Left $ "order " <> printText x
       Strategy x -> Just $ Left $ "strategy " <> printText x
       Note x -> Just $ Left $ "note " <> printString x
-      Time x -> Just $ Left $ "time " <> printTime x
+      Time _ -> Nothing
       Meta k v -> Just $ Right $ "meta " <> printText k <> " " <> printText v
     printText t
       | T.all isAlphaNum t = TL.fromStrict t

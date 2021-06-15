@@ -46,18 +46,19 @@ keyword = lexeme . string
 
 parseJournal :: Parser Journal
 parseJournal =
-  Journal <$> many (whiteSpace *> parseAnnotated parseAction) <* eof
+  Journal <$> many (whiteSpace *> parseAnnotated) <* eof
 
-parseAnnotated :: Parser a -> Parser (Annotated a)
-parseAnnotated parser = do
+parseAnnotated :: Parser (Annotated Action)
+parseAnnotated = do
   _time <- Journal.Parse.parseTime
-  _item <- parser
-  _details <- many parseAnnotation
+  _item <- parseAction
+  _details <- (Time _time :) <$> many parseAnnotation
   let _computed = []
+  -- if there are fees, there should be an amount
   pure $
     Annotated {..}
-
--- & details . traverse . failing _Fees _Commission //~ _amount
+      & details . traverse . failing _Fees _Commission
+        //~ (_item ^?! _Lot . amount)
 
 quotedString :: Parser T.Text
 quotedString = identPQuoted >>= return . T.pack
@@ -119,7 +120,6 @@ parseAnnotation = do
     <|> keyword "account" *> (Account <$> parseText)
     <|> keyword "order" *> (Order <$> parseText)
     <|> keyword "note" *> (Note <$> quotedString)
-    <|> keyword "time" *> (Time <$> parseTime)
     <|> keyword "meta" *> (Meta <$> parseText <*> parseText)
   where
     parseWash = do

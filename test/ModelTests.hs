@@ -103,7 +103,7 @@ trades =
 checkJournal ::
   (MonadIO m, MonadTrans t) =>
   State TestState a ->
-  [Annotated Change] ->
+  [Annotated (Change Action)] ->
   t m ()
 checkJournal journal expected =
   lift $
