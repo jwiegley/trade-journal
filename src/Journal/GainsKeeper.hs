@@ -19,7 +19,6 @@ module Journal.GainsKeeper
 where
 
 import Control.Applicative
-import Control.Arrow
 import Control.Exception hiding (handle)
 import Control.Lens
 import Control.Monad.Except
@@ -32,11 +31,11 @@ import Data.List (sortOn, tails)
 import Data.Map (Map)
 import Data.Text (Text)
 import GHC.Generics hiding (to)
-import Journal.Amount
 import Journal.Split
 import Journal.Types hiding (Action, _Buy, _Sell, _Wash)
 import Journal.Utils
-import Text.Show.Pretty
+import Pipes
+import Text.Show.Pretty hiding (Time)
 import Prelude hiding (Double, Float)
 
 data Event
@@ -108,47 +107,88 @@ class ActionLike a where
   buyOrSell :: Traversal' a Lot
   buyOrSell = failing _Buy _Sell
 
+data GainsKeeperState = GainsKeeperState
+  { _nextId :: Int,
+    _instruments :: Map Text InstrumentState
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic
+    )
+
+symbolName :: ActionLike a => Traversal' a Text
+symbolName f s = s & failing _Buy (failing _Sell _Wash) . symbol %%~ f
+
+makeLenses ''GainsKeeperState
+
+newGainsKeeperState :: GainsKeeperState
+newGainsKeeperState =
+  GainsKeeperState
+    { _nextId = 0,
+      _instruments = mempty
+    }
+
+gainsKeeper ::
+  (MonadError (GainsKeeperError a) m, Show a, ActionLike a) =>
+  Pipe (Annotated a) (Annotated (Change a)) m r
+gainsKeeper = flip evalStateT newGainsKeeperState $
+  forever $ do
+    entry <- lift await
+    results <-
+      zoom
+        ( zipped
+            nextId
+            ( instruments . at (entry ^. item . symbolName)
+                . non newInstrumentState
+            )
+        )
+        $ do
+          processAction entry
+    forM_ results $ lift . yield
+
 processAction ::
   (MonadError (GainsKeeperError a) m, Show a, ActionLike a) =>
   Annotated a ->
   StateT
-    (Int, Amount 2, InstrumentState)
+    (Int, InstrumentState)
     m
-    ([Annotated (Change a)], [Annotated a])
+    [Annotated (Change a)]
 processAction =
-  fmap unzipBoth . mapM applyChange <=< readonly . impliedChanges
+  fmap concat . mapM applyChange <=< readonly . impliedChanges
   where
     applyChange chg = case chg ^. item of
       SawAction _ -> throwError $ ChangeNotFromImpliedChanges chg
-      Result e -> pure ([chg], [e <$ chg])
+      Result e -> pure [chg]
       Submit lot ->
-        first (\xs -> chg : xs ++ [SubmitEnd <$ chg])
+        (\xs -> chg : xs ++ [SubmitEnd <$ chg])
           <$> processAction ((_Wash #) <$> (lot <$ chg))
-      SubmitEnd -> pure ([chg], [])
+      SubmitEnd -> pure [chg]
       AddEvent e -> do
         ident <- use _1
         _1 += 1
-        _3 . events . at ident ?= (e <$ chg)
-        pure ([chg], [])
+        _2 . events . at ident ?= (e <$ chg)
+        pure [chg]
       RemoveEvent ident -> do
-        _3 . events . at ident .= Nothing
-        pure ([chg], [])
+        _2 . events . at ident .= Nothing
+        pure [chg]
       ReplaceEvent ident e -> do
-        _3 . events . at ident ?= (e <$ chg)
-        pure ([chg], [])
+        _2 . events . at ident ?= (e <$ chg)
+        pure [chg]
       SaveWash name lot -> do
-        _3 . washSales . at name
+        _2 . washSales . at name
           %= \case
             Nothing -> Just [lot <$ chg]
             Just xs -> Just ((lot <$ chg) : xs)
-        pure ([chg], [])
+        pure [chg]
 
 impliedChanges ::
   (MonadError (GainsKeeperError a) m, Show a, ActionLike a) =>
   Annotated a ->
-  ReaderT (Int, Amount 2, InstrumentState) m [Annotated (Change a)]
+  ReaderT (Int, InstrumentState) m [Annotated (Change a)]
 impliedChanges x = do
-  hist <- asks (sortOn fst . toListOf (_3 . events . ifolded . withIndex))
+  hist <- asks (sortOn fst . toListOf (_2 . events . ifolded . withIndex))
   (mx, changes) <-
     runWriterT $ foldAM x (tails hist) $ maybe (pure Nothing) . handle
   forM_ mx $ throwError . UnexpectedRemainder
@@ -160,7 +200,7 @@ handle ::
   Annotated a ->
   WriterT
     [Annotated (Change a)]
-    (ReaderT (Int, Amount 2, InstrumentState) m)
+    (ReaderT (Int, InstrumentState) m)
     (Maybe (Annotated a))
 handle
   ((n, open@(view item -> Opened buyToOpen _)) : _)
@@ -188,8 +228,6 @@ handle [] act@(preview (item . _Wash) -> Just x) = do
                         Nothing -> x
                         Just (_amount, _price) ->
                           let _symbol = x ^. symbol
-                              _details = []
-                              _computed = []
                            in Lot {..}
                     )
                       <$ act
@@ -209,7 +247,7 @@ handle [] action = do
           lift $
             asks
               ( toListOf
-                  ( _3 . washSales
+                  ( _2 . washSales
                       . ix name
                       . folded
                       . filtered
@@ -222,8 +260,6 @@ handle [] action = do
               )
         let _price = sum sales / _amount
             _symbol = open ^. symbol
-            _details = []
-            _computed = []
         washNewPosition Lot {..} act
       _ -> pure Nothing
   case mact of
@@ -321,7 +357,7 @@ washExistingPosition n open washing =
         ++ ( ( \x ->
                  washing & item .~ Result (_Wash # x)
                    & details
-                     .~ [ _Time # (washing ^?! time),
+                     .~ [ Time (washing ^?! time),
                           Washed (s ^?! _SplitUsed . price)
                         ]
              )

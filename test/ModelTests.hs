@@ -109,7 +109,7 @@ checkJournal journal expected =
   lift $
     processActionsWithChanges
       (input journal)
-      @?== Right (expected, trades journal)
+      @?== Right expected
 
 {--------------------------------------------------------------------------}
 

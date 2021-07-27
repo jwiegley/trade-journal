@@ -11,7 +11,6 @@
 module Journal.Model where
 
 import Control.Applicative
-import Control.Arrow
 import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Trans.State
@@ -107,27 +106,40 @@ processJournalWithChanges ::
   Journal ->
   m ([Annotated (Gains.Change Action)], Journal)
 processJournalWithChanges =
-  fmap (second Journal) . processActionsWithChanges . view actions
+  fmap
+    ( \acts ->
+        ( acts,
+          Journal
+            ( concatMap
+                ( \x ->
+                    case x ^. item of
+                      Gains.Result r -> [r <$ x]
+                      _ -> []
+                )
+                acts
+            )
+        )
+    )
+    . processActionsWithChanges
+    . view actions
 
 processActionsWithChanges ::
   MonadError (Gains.GainsKeeperError Action) m =>
   [Annotated Action] ->
-  m ([Annotated (Gains.Change Action)], [Annotated Action])
-processActionsWithChanges xs =
-  fmap unzipBoth . (`evalStateT` newJournalState) $ do
-    forM xs $ \x -> do
-      let lot = x ^? item . _Lot
-          macct = x ^? details . traverse . _Account
-          sym = lot ^. _Just . symbol
-      zoom (accounts . at macct . non newAccountState) $ do
-        zoom
-          ( zipped3
-              nextId
-              balance
-              (instruments . at sym . non Gains.newInstrumentState)
-          )
-          $ first ((Gains.SawAction (x ^. item) <$ x) :)
-            <$> Gains.processAction x
+  m [Annotated (Gains.Change Action)]
+processActionsWithChanges xs = (`evalStateT` newJournalState) $ do
+  fmap concat . forM xs $ \x -> do
+    let lot = x ^? item . _Lot
+        macct = x ^? details . traverse . _Account
+        sym = lot ^. _Just . symbol
+    zoom (accounts . at macct . non newAccountState) $ do
+      zoom
+        ( zipped
+            nextId
+            (instruments . at sym . non Gains.newInstrumentState)
+        )
+        $ ((Gains.SawAction (x ^. item) <$ x) :)
+          <$> Gains.processAction x
 
 {-
 checkNetAmount ::

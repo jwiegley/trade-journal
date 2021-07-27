@@ -118,7 +118,7 @@ data Action
   | Expire Lot -- expiration of a short options position
   | Exercise Lot -- exercise a long options position
   | Dividend (Amount 2) Lot -- dividend paid on a long position
-  | Interest (Amount 2) -- interest earned
+  | Interest (Amount 2) (Maybe Text) -- interest earned
   | Income (Amount 2) -- taxable income earned
   | Credit (Amount 2) -- account credit received
   deriving
@@ -144,7 +144,7 @@ mapAction f = \case
   Exercise lot -> Exercise (f lot)
   Expire lot -> Expire (f lot)
   Dividend amt lot -> Dividend amt (f lot)
-  Interest amt -> Interest amt
+  Interest amt sym -> Interest amt sym
   Income amt -> Income amt
   Credit amt -> Credit amt
 
@@ -161,7 +161,7 @@ _Lot f = \case
   Exercise lot -> Exercise <$> f lot
   Expire lot -> Expire <$> f lot
   Dividend amt lot -> Dividend amt <$> f lot
-  Interest amt -> pure $ Interest amt
+  Interest amt sym -> pure $ Interest amt sym
   Income amt -> pure $ Income amt
   Credit amt -> pure $ Credit amt
 
@@ -188,6 +188,6 @@ netAmount ann = case ann ^. item of
   Exercise _lot -> 0 -- jww (2021-06-12): NYI
   Expire _lot -> 0
   Dividend amt _lot -> amt
-  Interest amt -> amt
+  Interest amt _sym -> amt
   Income amt -> amt
   Credit amt -> amt

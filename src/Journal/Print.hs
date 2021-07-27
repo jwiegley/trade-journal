@@ -56,7 +56,9 @@ printAction = \case
   Exercise lot -> "exercise " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot
-  Interest amt -> "interest " <> printAmount 2 amt
+  Interest amt Nothing -> "interest " <> printAmount 2 amt
+  Interest amt (Just sym) ->
+    "interest " <> printAmount 2 amt <> " from " <> printString sym
   Income amt -> "income " <> printAmount 2 amt
   Credit amt -> "credit " <> printAmount 2 amt
 

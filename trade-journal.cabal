@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 38bff0ccf21708536310320a4b63fdc5db967f97961ace05643f8d9f089927ea
+-- hash: d6e5194d7b516544ce455d0e976920c15d0dd4f4000acc58827dabccedef76aa
 
 name:           trade-journal
 version:        0.0.2
@@ -46,9 +46,12 @@ library
     , cassava
     , containers
     , data-default
+    , free
     , lens
     , megaparsec
     , mtl
+    , pipes
+    , pipes-group
     , pretty
     , pretty-show
     , profunctors
@@ -71,10 +74,13 @@ executable trade-journal
     , bytestring
     , cassava
     , containers
+    , free
     , lens
     , megaparsec
     , mtl
     , optparse-applicative
+    , pipes
+    , pipes-group
     , pretty-show
     , text
     , time
@@ -101,11 +107,14 @@ test-suite trade-journal-tests
     , bytestring
     , cassava
     , containers
+    , free
     , hedgehog
     , here
     , lens
     , megaparsec
     , mtl
+    , pipes
+    , pipes-group
     , pretty-show
     , tasty
     , tasty-hedgehog

@@ -496,8 +496,11 @@ parseEntry =
             <$ symbol "INTERNAL TRANSFER BETWEEN ACCOUNTS OR ACCOUNT TYPES"
         )
     <|> (TransferFromForexAccount <$ symbol "TRANSFER FROM FOREX ACCOUNT")
-    <|> ( TransferInSecurityOrOption
-            <$ symbol "TRANSFER OF SECURITY OR OPTION IN"
+    <|> ( symbol "TRANSFER OF SECURITY OR OPTION IN "
+            *> ( TransferInSecurityOrOption
+                   <$> parseAmount
+                   <*> parseSymbol
+               )
         )
     <|> (TransferOfCash <$ symbol "INTERNAL TRANSFER OF CASH")
     <|> (TransferToForexAccount <$ symbol "TRANSFER TO FOREX ACCOUNT")

@@ -94,7 +94,10 @@ parseAction =
     <|> keyword "exercise" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
     <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
-    <|> keyword "interest" *> (Interest <$> parseAmount)
+    <|> keyword "interest"
+      *> ( Interest <$> parseAmount
+             <*> optional (keyword "from" *> (TL.toStrict <$> parseSymbol))
+         )
     <|> keyword "income" *> (Income <$> parseAmount)
     <|> keyword "credit" *> (Credit <$> parseAmount)
 

@@ -11,6 +11,7 @@ import Control.Arrow (left)
 import Control.Exception
 import Control.Lens
 import Data.Coerce
+import Data.Foldable
 import Data.List (intercalate)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -68,8 +69,14 @@ entryToAction xact = \case
               _symbol = TL.toStrict tdSymbol,
               _price = coerce tdPrice
             }
-  -- AchCredit -> undefined
-  -- AchDebit -> undefined
+  AchCredit ->
+    Right $
+      annotate $
+        Deposit (xact ^. xactAmount)
+  AchDebit ->
+    Right $
+      annotate $
+        Withdraw (xact ^. xactAmount . to abs)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
@@ -80,22 +87,42 @@ entryToAction xact = \case
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined
-  -- InterestAdjustment -> undefined
-  -- InterestIncome _symbol -> undefined
+  InterestAdjustment ->
+    Right $
+      annotate $
+        Interest (xact ^. xactAmount) Nothing
+  InterestIncome sym ->
+    Right $
+      annotate $
+        Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
   -- MarkToMarket -> undefined
   -- MiscellaneousJournalEntry -> undefined
   -- OffCycleInterest _symbol -> undefined
   -- OrdinaryDividend _symbol -> undefined
   -- QualifiedDividend _symbol -> undefined
-  -- Rebate -> undefined
+  Rebate ->
+    Right $
+      annotate $
+        Income (xact ^. xactAmount)
   -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
   -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
   -- TransferBetweenAccounts -> undefined
   -- TransferFromForexAccount -> undefined
-  -- TransferInSecurityOrOption -> undefined
+  TransferInSecurityOrOption amt sym ->
+    Right $
+      annotate $
+        TransferIn
+          Lot
+            { _amount = coerce (abs amt),
+              _symbol = TL.toStrict sym,
+              _price = 0
+            }
   -- TransferOfCash -> undefined
   -- TransferToForexAccount -> undefined
-  -- WireIncoming -> undefined
+  WireIncoming ->
+    Right $
+      annotate $
+        Deposit (xact ^. xactAmount)
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
   where
@@ -128,9 +155,14 @@ xactAction xact bal = do
 thinkOrSwimToJournal :: ThinkOrSwim -> Journal
 thinkOrSwimToJournal tos =
   Journal $
-    snd $
-      (\f -> foldr f (0 :: Amount 2, []) (tos ^. xacts)) $ \xact (bal, rest) ->
-        let next = bal + xact ^. xactAmount
-         in case xactAction xact next of
-              Left err -> trace err (bal, rest)
-              Right x -> (next, x : rest)
+    concatMap
+      ( \case
+          Left err -> trace err []
+          Right x -> [x]
+      )
+      $ snd $
+        (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts)) $ \xact (bal, rest) ->
+          let next = bal + xact ^. xactAmount
+           in case xactAction xact next of
+                x@(Left _) -> (bal, x : rest)
+                x -> (next, x : rest)

@@ -368,7 +368,7 @@ data TOSEntry
   | Sold TOSDevice TOSTrade'
   | TransferBetweenAccounts
   | TransferFromForexAccount
-  | TransferInSecurityOrOption
+  | TransferInSecurityOrOption (Amount 1) Symbol
   | TransferOfCash
   | TransferToForexAccount
   | WireIncoming

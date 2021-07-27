@@ -9,13 +9,6 @@ ghc-options:
    - -Wall
    - -Wno-missing-home-modules
 
-# ghc-options:
-#   - -Wall
-#   # - -Werror
-#   - -debug
-#   - -g3
-#   - -fno-ignore-asserts
-
 dependencies:
   - aeson
   - base >= 4.5 && < 5.0
@@ -26,6 +19,9 @@ dependencies:
   - megaparsec
   - mtl
   - pretty-show
+  - free
+  - pipes
+  - pipes-group
   - text
   - time
   - transformers
