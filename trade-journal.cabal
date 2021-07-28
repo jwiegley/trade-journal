@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d6e5194d7b516544ce455d0e976920c15d0dd4f4000acc58827dabccedef76aa
+-- hash: ae9d09decac1a29793e165f8a5e704cd7ad4559123e8929351c71d2496213fd2
 
 name:           trade-journal
 version:        0.0.2
@@ -19,8 +19,8 @@ library
   exposed-modules:
       Journal.Amount
       Journal.GainsKeeper
-      Journal.Model
       Journal.Parse
+      Journal.Pipes
       Journal.Print
       Journal.Split
       Journal.ThinkOrSwim
@@ -52,6 +52,7 @@ library
     , mtl
     , pipes
     , pipes-group
+    , pipes-text
     , pretty
     , pretty-show
     , profunctors
@@ -81,6 +82,7 @@ executable trade-journal
     , optparse-applicative
     , pipes
     , pipes-group
+    , pipes-text
     , pretty-show
     , text
     , time
@@ -115,6 +117,7 @@ test-suite trade-journal-tests
     , mtl
     , pipes
     , pipes-group
+    , pipes-text
     , pretty-show
     , tasty
     , tasty-hedgehog

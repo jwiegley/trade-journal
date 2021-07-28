@@ -3,13 +3,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
--- {-# LANGUAGE TemplateHaskell #-}
-
-module Journal.ThinkOrSwim.Process (thinkOrSwimToJournal) where
+module Journal.ThinkOrSwim.Process (thinkOrSwimActions) where
 
 import Control.Arrow (left)
 import Control.Exception
-import Control.Lens
+import Control.Lens hiding (each)
 import Data.Coerce
 import Data.Foldable
 import Data.List (intercalate)
@@ -19,10 +17,10 @@ import Data.Time
 import Data.Void (Void)
 import Debug.Trace
 import Journal.Amount
-import Journal.Model (Journal (..))
 import Journal.ThinkOrSwim.Parser
 import Journal.ThinkOrSwim.Types
 import Journal.Types
+import Pipes
 import Text.Megaparsec
 import Text.Printf
 
@@ -152,17 +150,21 @@ xactAction xact bal = do
     assert (bal == xact ^. xactBalance) $
       pure act
 
-thinkOrSwimToJournal :: ThinkOrSwim -> Journal
-thinkOrSwimToJournal tos =
-  Journal $
+thinkOrSwimActions ::
+  Functor m =>
+  ThinkOrSwim ->
+  Producer (Annotated Action) m ()
+thinkOrSwimActions tos =
+  each $
     concatMap
       ( \case
           Left err -> trace err []
           Right x -> [x]
       )
       $ snd $
-        (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts)) $ \xact (bal, rest) ->
-          let next = bal + xact ^. xactAmount
-           in case xactAction xact next of
-                x@(Left _) -> (bal, x : rest)
-                x -> (next, x : rest)
+        (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts)) $
+          \xact (bal, rest) ->
+            let nxt = bal + xact ^. xactAmount
+             in case xactAction xact nxt of
+                  x@(Left _) -> (bal, x : rest)
+                  x -> (nxt, x : rest)

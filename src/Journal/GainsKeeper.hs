@@ -8,12 +8,10 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Journal.GainsKeeper
-  ( processAction,
-    InstrumentState,
-    newInstrumentState,
-    Event (..),
+  ( Event (..),
     Change (..),
     gainsKeeper,
+    pickResults,
     GainsKeeperError,
     ActionLike (..),
   )
@@ -148,6 +146,13 @@ gainsKeeper = flip evalStateT newGainsKeeperState $
         $ do
           processAction entry
     forM_ results $ lift . yield
+
+pickResults :: Functor m => Pipe (Annotated (Change a)) (Annotated a) m r
+pickResults = forever $ do
+  change <- await
+  case change ^. item of
+    Result x -> yield (x <$ change)
+    _ -> pure ()
 
 processAction ::
   (MonadError (GainsKeeperError a) m, Show a, ActionLike a) =>

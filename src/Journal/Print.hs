@@ -7,9 +7,10 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Journal.Print (printJournal) where
+module Journal.Print (printActions) where
 
 import Control.Lens hiding (noneOf)
+import Control.Monad
 import Data.Char
 import Data.Either
 import Data.List (intersperse, sort)
@@ -20,25 +21,22 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
 import Journal.Amount
-import Journal.Model
 import Journal.Types
+import Pipes
 
-printJournal :: Journal -> Text
-printJournal =
-  TL.concat
-    . intersperse "\n"
-    . map
-      ( \x ->
-          ( case x ^? time of
-              Just t -> printTime t <> " "
-              Nothing -> ""
-          )
-            <> printAction (x ^. item)
-            <> case printAnnotated x (x ^? item . _Lot) of
-              "" -> ""
-              anns -> " " <> anns
+printActions :: MonadIO m => Pipe (Annotated Action) T.Text m r
+printActions = forever $ do
+  x <- await
+  yield $
+    TL.toStrict $
+      ( case x ^? time of
+          Just t -> printTime t <> " "
+          Nothing -> ""
       )
-    . view actions
+        <> printAction (x ^. item)
+        <> case printAnnotated x (x ^? item . _Lot) of
+          "" -> ""
+          anns -> " " <> anns
 
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict

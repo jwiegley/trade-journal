@@ -9,24 +9,19 @@
 module Main where
 
 import Control.Lens
+import Control.Monad.Except
 import Data.Aeson hiding ((.=))
-import qualified Data.ByteString.Lazy as BL
-import Data.Foldable
 import Data.List (isSuffixOf)
 import Data.Map (Map)
-import Data.Text (Text)
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
-import qualified Data.Text.Lazy.IO as TL
+import Data.Text.Lazy (Text)
 import GHC.Generics hiding (to)
 import Journal.Amount
-import Journal.Model
 import Journal.Parse
+import Journal.Pipes
 import Journal.Print
 import Journal.ThinkOrSwim
 import Options
-import Text.Megaparsec (parse)
-import Text.Megaparsec.Error
+import qualified Pipes.Prelude.Text as P
 
 data Config = Config
   { splits :: Map Text [Amount 6],
@@ -41,16 +36,6 @@ newConfig =
       rounding = mempty
     }
 
-parseProcessPrint :: MonadFail m => FilePath -> TL.Text -> m TL.Text
-parseProcessPrint path journal = do
-  xs <- case parse parseJournal path journal of
-    Left e -> fail $ errorBundlePretty e
-    Right res -> pure res
-  case processJournal xs of
-    Left err ->
-      error $ "Error processing journal " ++ path ++ ": " ++ show err
-    Right j -> pure $ printJournal j
-
 main :: IO ()
 main = do
   opts <- getOptions
@@ -61,9 +46,11 @@ main = do
         etos <- readCsv path
         case etos of
           Left err -> error $ "Error " ++ show err
-          Right tos -> TL.putStrLn $ printJournal $ thinkOrSwimToJournal tos
+          Right tos ->
+            handleActions
+              (thinkOrSwimActions tos)
+              printActions
+              P.stdoutLn
       else do
         putStrLn $ "Reading journal " ++ path
-        TL.putStrLn
-          =<< parseProcessPrint path
-          =<< TL.decodeUtf8 <$> BL.readFile path
+        parseProcessPrint (parseActions path) P.stdoutLn

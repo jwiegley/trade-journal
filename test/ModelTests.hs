@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module ModelTests (testModel) where
 
@@ -20,7 +21,7 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Journal.Amount
 import Journal.GainsKeeper
-import Journal.Model ()
+import Journal.Pipes ()
 import Journal.Types
 import Pipes
 import qualified Pipes.Prelude as P

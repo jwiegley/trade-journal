@@ -1,18 +1,20 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Examples (testExamples) where
 
+import Control.Monad.Writer
 import Data.List (intersperse)
 import Data.String.Here.Interpolated
+import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
-import Journal.Model
 import Journal.Parse
-import Journal.Print
+import Journal.Pipes
+import Pipes
 import Test.Tasty
 import Test.Tasty.HUnit
-import Text.Megaparsec
 
 testExamples :: TestTree
 testExamples =
@@ -188,9 +190,17 @@ zoomHistory = ii @--> oo
   gain 897.776667
         |]
 
+combine :: MonadWriter [T.Text] m => Consumer T.Text m r
+combine = forever $ do
+  msg <- await
+  lift $ tell [msg]
+
 (@-->) :: Text -> Text -> Assertion
 x @--> y = do
-  y' <- parseProcessPrint "" x
+  (_, msgs) <-
+    runWriterT $
+      parseProcessPrint (parseActionsFromText "" x) combine
+  let y' = TL.intercalate "\n" (map TL.fromStrict msgs)
   trimLines y' @?= trimLines y
   where
     trimLines =
@@ -199,12 +209,3 @@ x @--> y = do
         . map TL.strip
         . TL.splitOn "\n"
         . TL.strip
-    parseProcessPrint :: MonadFail m => FilePath -> Text -> m Text
-    parseProcessPrint path journal = do
-      xs <- case parse parseJournal path journal of
-        Left e -> fail $ errorBundlePretty e
-        Right res -> pure res
-      case processJournal xs of
-        Left err ->
-          error $ "Error processing journal " ++ path ++ ": " ++ show err
-        Right j -> pure $ printJournal j

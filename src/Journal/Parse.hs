@@ -7,19 +7,20 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Journal.Parse (parseJournal) where
+module Journal.Parse (parseActions, parseActionsFromText) where
 
-import Control.Lens hiding (noneOf)
+import Control.Lens hiding (each, noneOf)
 import Data.Char
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.IO as TL
 import Data.Time hiding (parseTime)
 import Data.Void
 import GHC.TypeLits
 import Journal.Amount
-import Journal.Model
 import Journal.Types
+import Pipes
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -44,12 +45,26 @@ lexeme p = p <* whiteSpace
 keyword :: Text -> Parser Text
 keyword = lexeme . string
 
-parseJournal :: Parser Journal
-parseJournal =
-  Journal <$> many (whiteSpace *> parseAnnotated) <* eof
+parseActions ::
+  (MonadFail m, MonadIO m) =>
+  FilePath ->
+  Producer (Annotated Action) m ()
+parseActions path = do
+  input <- liftIO $ TL.readFile path
+  parseActionsFromText path input
 
-parseAnnotated :: Parser (Annotated Action)
-parseAnnotated = do
+parseActionsFromText ::
+  MonadFail m =>
+  FilePath ->
+  Text ->
+  Producer (Annotated Action) m ()
+parseActionsFromText path input =
+  case parse (many (whiteSpace *> parseAnnotatedAction) <* eof) path input of
+    Left e -> fail $ errorBundlePretty e
+    Right res -> each res
+
+parseAnnotatedAction :: Parser (Annotated Action)
+parseAnnotatedAction = do
   _time <- Journal.Parse.parseTime
   _item <- parseAction
   _details <- (Time _time :) <$> many parseAnnotation

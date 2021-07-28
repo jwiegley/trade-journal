@@ -22,6 +22,7 @@ dependencies:
   - free
   - pipes
   - pipes-group
+  - pipes-text
   - text
   - time
   - transformers
@@ -37,8 +38,8 @@ library:
   exposed-modules:
     - Journal.Amount
     - Journal.GainsKeeper
-    - Journal.Model
     - Journal.Parse
+    - Journal.Pipes
     - Journal.Print
     - Journal.Split
     - Journal.ThinkOrSwim
