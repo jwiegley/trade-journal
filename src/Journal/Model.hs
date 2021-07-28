@@ -138,8 +138,7 @@ processActionsWithChanges xs = (`evalStateT` newJournalState) $ do
             nextId
             (instruments . at sym . non Gains.newInstrumentState)
         )
-        $ ((Gains.SawAction (x ^. item) <$ x) :)
-          <$> Gains.processAction x
+        $ Gains.processAction x
 
 {-
 checkNetAmount ::

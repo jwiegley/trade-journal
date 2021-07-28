@@ -13,6 +13,7 @@ module Journal.GainsKeeper
     newInstrumentState,
     Event (..),
     Change (..),
+    gainsKeeper,
     GainsKeeperError,
     ActionLike (..),
   )
@@ -126,7 +127,7 @@ makeLenses ''GainsKeeperState
 newGainsKeeperState :: GainsKeeperState
 newGainsKeeperState =
   GainsKeeperState
-    { _nextId = 0,
+    { _nextId = 1,
       _instruments = mempty
     }
 
@@ -159,12 +160,9 @@ processAction =
   fmap concat . mapM applyChange <=< readonly . impliedChanges
   where
     applyChange chg = case chg ^. item of
-      SawAction _ -> throwError $ ChangeNotFromImpliedChanges chg
-      Result e -> pure [chg]
       Submit lot ->
         (\xs -> chg : xs ++ [SubmitEnd <$ chg])
           <$> processAction ((_Wash #) <$> (lot <$ chg))
-      SubmitEnd -> pure [chg]
       AddEvent e -> do
         ident <- use _1
         _1 += 1
@@ -182,6 +180,9 @@ processAction =
             Nothing -> Just [lot <$ chg]
             Just xs -> Just ((lot <$ chg) : xs)
         pure [chg]
+      SawAction _ -> pure [chg]
+      Result _ -> pure [chg]
+      SubmitEnd -> pure [chg]
 
 impliedChanges ::
   (MonadError (GainsKeeperError a) m, Show a, ActionLike a) =>
@@ -192,7 +193,7 @@ impliedChanges x = do
   (mx, changes) <-
     runWriterT $ foldAM x (tails hist) $ maybe (pure Nothing) . handle
   forM_ mx $ throwError . UnexpectedRemainder
-  pure changes
+  pure ((SawAction <$> x) : changes)
 
 handle ::
   (Monad m, Show a, ActionLike a) =>

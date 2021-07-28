@@ -7,7 +7,7 @@
 module ModelTests (testModel) where
 
 import Control.Exception
-import Control.Lens
+import Control.Lens hiding (each)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
@@ -20,8 +20,10 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Journal.Amount
 import Journal.GainsKeeper
-import Journal.Model hiding (balance)
+import Journal.Model ()
 import Journal.Types
+import Pipes
+import qualified Pipes.Prelude as P
 import Test.HUnit.Lang (FailureReason (..))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -101,15 +103,13 @@ trades =
     . flip execState (TestState [] 0)
 
 checkJournal ::
-  (MonadIO m, MonadTrans t) =>
+  MonadIO m =>
   State TestState a ->
   [Annotated (Change Action)] ->
-  t m ()
+  m ()
 checkJournal journal expected =
-  lift $
-    processActionsWithChanges
-      (input journal)
-      @?== Right expected
+  P.toListM (each (input journal) >-> gainsKeeper)
+    @?== Right expected
 
 {--------------------------------------------------------------------------}
 
@@ -224,6 +224,7 @@ buySellLoss = property $ do
       Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
       RemoveEvent 1 <$ sl,
       Submit <$> (sl & item . price .~ 1),
+      SawAction <$> (Wash <$> (sl & item . price .~ 1)),
       SubmitEnd <$ sl
     ]
 
@@ -249,6 +250,7 @@ buySellLossBuy = property $ do
       Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
       RemoveEvent 1 <$ sl,
       Submit <$> (sl & item . price .~ 1),
+      SawAction <$> (Wash <$> (sl & item . price .~ 1)),
       SaveWash "A" <$> (sl & item . price .~ 1),
       Result <$> (Wash <$> (sl & item . price .~ 1)),
       SubmitEnd <$ sl,
@@ -278,6 +280,7 @@ buyBuySellLoss = property $ do
       Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
       RemoveEvent 1 <$ sl,
       Submit <$> (sl & item . price .~ 1),
+      SawAction <$> (Wash <$> (sl & item . price .~ 1)),
       RemoveEvent 2 <$ sl,
       AddEvent <$> (Opened True <$> b & details <>~ [Washed 1]),
       Result
