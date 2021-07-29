@@ -218,13 +218,13 @@ handle
   washing@(preview (item . _Wash) -> Just _)
     | all
         (\ann -> hasn't _Exempt ann && hasn't _Washed ann)
-        (open ^. details),
+        (open ^.. _Annotations),
       (open ^?! time) `distance` (washing ^?! time) <= 30 =
       washExistingPosition n open washing
 -- If a wash sale couldn't be applied to the current history, record it to
 -- apply to a future opening.
 handle [] act@(preview (item . _Wash) -> Just x) = do
-  case act ^? details . traverse . _WashTo of
+  case act ^? _Annotations . _WashTo of
     Just (name, mres) ->
       Nothing
         <$ tell
@@ -246,7 +246,7 @@ handle [] act@(preview (item . _Wash) -> Just x) = do
 handle [] action = do
   mact <- foldAM
     action
-    (action ^.. details . traverse . _WashApply)
+    (action ^.. _Annotations . _WashApply)
     $ \(name, _amount) -> \case
       Just (act@(preview (item . buyOrSell) -> Just open)) -> do
         sales <-
@@ -294,7 +294,9 @@ closePosition ::
 closePosition n open close = do
   let (s, d) = (open ^?! item . opened) `alignLots` (close ^?! item . buyOrSell)
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
-    let pricing o x = x ^. price + sum (o ^.. details . traverse . _Washed)
+    let pricing o x =
+          x ^. price
+            + sum (o ^.. _Annotations . _Washed)
         lotFees = sum (close ^.. fees) + sum (open ^.. fees)
         pl
           | has (item . _Sell) close =

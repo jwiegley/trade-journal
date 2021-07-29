@@ -84,13 +84,11 @@ printAnnotated ann mlot =
             intersperse "\n  " ("" : xs)
         )
   where
-    annotations =
-      mapMaybe
-        printAnnotation
-        (sort (ann ^. details ++ ann ^. computed))
+    annotations = mapMaybe printAnnotation (sort (ann ^. details))
     (inlineAnns, separateAnns) = partitionEithers annotations
     totalAmount :: forall n. KnownNat n => Int -> Amount n -> Text
-    totalAmount n x = printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
+    totalAmount n x =
+      printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
     printAnnotation = \case
       Position eff -> Just $
         Left $ case eff of

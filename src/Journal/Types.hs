@@ -48,28 +48,18 @@ data Annotation
 
 makePrisms ''Annotation
 
--- | The '_Adjustments' traversal returns any adjust to the price of an
--- action. For example, a prior wash sale may increase the cost basis of a
--- position, or a gain might decrease it.
-adjustment :: Traversal' Annotation (Amount 6)
-adjustment f = \case
-  Fees x -> Fees <$> f x
-  Commission x -> Commission <$> f x
-  Gain x -> Gain . negate <$> f (- x)
-  Loss x -> Loss <$> f x
-  Washed x -> Washed <$> f x
-  x -> x <$ f 0
-
 data Annotated a = Annotated
   { _item :: a,
     -- | All annotations that relate to lot shares are expressed "per share",
     -- just like the price.
-    _details :: [Annotation],
-    _computed :: [Annotation]
+    _details :: [Annotation]
   }
   deriving (Show, Eq, Ord, Generic, PrettyVal, Functor, Traversable, Foldable)
 
 makeLenses ''Annotated
+
+_Annotations :: Traversal' (Annotated a) Annotation
+_Annotations f s = s & details . traverse %%~ f
 
 time :: Traversal' (Annotated a) UTCTime
 time = details . traverse . _Time
@@ -93,18 +83,6 @@ totaled lot n = lot ^. amount . coerced * n
 
 fees :: Traversal' (Annotated a) (Amount 6)
 fees = details . traverse . failing _Fees _Commission
-
--- | The '_Adjustments' traversal returns any adjust to the price of an
--- action. For example, a prior wash sale may increase the cost basis of a
--- position, or a gain might decrease it.
-adjustments :: Fold (Annotated a) (Amount 6)
-adjustments f s =
-  error "Never used"
-    <$ traverse
-      f
-      ( s ^.. details . traverse . adjustment
-          ++ s ^.. computed . traverse . adjustment
-      )
 
 data Action
   = Deposit (Amount 2) -- deposit money into the account

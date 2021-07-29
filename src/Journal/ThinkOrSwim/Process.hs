@@ -127,8 +127,7 @@ entryToAction xact = \case
     annotate x =
       Annotated
         { _item = x,
-          _details = lotDetails,
-          _computed = []
+          _details = lotDetails
         }
     lotDetails =
       [ Time (entryTime xact),
