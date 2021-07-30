@@ -116,7 +116,6 @@ printAnnotated ann mlot =
       Order x -> Just $ Left $ "order " <> printText x
       Strategy x -> Just $ Left $ "strategy " <> printText x
       Note x -> Just $ Left $ "note " <> printString x
-      Time _ -> Nothing
       Meta k v -> Just $ Right $ "meta " <> printText k <> " " <> printText v
     printText t
       | T.all isAlphaNum t = TL.fromStrict t

@@ -41,7 +41,6 @@ data Annotation
   | Order Text
   | Strategy Text
   | Account Text
-  | Time UTCTime
   | Note Text
   | Meta Text Text
   deriving (Show, Eq, Ord, Generic, PrettyVal)
@@ -50,6 +49,7 @@ makePrisms ''Annotation
 
 data Annotated a = Annotated
   { _item :: a,
+    _time :: UTCTime,
     -- | All annotations that relate to lot shares are expressed "per share",
     -- just like the price.
     _details :: [Annotation]
@@ -57,12 +57,6 @@ data Annotated a = Annotated
   deriving (Show, Eq, Ord, Generic, PrettyVal, Functor, Traversable, Foldable)
 
 makeLenses ''Annotated
-
-_Annotations :: Traversal' (Annotated a) Annotation
-_Annotations f s = s & details . traverse %%~ f
-
-time :: Traversal' (Annotated a) UTCTime
-time = details . traverse . _Time
 
 -- | A 'Lot' represents a collection of shares, with a given price and a
 --   transaction date.

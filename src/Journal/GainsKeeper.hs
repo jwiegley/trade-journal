@@ -218,13 +218,13 @@ handle
   washing@(preview (item . _Wash) -> Just _)
     | all
         (\ann -> hasn't _Exempt ann && hasn't _Washed ann)
-        (open ^.. _Annotations),
-      (open ^?! time) `distance` (washing ^?! time) <= 30 =
+        (open ^.. details . traverse),
+      (open ^. time) `distance` (washing ^. time) <= 30 =
       washExistingPosition n open washing
 -- If a wash sale couldn't be applied to the current history, record it to
 -- apply to a future opening.
 handle [] act@(preview (item . _Wash) -> Just x) = do
-  case act ^? _Annotations . _WashTo of
+  case act ^? details . traverse . _WashTo of
     Just (name, mres) ->
       Nothing
         <$ tell
@@ -246,7 +246,7 @@ handle [] act@(preview (item . _Wash) -> Just x) = do
 handle [] action = do
   mact <- foldAM
     action
-    (action ^.. _Annotations . _WashApply)
+    (action ^.. details . traverse . _WashApply)
     $ \(name, _amount) -> \case
       Just (act@(preview (item . buyOrSell) -> Just open)) -> do
         sales <-
@@ -258,8 +258,8 @@ handle [] action = do
                       . folded
                       . filtered
                         ( \adj ->
-                            (adj ^?! time)
-                              `distance` (act ^?! time) <= 30
+                            (adj ^. time)
+                              `distance` (act ^. time) <= 30
                         )
                       . to (\x -> x ^. item . amount * x ^. item . price)
                   )
@@ -296,7 +296,7 @@ closePosition n open close = do
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
     let pricing o x =
           x ^. price
-            + sum (o ^.. _Annotations . _Washed)
+            + sum (o ^.. details . traverse . _Washed)
         lotFees = sum (close ^.. fees) + sum (open ^.. fees)
         pl
           | has (item . _Sell) close =
@@ -317,7 +317,7 @@ closePosition n open close = do
     -- of its corresponding open, and there is another open within 30
     -- days of the loss, close it and re-open so it's repriced by the
     -- wash loss.
-    let mayWash = (close ^?! time) `distance` (open ^?! time) <= 30 && pl < 0
+    let mayWash = (close ^. time) `distance` (open ^. time) <= 30 && pl < 0
     tell
       [ case s ^? _SplitKept of
           Just k ->
@@ -364,10 +364,8 @@ washExistingPosition n open washing =
            )
         ++ ( ( \x ->
                  washing & item .~ Result (_Wash # x)
-                   & details
-                     .~ [ Time (washing ^?! time),
-                          Washed (s ^?! _SplitUsed . price)
-                        ]
+                   & time .~ (washing ^. time)
+                   & details .~ [Washed (s ^?! _SplitUsed . price)]
              )
                <$> d ^.. _SplitUsed
            )

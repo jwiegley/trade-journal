@@ -127,11 +127,11 @@ entryToAction xact = \case
     annotate x =
       Annotated
         { _item = x,
+          _time = entryTime xact,
           _details = lotDetails
         }
     lotDetails =
-      [ Time (entryTime xact),
-        Order (TL.toStrict (xact ^. xactRefNo)),
+      [ Order (TL.toStrict (xact ^. xactRefNo)),
         Note (TL.toStrict (xact ^. xactDescription))
       ]
         ++ [ Fees (- (xact ^. xactMiscFees . coerced))

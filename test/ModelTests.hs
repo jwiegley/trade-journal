@@ -388,8 +388,7 @@ genAnnotated :: MonadGen m => m a -> m (Annotated a)
 genAnnotated gen = do
   _time <- genUTCTime
   _item <- gen
-  let _details = [Time _time]
-      _computed = []
+  let _details = []
   pure Annotated {..}
 
 genLot :: MonadGen m => m Lot

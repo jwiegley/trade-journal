@@ -67,8 +67,7 @@ parseAnnotatedAction :: Parser (Annotated Action)
 parseAnnotatedAction = do
   _time <- Journal.Parse.parseTime
   _item <- parseAction
-  _details <- (Time _time :) <$> many parseAnnotation
-  let _computed = []
+  _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
     Annotated {..}
