@@ -348,27 +348,26 @@ washExistingPosition n open washing =
     let (s, d) = (open ^?! item . opened) `alignLots` (washing ^?! item . _Wash)
     -- Wash failing closes by adding the amount to the cost basis of the
     -- opening transaction.
-    tell $
+    tell
       [ case s ^? _SplitKept of
           Just e ->
             ReplaceEvent n
               <$> (open & item . opened .~ e & details <>~ [Exempt])
           Nothing -> RemoveEvent n <$ open
       ]
-        ++ ( fmap AddEvent
-               . ( \x ->
-                     open & item . opened .~ x
-                       & details <>~ [Washed (d ^?! _SplitUsed . price)]
-                 )
-               <$> s ^.. _SplitUsed
-           )
-        ++ ( ( \x ->
-                 washing & item .~ Result (_Wash # x)
-                   & time .~ (washing ^. time)
-                   & details .~ [Washed (s ^?! _SplitUsed . price)]
-             )
-               <$> d ^.. _SplitUsed
-           )
+    forM_ (s ^.. _SplitUsed) $ \x ->
+      tell
+        [ AddEvent
+            <$> ( open & item . opened .~ x
+                    & details <>~ [Washed (d ^?! _SplitUsed . price)]
+                )
+        ]
+    forM_ (d ^.. _SplitUsed) $ \x ->
+      tell
+        [ washing & item .~ Result (_Wash # x)
+            & time .~ (washing ^. time)
+            & details .~ [Washed (s ^?! _SplitUsed . price)]
+        ]
     pure $ (\x -> washing & item . _Wash .~ x) <$> d ^? _SplitKept
 
 -- | If we are opening a position and there is a pending wash sale within the
@@ -384,21 +383,16 @@ washNewPosition washing open =
     -- We wash failing closes by adding the amount to the cost basis of
     -- the opening transaction. Thus, we generate three instances of
     -- WashLossApplied, but only one OpenPosition.
-    tell $
-      ( ( \x ->
-            open & item .~ AddEvent (Opened (has (item . _Buy) open) x)
-              & details <>~ [Washed (washing ^. price)]
-        )
-          <$> d ^.. _SplitUsed
-      )
-        ++ ( fmap Result
-               . ( \x ->
-                     open & item . buyOrSell .~ x
-                       & details
-                         <>~ [ Position Open,
-                               Washed (washing ^. price)
-                             ]
-                 )
-               <$> d ^.. _SplitUsed
-           )
+    forM_ (d ^.. _SplitUsed) $ \x ->
+      tell
+        [ open & item .~ AddEvent (Opened (has (item . _Buy) open) x)
+            & details <>~ [Washed (washing ^. price)],
+          Result
+            <$> ( open & item . buyOrSell .~ x
+                    & details
+                      <>~ [ Position Open,
+                            Washed (washing ^. price)
+                          ]
+                )
+        ]
     pure $ (\x -> open & item . buyOrSell .~ x) <$> d ^? _SplitKept
