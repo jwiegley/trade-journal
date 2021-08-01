@@ -244,6 +244,9 @@ handle [] act@(preview (item . _Wash) -> Just x) = do
 -- Otherwise, if there is no history to examine then this buy or sale must
 -- open a new position.
 handle [] action = do
+  -- An application of a wash sale amount is not something that this code ever
+  -- generates, but it may be specified manually by the user when they know
+  -- that a wash sale is applicable (based on information from their broker).
   mact <- foldAM
     action
     (action ^.. details . traverse . _WashApply)
@@ -294,10 +297,10 @@ closePosition ::
 closePosition n open close = do
   let (s, d) = (open ^?! item . opened) `alignLots` (close ^?! item . buyOrSell)
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
-    let pricing o x =
+    let lotFees = sum (close ^.. fees) + sum (open ^.. fees)
+        pricing o x =
           x ^. price
             + sum (o ^.. details . traverse . _Washed)
-        lotFees = sum (close ^.. fees) + sum (open ^.. fees)
         pl
           | has (item . _Sell) close =
             pricing close du - pricing open su - lotFees
