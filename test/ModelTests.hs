@@ -7,19 +7,18 @@
 
 module ModelTests (testModel) where
 
+import Amount
 import Control.Exception
 import Control.Lens hiding (each)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
-import Data.Int
 import Data.Ratio
 import Data.Time
 import Data.Typeable
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Journal.Amount
 import Journal.GainsKeeper
 import Journal.Pipes ()
 import Journal.Types
@@ -378,7 +377,7 @@ genUTCTime = do
   secs <- toInteger <$> Gen.int (Range.constant 0 86401)
   pure $ UTCTime day (secondsToDiffTime secs)
 
-genAmount :: MonadGen m => Range Int64 -> m (Amount n)
+genAmount :: MonadGen m => Range Integer -> m (Amount n)
 genAmount range = do
   d <- Gen.integral range
   n <- Gen.integral range

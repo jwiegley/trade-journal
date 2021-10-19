@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ae9d09decac1a29793e165f8a5e704cd7ad4559123e8929351c71d2496213fd2
+-- hash: 6ed9753951f46f9c8fc9701a1ab61cdd1bb1ca0541569f6dbb37d8bac17f586a
 
 name:           trade-journal
 version:        0.0.2
@@ -17,7 +17,6 @@ build-type:     Simple
 
 library
   exposed-modules:
-      Journal.Amount
       Journal.GainsKeeper
       Journal.Parse
       Journal.Pipes
@@ -27,6 +26,7 @@ library
       Journal.Types
       Journal.Utils
   other-modules:
+      Journal.GainsKeeper2
       Journal.ThinkOrSwim.Parser
       Journal.ThinkOrSwim.Process
       Journal.ThinkOrSwim.Types
@@ -34,11 +34,6 @@ library
   hs-source-dirs:
       src
   ghc-options: -Wall -Wno-missing-home-modules
-  c-sources:
-      src/Journal/mpfr_printf.c
-  extra-libraries:
-      mpfr
-      gmp
   build-depends:
       aeson
     , base >=4.5 && <5.0
@@ -56,6 +51,7 @@ library
     , pretty
     , pretty-show
     , profunctors
+    , simple-amount
     , split
     , text
     , time
@@ -84,6 +80,7 @@ executable trade-journal
     , pipes-group
     , pipes-text
     , pretty-show
+    , simple-amount
     , text
     , time
     , trade-journal
@@ -119,6 +116,7 @@ test-suite trade-journal-tests
     , pipes-group
     , pipes-text
     , pretty-show
+    , simple-amount
     , tasty
     , tasty-hedgehog
     , tasty-hunit

@@ -17,6 +17,7 @@ module Journal.GainsKeeper
   )
 where
 
+import Amount
 import Control.Applicative
 import Control.Exception hiding (handle)
 import Control.Lens
@@ -29,6 +30,7 @@ import Data.IntMap (IntMap)
 import Data.List (sortOn, tails)
 import Data.Map (Map)
 import Data.Text (Text)
+import Data.Time
 import GHC.Generics hiding (to)
 import Journal.Split
 import Journal.Types hiding (Action, _Buy, _Sell, _Wash)
@@ -295,7 +297,7 @@ closePosition ::
   Annotated a ->
   WriterT [Annotated (Change a)] m (Maybe (Annotated a))
 closePosition n open close = do
-  let (s, d) = (open ^?! item . opened) `alignLots` (close ^?! item . buyOrSell)
+  let (s, d) = (open ^?! item . opened) `align` (close ^?! item . buyOrSell)
   forM_ ((,) <$> s ^? _SplitUsed <*> d ^? _SplitUsed) $ \(su, du) -> do
     let lotFees = sum (close ^.. fees) + sum (open ^.. fees)
         pricing o x =
@@ -348,7 +350,7 @@ washExistingPosition ::
   WriterT [Annotated (Change a)] m (Maybe (Annotated a))
 washExistingPosition n open washing =
   assert (washing ^?! item . _Wash . amount /= 0) $ do
-    let (s, d) = (open ^?! item . opened) `alignLots` (washing ^?! item . _Wash)
+    let (s, d) = (open ^?! item . opened) `align` (washing ^?! item . _Wash)
     -- Wash failing closes by adding the amount to the cost basis of the
     -- opening transaction.
     tell
@@ -382,7 +384,7 @@ washNewPosition ::
   WriterT [Annotated (Change a)] m (Maybe (Annotated a))
 washNewPosition washing open =
   assert (washing ^. amount <= open ^?! item . buyOrSell . amount) $ do
-    let (_s, d) = washing `alignLots` (open ^?! item . buyOrSell)
+    let (_s, d) = washing `align` (open ^?! item . buyOrSell)
     -- We wash failing closes by adding the amount to the cost basis of
     -- the opening transaction. Thus, we generate three instances of
     -- WashLossApplied, but only one OpenPosition.

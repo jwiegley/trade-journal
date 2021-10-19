@@ -5,6 +5,7 @@
 
 module Journal.ThinkOrSwim.Process (thinkOrSwimActions) where
 
+import Amount
 import Control.Arrow (left)
 import Control.Exception
 import Control.Lens hiding (each)
@@ -16,7 +17,6 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
-import Journal.Amount
 import Journal.ThinkOrSwim.Parser
 import Journal.ThinkOrSwim.Types
 import Journal.Types
@@ -41,11 +41,11 @@ entryTime record =
       concat [splitString _xactDate '/', " ", splitString _xactTime ':']
 
 entryParse :: TOSTransaction -> Either (ParseErrorBundle Text Void) TOSEntry
-entryParse record =
+entryParse xact =
   parse
-    parseEntry
+    (parseEntry (xact ^. xactAmount))
     ""
-    (record ^. xactDescription)
+    (xact ^. xactDescription)
 
 entryToAction :: TOSTransaction -> TOSEntry -> Either String (Annotated Action)
 entryToAction xact = \case

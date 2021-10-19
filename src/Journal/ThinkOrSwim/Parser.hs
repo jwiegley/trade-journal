@@ -8,12 +8,15 @@
 
 module Journal.ThinkOrSwim.Parser where
 
+-- import qualified Data.ByteString as B
+-- import qualified Data.ByteString.Lazy as BL
+
+import Amount
 import Control.Applicative (liftA2)
 import Control.Lens
 import Control.Monad.State
--- import qualified Data.ByteString as B
--- import qualified Data.ByteString.Lazy as BL
 import Data.Char
+import Data.Coerce
 import qualified Data.Csv as Csv
 import Data.Foldable
 import Data.Maybe (fromMaybe)
@@ -25,7 +28,6 @@ import Data.Time
 import Data.Void (Void)
 import Debug.Trace
 import GHC.TypeLits (KnownNat)
-import Journal.Amount
 import Journal.ThinkOrSwim.Types
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -225,14 +227,18 @@ scanOrders l p = flip foldM_ Nothing $ \lx x -> do
 parseStrategy :: Parser Text
 parseStrategy =
   symbol "VERTICAL"
+    <|> symbol "CALENDAR"
     <|> symbol "COMBO"
     <|> symbol "COVERED"
     <|> symbol "DIAGONAL"
+    <|> symbol "DBL DIAG"
+    <|> symbol "STRADDLE"
+    <|> symbol "STRANGLE"
 
-parseTrade' :: Parser TOSTrade'
-parseTrade' = do
+parseTrade' :: Amount 2 -> Parser TOSTrade'
+parseTrade' amount = do
   tdQuantity <- parseAmount
-  strategy <- optional parseStrategy
+  strategy <- optional (try parseStrategy)
   tdSymbol <- parseSymbol
   tdOptDetails <-
     case strategy of
@@ -243,7 +249,16 @@ parseTrade' = do
       Just strat ->
         try (Just . FuturesOptionStrategy strat <$> parseFuturesOptionStrategy)
           <|> try (Just . OptionStrategy strat <$> parseOptionStrategy)
-  tdPrice <- char '@' *> parseAmount
+  tdPrice <-
+    char '@' *> parseAmount
+      <|> ( amount / coerce tdQuantity
+              <$ ( symbol "UPON BUY TRADE"
+                     <|> symbol "UPON SELL TRADE"
+                     <|> symbol "UPON TRADE CORRECTION"
+                     <|> symbol "UPON OPTION ASSIGNMENT"
+                     <|> symbol "UPON BONDS - REDEMPTION"
+                 )
+          )
   tdExchange <- optional parseExchange
   pure TOSTrade' {..}
 
@@ -347,7 +362,12 @@ parseOpExDate = do
   day <- many (satisfy isDigit) <* whiteSpace
   mon <- parseMonth <* whiteSpace
   year <- some (satisfy isDigit) <* whiteSpace
-  whiteSpace
+  postDesc <- many $ do
+    _ <- char '['
+    desc <- some (satisfy isAlphaNum)
+    _ <- char ']'
+    whiteSpace
+    pure $ TL.pack $ "[" ++ desc ++ "]"
   pure
     OptionExpirationDate
       { expirationDay =
@@ -359,6 +379,7 @@ parseOpExDate = do
             <> mon
             <> " "
             <> TL.pack year
+            <> TL.concat [" " <> x | x <- postDesc]
       }
 
 monToInt :: Text -> Int
@@ -433,12 +454,12 @@ parseSymbol =
 parseSeparated :: Parser b -> Parser a -> Parser [a]
 parseSeparated s p = liftA2 (:) p (many (s *> p))
 
-parseEntry :: Parser TOSEntry
-parseEntry =
+parseEntry :: Amount 2 -> Parser TOSEntry
+parseEntry amount =
   try (AchCredit <$ symbol "ACH CREDIT RECEIVED")
     <|> (AchDebit <$ symbol "ACH DEBIT RECEIVED")
     <|> (AdrFee <$> (symbol "ADR FEE~" *> parseSymbol))
-    <|> try (Bought <$> parseDevice <*> (symbol "BOT" *> parseTrade'))
+    <|> try (Bought <$> parseDevice <*> (symbol "BOT" *> parseTrade' amount))
     <|> ( CashAltInterest
             <$> parseAmount
             <*> (symbol "CASH ALTERNATIVES INTEREST" *> parseSymbol)
@@ -491,7 +512,7 @@ parseEntry =
                    <*> parseOption'
                )
         )
-    <|> (Sold <$> parseDevice <*> (symbol "SOLD" *> parseTrade'))
+    <|> (Sold <$> parseDevice <*> (symbol "SOLD" *> parseTrade' amount))
     <|> ( TransferBetweenAccounts
             <$ symbol "INTERNAL TRANSFER BETWEEN ACCOUNTS OR ACCOUNT TYPES"
         )
@@ -544,12 +565,12 @@ symbol_ :: Text -> Parser ()
 symbol_ = void . lexeme . string
 
 testParser :: Text -> Either (ParseErrorBundle Text Void) TOSEntry
-testParser = parse parseEntry ""
+testParser = parse (parseEntry 0) ""
 
 test :: FilePath -> IO ()
 test path = do
   contents <- TL.readFile path
-  forM_ (TL.lines contents) $ parseTest parseEntry
+  forM_ (TL.lines contents) $ parseTest (parseEntry 0)
 
 parseFile :: Show a => Parser a -> FilePath -> IO ()
 parseFile parser = parseTest parser <=< TL.readFile

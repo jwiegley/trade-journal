@@ -8,6 +8,7 @@
 
 module Main where
 
+import Amount
 import Control.Lens
 import Control.Monad.Except
 import Data.Aeson hiding ((.=))
@@ -15,7 +16,6 @@ import Data.List (isSuffixOf)
 import Data.Map (Map)
 import Data.Text.Lazy (Text)
 import GHC.Generics hiding (to)
-import Journal.Amount
 import Journal.Parse
 import Journal.Pipes
 import Journal.Print

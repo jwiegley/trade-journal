@@ -4,12 +4,15 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Journal.Types where
 
+import Amount
 import Control.Applicative
 import Control.Lens
 import Data.Text (Text)
@@ -17,7 +20,6 @@ import Data.Time
 import Data.Time.Format.ISO8601
 import GHC.Generics hiding (to)
 import GHC.TypeLits
-import Journal.Amount
 import Journal.Split
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
@@ -69,8 +71,8 @@ data Lot = Lot
 
 makeLenses ''Lot
 
-alignLots :: Lot -> Lot -> (Split Lot, Split Lot)
-alignLots = align amount amount
+instance Splittable (Amount 6) Lot where
+  howmuch = amount
 
 totaled :: KnownNat n => Lot -> Amount n -> Amount n
 totaled lot n = lot ^. amount . coerced * n

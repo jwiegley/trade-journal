@@ -7,6 +7,7 @@
 
 module Journal.ThinkOrSwim.Types where
 
+import Amount
 import Control.Lens
 import Data.Csv ((.:))
 import qualified Data.Csv as Csv
@@ -15,7 +16,6 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.Generics
-import Journal.Amount
 import Text.Read (readMaybe)
 
 data TOSTransaction = TOSTransaction

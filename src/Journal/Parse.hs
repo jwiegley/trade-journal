@@ -9,6 +9,7 @@
 
 module Journal.Parse (parseActions, parseActionsFromText) where
 
+import Amount
 import Control.Lens hiding (each, noneOf)
 import Data.Char
 import qualified Data.Text as T
@@ -18,7 +19,6 @@ import qualified Data.Text.Lazy.IO as TL
 import Data.Time hiding (parseTime)
 import Data.Void
 import GHC.TypeLits
-import Journal.Amount
 import Journal.Types
 import Pipes
 import Text.Megaparsec
@@ -101,8 +101,8 @@ parseAction =
     <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
     <|> keyword "buy" *> (Buy <$> parseLot)
     <|> keyword "sell" *> (Sell <$> parseLot)
-    <|> keyword "in" *> (TransferIn <$> parseLot)
-    <|> keyword "out" *> (TransferOut <$> parseLot)
+    <|> keyword "xferin" *> (TransferIn <$> parseLot)
+    <|> keyword "xferout" *> (TransferOut <$> parseLot)
     <|> keyword "wash" *> (Wash <$> parseLot)
     <|> keyword "assign" *> (Assign <$> parseLot)
     <|> keyword "exercise" *> (Assign <$> parseLot)

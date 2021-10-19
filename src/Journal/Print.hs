@@ -9,6 +9,7 @@
 
 module Journal.Print (printActions) where
 
+import Amount
 import Control.Lens hiding (noneOf)
 import Control.Monad
 import Data.Char
@@ -20,7 +21,6 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
-import Journal.Amount
 import Journal.Types
 import Pipes
 
@@ -47,8 +47,8 @@ printAction = \case
   Withdraw amt -> "withdraw " <> printAmount 2 amt
   Buy lot -> "buy " <> printLot lot
   Sell lot -> "sell " <> printLot lot
-  TransferIn lot -> "in " <> printLot lot
-  TransferOut lot -> "out " <> printLot lot
+  TransferIn lot -> "xferin " <> printLot lot
+  TransferOut lot -> "xferout " <> printLot lot
   Wash lot -> "wash " <> printLot lot
   Assign lot -> "assign " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot

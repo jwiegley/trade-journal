@@ -15,14 +15,15 @@ dependencies:
   - bytestring
   - cassava
   - containers
+  - free
   - lens
   - megaparsec
   - mtl
-  - pretty-show
-  - free
   - pipes
   - pipes-group
   - pipes-text
+  - pretty-show
+  - simple-amount
   - text
   - time
   - transformers
@@ -30,13 +31,7 @@ dependencies:
 
 library:
   source-dirs: src
-  c-sources:
-    - src/Journal/mpfr_printf.c
-  extra-libraries:
-    - mpfr
-    - gmp
   exposed-modules:
-    - Journal.Amount
     - Journal.GainsKeeper
     - Journal.Parse
     - Journal.Pipes
@@ -57,13 +52,13 @@ tests:
     main: Main.hs
     source-dirs: test
     dependencies:
-      - trade-journal
       - HUnit
       - hedgehog
       - here
       - tasty
       - tasty-hedgehog
       - tasty-hunit
+      - trade-journal
 
 executables:
   trade-journal:

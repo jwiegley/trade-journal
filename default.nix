@@ -1,7 +1,7 @@
-{ ghcCompiler ? "ghc8104"
+{ compiler ? "ghc8107"
 
-, rev    ? "c74fa74867a3cce6ab8371dfc03289d9cc72a66e"
-, sha256 ? "13bnmpdmh1h6pb7pfzw5w3hm6nzkg9s1kcrwgw1gmdlhivrmnx75"
+, rev    ? "a3a23d9599b0a82e333ad91db2cdc479313ce154"
+, sha256 ? "05xmgrrnw6j39lh3d48kg064z510i0w5vvrm1s5cdwhdc2fkspjq"
 , pkgs   ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
     inherit sha256; }) {
@@ -9,18 +9,22 @@
     config.allowBroken = false;
   }
 
-, mkDerivation ? null
 , returnShellEnv ? pkgs.lib.inNixShell
+, mkDerivation ? null
 }:
 
-let haskellPackages = pkgs.haskell.packages.${ghcCompiler};
+let haskellPackages = pkgs.haskell.packages.${compiler};
 
 in haskellPackages.developPackage rec {
-  name = "haskell-${ghcCompiler}-trade-journal";
+  name = "haskell-${compiler}-trade-journal";
   root = ./.;
 
   source-overrides = {};
-  overrides = self: super: with pkgs.haskell.lib; {};
+  overrides = self: super: with pkgs.haskell.lib; {
+    simple-amount = import ../simple-amount {
+      inherit pkgs; returnShellEnv = false;
+    };
+  };
 
   modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
     buildTools = (attrs.buildTools or []) ++ [
@@ -30,20 +34,12 @@ in haskellPackages.developPackage rec {
       haskellPackages.hasktags
       haskellPackages.ghcid
       haskellPackages.ormolu
-      pkgs.mpfr.out
-      pkgs.mpfr.dev
     ];
 
     passthru = {
       nixpkgs = pkgs;
       inherit haskellPackages;
     };
-
-    shellHook = ''
-      CABAL_REPL="cabal repl --extra-lib-dirs=${pkgs.mpfr.out}/lib \
-                             --extra-lib-dirs=${pkgs.gmp.out}/lib"
-      export CABAL_REPL
-    '';
   });
 
   inherit returnShellEnv;

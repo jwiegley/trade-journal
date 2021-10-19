@@ -1,9 +1,15 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Journal.Split where
 
+import Control.Arrow (first)
+import Control.Exception (assert)
 import Control.Lens
 import Data.Default
 import Data.List (foldl')
@@ -16,6 +22,13 @@ data Split a
   | All a
   | None a
   deriving (Eq, Ord, Show)
+
+class (Num n, Ord n) => Splittable n a | a -> n where
+  howmuch :: Lens' a n
+
+instance Splittable Int Int where howmuch = id
+
+instance Splittable Integer Integer where howmuch = id
 
 makePrisms ''Split
 
@@ -39,34 +52,52 @@ _SplitKept f (Some u k) = Some u <$> f k
 _SplitKept _ (All u) = pure $ All u
 _SplitKept f (None k) = None <$> f k
 
+split ::
+  Splittable n a =>
+  a ->
+  n ->
+  (Split a, n)
+split x n
+  | xq == 0 = (All x, n)
+  | n == 0 = (None x, 0)
+  | xq == n = (All x, 0)
+  | xq < n = (All x, diff)
+  | otherwise =
+    ( Some
+        (x & howmuch .~ n)
+        (x & howmuch .~ diff),
+      0
+    )
+  where
+    xq = x ^. howmuch
+    diff = abs (xq - n)
+
 align ::
-  (Eq n, Ord n, Num n) =>
-  Lens' a n ->
-  Lens' b n ->
+  forall n a b.
+  (Splittable n a, Splittable n b) =>
   a ->
   b ->
   (Split a, Split b)
-align la lb x y
-  | xq == 0 && yq == 0 =
-    (None x, None y)
+align x y
+  | xq == yq = (All x, All y)
   | xq == 0 = (None x, All y)
   | yq == 0 = (All x, None y)
-  | xq == yq = (All x, All y)
   | xq < yq =
     ( All x,
       Some
-        (y & lb .~ xq)
-        (y & lb .~ diff)
+        (y & howmuch .~ xq)
+        (y & howmuch .~ diff)
     )
   | otherwise =
     ( Some
-        (x & la .~ yq)
-        (x & la .~ diff),
+        (x & howmuch .~ yq)
+        (x & howmuch .~ diff),
       All y
     )
   where
-    xq = x ^. la
-    yq = y ^. lb
+    xq, yq :: n
+    xq = x ^. howmuch
+    yq = y ^. howmuch
     diff = abs (xq - yq)
 
 data Applied v a b = Applied
@@ -157,3 +188,20 @@ consider f mk lst el =
       )
       where
         Applied {..} = f x z
+
+-- Given a list of items that each have a splittable quantity, take only N of
+-- that quantity and return the resulting lists.
+splitN :: Splittable n a => [a] -> n -> ([a], ([a], n))
+splitN = (first reverse .) . go []
+  where
+    go acc [] n = (acc, ([], n))
+    go acc (x : xs) n = case split x n of
+      (None x', n') -> assert (n' == 0) (acc, (x' : xs, n'))
+      (All x', n') -> go (x' : acc) xs n'
+      (Some x'u x'k, n') -> assert (n' == 0) (x'u : acc, (x'k : xs, n'))
+
+takeN :: Splittable n a => [a] -> n -> [a]
+takeN = (fst .) . splitN
+
+dropN :: Splittable n a => [a] -> n -> ([a], n)
+dropN = (snd .) . splitN
