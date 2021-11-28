@@ -24,22 +24,19 @@ import Journal.Split
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
-data Effect = Open | Close
-  deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
-
 instance PrettyVal UTCTime where
   prettyVal = String . iso8601Show
 
+-- jww (2021-11-26): Some annotations should apply only to actions, others
+-- only to events.
 data Annotation
-  = Position Effect
-  | Fees (Amount 6) -- per share fee
+  = Fees (Amount 6) -- per share fee
   | Commission (Amount 6) -- per share commission
-  | Gain (Amount 6) -- per share gain
-  | Loss (Amount 6) -- per share loss
   | Washed (Amount 6) -- per share washed amount
   | WashTo Text (Maybe (Amount 6, Amount 6))
   | WashApply Text (Amount 6) -- per share wash applied
   | Exempt
+  | Idents [Int]
   | Order Text
   | Strategy Text
   | Account Text
@@ -80,6 +77,8 @@ totaled lot n = lot ^. amount . coerced * n
 fees :: Traversal' (Annotated a) (Amount 6)
 fees = details . traverse . failing _Fees _Commission
 
+-- | An Action represents "external actions" taken by the holder of the
+-- account.
 data Action
   = Deposit (Amount 2) -- deposit money into the account
   | Withdraw (Amount 2) -- withdraw money from the account
@@ -87,14 +86,7 @@ data Action
   | Sell Lot -- sell securities for a loss or gain
   | TransferIn Lot -- buy securities using money in the account
   | TransferOut Lot -- sell securities for a loss or gain
-  | Wash Lot -- wash a previous losing sale
-  | Assign Lot -- assignment of a short options position
-  | Expire Lot -- expiration of a short options position
   | Exercise Lot -- exercise a long options position
-  | Dividend (Amount 2) Lot -- dividend paid on a long position
-  | Interest (Amount 2) (Maybe Text) -- interest earned
-  | Income (Amount 2) -- taxable income earned
-  | Credit (Amount 2) -- account credit received
   deriving
     ( Show,
       Eq,
@@ -113,14 +105,7 @@ mapAction f = \case
   Sell lot -> Sell (f lot)
   TransferIn lot -> TransferIn (f lot)
   TransferOut lot -> TransferOut (f lot)
-  Wash lot -> Wash (f lot)
-  Assign lot -> Assign (f lot)
   Exercise lot -> Exercise (f lot)
-  Expire lot -> Expire (f lot)
-  Dividend amt lot -> Dividend amt (f lot)
-  Interest amt sym -> Interest amt sym
-  Income amt -> Income amt
-  Credit amt -> Credit amt
 
 _Lot :: Traversal' Action Lot
 _Lot f = \case
@@ -130,19 +115,12 @@ _Lot f = \case
   Sell lot -> Sell <$> f lot
   TransferIn lot -> TransferIn <$> f lot
   TransferOut lot -> TransferOut <$> f lot
-  Wash lot -> Wash <$> f lot
-  Assign lot -> Assign <$> f lot
   Exercise lot -> Exercise <$> f lot
-  Expire lot -> Expire <$> f lot
-  Dividend amt lot -> Dividend amt <$> f lot
-  Interest amt sym -> pure $ Interest amt sym
-  Income amt -> pure $ Income amt
-  Credit amt -> pure $ Credit amt
 
 -- | The 'netAmount' indicates the exact effect on account balance this action
 -- represents.
-netAmount :: Annotated Action -> Amount 2
-netAmount ann = case ann ^. item of
+actionNetAmount :: Annotated Action -> Amount 2
+actionNetAmount ann = case ann ^. item of
   Deposit amt -> amt
   Withdraw amt -> - amt
   Buy lot ->
@@ -157,11 +135,97 @@ netAmount ann = case ann ^. item of
       ^. coerced
   TransferIn lot -> - totaled lot (lot ^. price + sum (ann ^.. fees)) ^. coerced
   TransferOut lot -> totaled lot (lot ^. price - sum (ann ^.. fees)) ^. coerced
-  Wash _lot -> 0
-  Assign _lot -> 0 -- jww (2021-06-12): NYI
   Exercise _lot -> 0 -- jww (2021-06-12): NYI
+
+data Disposition = Long | Short
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
+
+data Period = Past | Present | Future
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
+
+-- | An Event represents "internal events" that occur within an account,
+-- either directly due to the actions above, or indirectly because of other
+-- factors.
+data Event
+  = Open Disposition Lot
+  | Close Disposition Lot (Amount 6)
+  | Wash Period UTCTime Lot
+  | Assign Lot -- assignment of a short options position
+  | Expire Lot -- expiration of a short options position
+  | Dividend (Amount 2) Lot -- dividend paid on a long position
+  | Interest (Amount 2) (Maybe Text) -- interest earned
+  | Income (Amount 2) -- taxable income earned
+  | Credit (Amount 2) -- account credit received
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+makePrisms ''Event
+
+mapEvent :: (Lot -> Lot) -> Event -> Event
+mapEvent f = \case
+  Open disp lot -> Open disp (f lot)
+  Close disp lot pl -> Close disp (f lot) pl
+  Wash period moment lot -> Wash period moment (f lot)
+  Assign lot -> Assign (f lot)
+  Expire lot -> Expire (f lot)
+  Dividend amt lot -> Dividend amt (f lot)
+  Interest amt sym -> Interest amt sym
+  Income amt -> Income amt
+  Credit amt -> Credit amt
+
+_EventLot :: Traversal' Event Lot
+_EventLot f = \case
+  Open disp lot -> Open disp <$> f lot
+  Close disp lot pl -> Close disp <$> f lot <*> pure pl
+  Wash period moment lot -> Wash period moment <$> f lot
+  Assign lot -> Assign <$> f lot
+  Expire lot -> Expire <$> f lot
+  Dividend amt lot -> Dividend amt <$> f lot
+  Interest amt sym -> pure $ Interest amt sym
+  Income amt -> pure $ Income amt
+  Credit amt -> pure $ Credit amt
+
+-- | The 'netAmount' indicates the exact effect on account balance this action
+-- represents.
+eventNetAmount :: Annotated Event -> Amount 2
+eventNetAmount ann = case ann ^. item of
+  Open Long lot ->
+    - totaled
+      lot
+      (lot ^. price + sum (ann ^.. fees))
+      ^. coerced
+  Open Short lot ->
+    totaled
+      lot
+      (lot ^. price - sum (ann ^.. fees))
+      ^. coerced
+  Close Long lot _pl ->
+    totaled
+      lot
+      (lot ^. price - sum (ann ^.. fees))
+      ^. coerced
+  Close Short lot _pl ->
+    - totaled
+      lot
+      (lot ^. price + sum (ann ^.. fees))
+      ^. coerced
+  Wash Past _ _lot -> 0
+  Wash Present _ _lot -> 0
+  Wash Future _ _lot -> 0
+  Assign _lot -> 0 -- jww (2021-06-12): NYI
   Expire _lot -> 0
   Dividend amt _lot -> amt
   Interest amt _sym -> amt
   Income amt -> amt
   Credit amt -> amt
+
+crossAnnotate ::
+  Annotated (Either Event Action) -> Either (Annotated Event) (Annotated Action)
+crossAnnotate ann = case ann ^. item of
+  Left x -> Left (x <$ ann)
+  Right x -> Right (x <$ ann)

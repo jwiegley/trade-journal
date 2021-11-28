@@ -53,4 +53,4 @@ main = do
               P.stdoutLn
       else do
         putStrLn $ "Reading journal " ++ path
-        parseProcessPrint (parseActions path) P.stdoutLn
+        parseProcessPrint (parseActionsAndEvents path) P.stdoutLn

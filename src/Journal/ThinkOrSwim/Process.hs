@@ -47,52 +47,62 @@ entryParse xact =
     ""
     (xact ^. xactDescription)
 
-entryToAction :: TOSTransaction -> TOSEntry -> Either String (Annotated Action)
+entryToAction ::
+  TOSTransaction ->
+  TOSEntry ->
+  Either String (Annotated (Either Event Action))
 entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
       annotate $
-        Buy
-          Lot
-            { _amount = coerce tdQuantity,
-              _symbol = TL.toStrict tdSymbol,
-              _price = coerce tdPrice
-            }
+        Right $
+          Buy
+            Lot
+              { _amount = coerce tdQuantity,
+                _symbol = TL.toStrict tdSymbol,
+                _price = coerce tdPrice
+              }
   Sold _device TOSTrade' {..} ->
     Right $
       annotate $
-        Sell
-          Lot
-            { _amount = coerce (abs tdQuantity),
-              _symbol = TL.toStrict tdSymbol,
-              _price = coerce tdPrice
-            }
+        Right $
+          Sell
+            Lot
+              { _amount = coerce (abs tdQuantity),
+                _symbol = TL.toStrict tdSymbol,
+                _price = coerce tdPrice
+              }
   AchCredit ->
     Right $
       annotate $
-        Deposit (xact ^. xactAmount)
+        Right $
+          Deposit (xact ^. xactAmount)
   AchDebit ->
     Right $
       annotate $
-        Withdraw (xact ^. xactAmount . to abs)
+        Right $
+          Withdraw (xact ^. xactAmount . to abs)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
   CourtesyCredit ->
     Right $
       annotate $
-        Credit (xact ^. xactAmount)
+        Left $
+          Credit (xact ^. xactAmount)
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined
   InterestAdjustment ->
     Right $
       annotate $
-        Interest (xact ^. xactAmount) Nothing
+        Left $
+          Interest (xact ^. xactAmount) Nothing
   InterestIncome sym ->
     Right $
       annotate $
-        Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
+        Left $
+          Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
   -- MarkToMarket -> undefined
   -- MiscellaneousJournalEntry -> undefined
   -- OffCycleInterest _symbol -> undefined
@@ -101,7 +111,8 @@ entryToAction xact = \case
   Rebate ->
     Right $
       annotate $
-        Income (xact ^. xactAmount)
+        Left $
+          Income (xact ^. xactAmount)
   -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
   -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
   -- TransferBetweenAccounts -> undefined
@@ -109,18 +120,20 @@ entryToAction xact = \case
   TransferInSecurityOrOption amt sym ->
     Right $
       annotate $
-        TransferIn
-          Lot
-            { _amount = coerce (abs amt),
-              _symbol = TL.toStrict sym,
-              _price = 0
-            }
+        Right $
+          TransferIn
+            Lot
+              { _amount = coerce (abs amt),
+                _symbol = TL.toStrict sym,
+                _price = 0
+              }
   -- TransferOfCash -> undefined
   -- TransferToForexAccount -> undefined
   WireIncoming ->
     Right $
       annotate $
-        Deposit (xact ^. xactAmount)
+        Right $
+          Deposit (xact ^. xactAmount)
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
   where
@@ -141,18 +154,24 @@ entryToAction xact = \case
              | xact ^. xactCommissionsAndFees /= 0
            ]
 
-xactAction :: TOSTransaction -> Amount 2 -> Either String (Annotated Action)
+xactAction ::
+  TOSTransaction ->
+  Amount 2 ->
+  Either String (Annotated (Either Event Action))
 xactAction xact bal = do
   ent <- left show $ entryParse xact
-  act <- entryToAction xact ent
-  assert (netAmount act == xact ^. xactAmount) $
-    assert (bal == xact ^. xactBalance) $
-      pure act
+  x <- entryToAction xact ent
+  assert
+    ( either eventNetAmount actionNetAmount (crossAnnotate x)
+        == xact ^. xactAmount
+    )
+    $ assert (bal == xact ^. xactBalance) $
+      pure x
 
 thinkOrSwimActions ::
   Functor m =>
   ThinkOrSwim ->
-  Producer (Annotated Action) m ()
+  Producer (Annotated (Either Event Action)) m ()
 thinkOrSwimActions tos =
   each $
     concatMap

@@ -7,7 +7,11 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Journal.Parse (parseActions, parseActionsFromText) where
+module Journal.Parse
+  ( parseActionsAndEvents,
+    parseActionsAndEventsFromText,
+  )
+where
 
 import Amount
 import Control.Lens hiding (each, noneOf)
@@ -45,34 +49,39 @@ lexeme p = p <* whiteSpace
 keyword :: Text -> Parser Text
 keyword = lexeme . string
 
-parseActions ::
+parseActionsAndEvents ::
   (MonadFail m, MonadIO m) =>
   FilePath ->
-  Producer (Annotated Action) m ()
-parseActions path = do
+  Producer (Annotated (Either Event Action)) m ()
+parseActionsAndEvents path = do
   input <- liftIO $ TL.readFile path
-  parseActionsFromText path input
+  parseActionsAndEventsFromText path input
 
-parseActionsFromText ::
+parseActionsAndEventsFromText ::
   MonadFail m =>
   FilePath ->
   Text ->
-  Producer (Annotated Action) m ()
-parseActionsFromText path input =
-  case parse (many (whiteSpace *> parseAnnotatedAction) <* eof) path input of
+  Producer (Annotated (Either Event Action)) m ()
+parseActionsAndEventsFromText path input =
+  case parse
+    ( many (whiteSpace *> parseAnnotatedActionOrEvent)
+        <* eof
+    )
+    path
+    input of
     Left e -> fail $ errorBundlePretty e
     Right res -> each res
 
-parseAnnotatedAction :: Parser (Annotated Action)
-parseAnnotatedAction = do
+parseAnnotatedActionOrEvent :: Parser (Annotated (Either Event Action))
+parseAnnotatedActionOrEvent = do
   _time <- Journal.Parse.parseTime
-  _item <- parseAction
+  _item <- (Left <$> parseEvent <|> Right <$> parseAction)
   _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
     Annotated {..}
       & details . traverse . failing _Fees _Commission
-        //~ (_item ^?! _Lot . amount)
+        //~ (_item ^?! failing (_Left . _EventLot) (_Right . _Lot) . amount)
 
 quotedString :: Parser T.Text
 quotedString = identPQuoted >>= return . T.pack
@@ -103,9 +112,28 @@ parseAction =
     <|> keyword "sell" *> (Sell <$> parseLot)
     <|> keyword "xferin" *> (TransferIn <$> parseLot)
     <|> keyword "xferout" *> (TransferOut <$> parseLot)
-    <|> keyword "wash" *> (Wash <$> parseLot)
+    <|> keyword "exercise" *> (Exercise <$> parseLot)
+
+parseEvent :: Parser Event
+parseEvent =
+  keyword "open" *> keyword "long" *> (Open Long <$> parseLot)
+    <|> keyword "open" *> keyword "short" *> (Open Short <$> parseLot)
+    <|> keyword "close"
+      *> keyword "long"
+      *> (Close Long <$> parseLot <*> parseAmount)
+    <|> keyword "close"
+      *> keyword "short"
+      *> (Close Short <$> parseLot <*> parseAmount)
+    <|> keyword "wash"
+      *> keyword "past"
+      *> (Wash Past <$> parseTime <*> parseLot)
+    <|> keyword "wash"
+      *> keyword "present"
+      *> (Wash Present <$> parseTime <*> parseLot)
+    <|> keyword "wash"
+      *> keyword "future"
+      *> (Wash Future <$> parseTime <*> parseLot)
     <|> keyword "assign" *> (Assign <$> parseLot)
-    <|> keyword "exercise" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
     <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
     <|> keyword "interest"
@@ -124,18 +152,17 @@ parseLot = do
 
 parseAnnotation :: Parser Annotation
 parseAnnotation = do
-  keyword "position" *> (Position <$> parseEffect)
-    <|> keyword "fees" *> (Fees <$> parseAmount)
+  keyword "fees" *> (Fees <$> parseAmount)
     <|> keyword "commission" *> (Commission <$> parseAmount)
-    <|> keyword "gain" *> (Gain <$> parseAmount)
-    <|> keyword "loss" *> (Loss <$> parseAmount)
     <|> keyword "washed" *> (Washed <$> parseAmount)
     <|> keyword "wash" *> parseWash
     <|> keyword "apply"
       *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
     <|> keyword "exempt" *> pure Exempt
     <|> keyword "account" *> (Account <$> parseText)
+    -- <|> keyword "ids" *> (Idents <$> bracket parseAmount)
     <|> keyword "order" *> (Order <$> parseText)
+    <|> keyword "strategy" *> (Strategy <$> parseText)
     <|> keyword "note" *> (Note <$> quotedString)
     <|> keyword "meta" *> (Meta <$> parseText <*> parseText)
   where
@@ -148,9 +175,6 @@ parseAnnotation = do
       _ <- keyword "to"
       sym <- parseSymbol
       pure $ WashTo (TL.toStrict sym) mres
-    parseEffect =
-      Open <$ keyword "open"
-        <|> Close <$ keyword "close"
 
 parseText :: Parser T.Text
 parseText =

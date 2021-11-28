@@ -24,7 +24,7 @@ import GHC.TypeLits
 import Journal.Types
 import Pipes
 
-printActions :: MonadIO m => Pipe (Annotated Action) T.Text m r
+printActions :: MonadIO m => Pipe (Annotated (Either Event Action)) T.Text m r
 printActions = forever $ do
   x <- await
   yield $
@@ -33,8 +33,10 @@ printActions = forever $ do
           Just t -> printTime t <> " "
           Nothing -> ""
       )
-        <> printAction (x ^. item)
-        <> case printAnnotated x (x ^? item . _Lot) of
+        <> either printEvent printAction (x ^. item)
+        <> case printAnnotated
+          x
+          (x ^? item . failing (_Left . _EventLot) (_Right . _Lot)) of
           "" -> ""
           anns -> " " <> anns
 
@@ -49,9 +51,28 @@ printAction = \case
   Sell lot -> "sell " <> printLot lot
   TransferIn lot -> "xferin " <> printLot lot
   TransferOut lot -> "xferout " <> printLot lot
-  Wash lot -> "wash " <> printLot lot
-  Assign lot -> "assign " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot
+
+printEvent :: Event -> Text
+printEvent = \case
+  Open disp lot -> "open " <> printDisposition disp <> " " <> printLot lot
+  Close disp lot pl ->
+    "close "
+      <> printDisposition disp
+      <> " "
+      <> printLot lot
+      <> " "
+      <> (if pl < 0 then "loss" else "gain")
+      <> " "
+      <> totalAmount (Just lot) 2 (abs pl)
+  Wash period moment lot ->
+    "wash "
+      <> printPeriod period
+      <> " "
+      <> printTime moment
+      <> " "
+      <> printLot lot
+  Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot
   Interest amt Nothing -> "interest " <> printAmount 2 amt
@@ -59,6 +80,13 @@ printAction = \case
     "interest " <> printAmount 2 amt <> " from " <> printString sym
   Income amt -> "income " <> printAmount 2 amt
   Credit amt -> "credit " <> printAmount 2 amt
+  where
+    printDisposition Long = "long"
+    printDisposition Short = "short"
+
+    printPeriod Past = "past"
+    printPeriod Present = "present"
+    printPeriod Future = "future"
 
 printLot :: Lot -> Text
 printLot lot =
@@ -69,6 +97,10 @@ printLot lot =
         TL.fromStrict (lot ^. symbol),
         printAmount 4 (lot ^. price)
       ]
+
+totalAmount :: forall n. KnownNat n => Maybe Lot -> Int -> Amount n -> Text
+totalAmount mlot n x =
+  printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
 
 printAnnotated :: Annotated a -> Maybe Lot -> Text
 printAnnotated ann mlot =
@@ -86,19 +118,10 @@ printAnnotated ann mlot =
   where
     annotations = mapMaybe printAnnotation (sort (ann ^. details))
     (inlineAnns, separateAnns) = partitionEithers annotations
-    totalAmount :: forall n. KnownNat n => Int -> Amount n -> Text
-    totalAmount n x =
-      printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
     printAnnotation = \case
-      Position eff -> Just $
-        Left $ case eff of
-          Open -> "open"
-          Close -> "close"
-      Fees x -> Just $ Left $ "fees " <> totalAmount 2 x
-      Commission x -> Just $ Left $ "commission " <> totalAmount 2 x
-      Gain x -> Just $ Right $ "gain " <> totalAmount 6 x
-      Loss x -> Just $ Right $ "loss " <> totalAmount 6 x
-      Washed x -> Just $ Right $ "washed " <> totalAmount 6 x
+      Fees x -> Just $ Left $ "fees " <> totalAmount mlot 2 x
+      Commission x -> Just $ Left $ "commission " <> totalAmount mlot 2 x
+      Washed x -> Just $ Right $ "washed " <> totalAmount mlot 6 x
       WashTo x (Just (q, p)) ->
         Just $
           Left $
@@ -113,6 +136,7 @@ printAnnotated ann mlot =
         Just $ Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
       Exempt -> Just $ Left "exempt"
       Account x -> Just $ Left $ "account " <> printText x
+      Idents xs -> Just $ Left $ "ids " <> TL.pack (show xs)
       Order x -> Just $ Left $ "order " <> printText x
       Strategy x -> Just $ Left $ "strategy " <> printText x
       Note x -> Just $ Left $ "note " <> printString x

@@ -33,7 +33,7 @@ import Text.Show.Pretty hiding (Time)
 {--------------------------------------------------------------------------}
 
 data TestAction = TestAction
-  { _action :: Annotated Action,
+  { _action :: Annotated (Either Event Action),
     _annotations :: [Annotation],
     _regular :: Bool
   }
@@ -47,56 +47,53 @@ data TestState = TestState
 
 makeLenses ''TestState
 
-buy :: Annotated Lot -> [Annotation] -> State TestState ()
-buy b anns =
+buy :: Annotated Lot -> State TestState ()
+buy b =
   do
     -- bal <- use balance
     balance += c
     pending
       <>= [ TestAction
-              (Buy <$> b)
-              ( anns -- ++ [Balance (bal + c), Net c]
-              )
+              (Right . Buy <$> b)
+              []
               True
           ]
   where
     c = ((b ^. item . amount) * (b ^. item . price)) ^. coerced . to negate
 
-sell :: Annotated Lot -> [Annotation] -> State TestState ()
-sell b anns =
+sell :: Annotated Lot -> State TestState ()
+sell b =
   do
     -- bal <- use balance
     balance += c
     pending
       <>= [ TestAction
-              (Sell <$> b)
-              ( anns -- ++ [Balance (bal + c), Net c]
-              )
+              (Right . Sell <$> b)
+              []
               True
           ]
   where
     c = ((b ^. item . amount) * (b ^. item . price)) ^. coerced
 
-wash :: Annotated Lot -> [Annotation] -> State TestState ()
-wash b anns =
+wash :: Annotated Lot -> State TestState ()
+wash b =
   do
     -- bal <- use balance
     pending
       <>= [ TestAction
-              (Wash <$> (b & item . price .~ 1))
-              ( anns -- ++ [Balance bal, Net 0]
-              )
+              (Left . Wash Future (b ^. time) <$> (b & item . price .~ 1))
+              []
               False
           ]
 
-input :: State TestState a -> [Annotated Action]
+input :: State TestState a -> [Annotated (Either Event Action)]
 input =
   map _action
     . filter _regular
     . _pending
     . flip execState (TestState [] 0)
 
-trades :: State TestState a -> [Annotated Action]
+trades :: State TestState a -> [Annotated (Either Event Action)]
 trades =
   map (\x -> (x ^. action) & details <>~ (x ^. annotations))
     . _pending
@@ -105,7 +102,7 @@ trades =
 checkJournal ::
   MonadIO m =>
   State TestState a ->
-  [Annotated (Change Action)] ->
+  [Annotated (Change (Either Event Action))] ->
   m ()
 checkJournal journal expected =
   P.toListM (each (input journal) >-> gainsKeeper)
@@ -134,11 +131,14 @@ simpleBuy = property $ do
   b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
-        buy b [Position Open]
+        buy b
     )
-    [ SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open])
+    [ SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [1] <$> b),
+      Result
+        <$> (Right . Buy <$> b),
+      Result
+        <$> (Left . Open Long <$> b & details <>~ [Idents [1]])
     ]
 
 buyBuy :: Property
@@ -146,15 +146,17 @@ buyBuy = property $ do
   b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
-        buy b [Position Open]
-        buy b [Position Open]
+        buy b
+        buy b
     )
-    [ SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open]),
-      SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open])
+    [ SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [1] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [1]]),
+      SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [2] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [2]])
     ]
 
 buySellBreakeven :: Property
@@ -162,14 +164,16 @@ buySellBreakeven = property $ do
   b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
-        buy b [Position Open]
-        sell b [Position Close, Gain 0]
+        buy b
+        sell b
     )
-    [ SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open]),
-      SawAction <$> (Sell <$> b),
-      Result <$> (Sell <$> b & details <>~ [Position Close, Gain 0]),
+    [ SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [1] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [1]]),
+      SawAction <$> (Right . Sell <$> b),
+      Result <$> (Right . Sell <$> b),
+      Result <$> (Left . flip (Close Long) 0 <$> b & details <>~ [Idents [1]]),
       RemoveEvent 1 <$ b
     ]
 
@@ -179,14 +183,16 @@ buySellProfit = property $ do
   let sp = b & item . price +~ 10
   checkJournal
     ( do
-        buy b [Position Open]
-        sell sp [Position Close, Gain 10]
+        buy b
+        sell sp
     )
-    [ SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open]),
-      SawAction <$> (Sell <$> sp),
-      Result <$> (Sell <$> sp & details <>~ [Position Close, Gain 10]),
+    [ SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [1] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [1]]),
+      SawAction <$> (Right . Sell <$> sp),
+      Result <$> (Right . Sell <$> sp),
+      Result <$> (Left . flip (Close Long) 10 <$> sp & details <>~ [Idents [1]]),
       RemoveEvent 1 <$ sp
     ]
 
@@ -197,15 +203,17 @@ buySellPartProfit = property $ do
       sp = b & item . price +~ 10
   checkJournal
     ( do
-        buy b2 [Position Open]
-        sell sp [Position Close, Gain 10]
+        buy b2
+        sell sp
     )
-    [ SawAction <$> (Buy <$> b2),
-      AddEvent <$> (Opened True <$> b2),
-      Result <$> (Buy <$> b2 & details <>~ [Position Open]),
-      SawAction <$> (Sell <$> sp),
-      Result <$> (Sell <$> sp & details <>~ [Position Close, Gain 10]),
-      ReplaceEvent 1 <$> (Opened True <$> b)
+    [ SawAction <$> (Right . Buy <$> b2),
+      AddEvent <$> (Opened True [1] <$> b2),
+      Result <$> (Right . Buy <$> b2),
+      Result <$> (Left . Open Long <$> b2 & details <>~ [Idents [1]]),
+      SawAction <$> (Right . Sell <$> sp),
+      Result <$> (Right . Sell <$> sp),
+      Result <$> (Left . flip (Close Long) 10 <$> sp & details <>~ [Idents [1]]),
+      ReplaceEvent 1 <$> (Opened True [1] <$> b)
     ]
 
 buySellLoss :: Property
@@ -214,17 +222,19 @@ buySellLoss = property $ do
   let sl = b & item . price -~ 1
   checkJournal
     ( do
-        buy b [Position Open]
-        sell sl [Position Close, Loss 1]
+        buy b
+        sell sl
     )
-    [ SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open]),
-      SawAction <$> (Sell <$> sl),
-      Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
+    [ SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [1] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [1]]),
+      SawAction <$> (Right . Sell <$> sl),
+      Result <$> (Right . Sell <$> sl),
+      Result <$> (Left . flip (Close Long) (-1) <$> sl & details <>~ [Idents [1]]),
       RemoveEvent 1 <$ sl,
-      Submit <$> (sl & item . price .~ 1),
-      SawAction <$> (Wash <$> (sl & item . price .~ 1)),
+      SubmitWash (sl ^. time) <$> (sl & item . price .~ 1),
+      SawAction <$> (Left . Wash Future (sl ^. time) <$> (sl & item . price .~ 1)),
       SubmitEnd <$ sl
     ]
 
@@ -238,25 +248,29 @@ buySellLossBuy = property $ do
         b & details <>~ [WashApply "A" (b ^. item . amount)]
   checkJournal
     ( do
-        buy b [Position Open]
-        sell sl [Position Close, Loss 1]
-        wash sl []
-        buy b2 [Position Open, Washed 1]
+        buy b
+        sell sl
+        wash sl
+        buy b2
     )
-    [ SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open]),
-      SawAction <$> (Sell <$> sl),
-      Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
+    [ SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [1] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [1]]),
+      SawAction <$> (Right . Sell <$> sl),
+      Result <$> (Right . Sell <$> sl),
+      Result <$> (Left . flip (Close Long) (-1) <$> sl & details <>~ [Idents [1]]),
       RemoveEvent 1 <$ sl,
-      Submit <$> (sl & item . price .~ 1),
-      SawAction <$> (Wash <$> (sl & item . price .~ 1)),
+      SubmitWash (sl ^. time) <$> (sl & item . price .~ 1),
+      SawAction <$> (Left . Wash Future (sl ^. time) <$> (sl & item . price .~ 1)),
       SaveWash "A" <$> (sl & item . price .~ 1),
-      Result <$> (Wash <$> (sl & item . price .~ 1)),
+      Result <$> (Left . Wash Future (sl ^. time) <$> (sl & item . price .~ 1)),
       SubmitEnd <$ sl,
-      SawAction <$> (Buy <$> b2),
-      AddEvent <$> (Opened True <$> b2 & details <>~ [Washed 1]),
-      Result <$> (Buy <$> b2 & details <>~ [Position Open, Washed 1])
+      SawAction <$> (Right . Buy <$> b2),
+      AddEvent <$> (Opened True [2] <$> b2 & details <>~ [Washed 1]),
+      Result <$> (Right . Buy <$> b2),
+      Result <$> (Left . Open Long <$> b2 & details <>~ [Idents [2], Washed 1]),
+      Result <$> (Left . Wash Present (sl ^. time) <$> (b2 & item . price .~ 1))
     ]
 
 buyBuySellLoss :: Property
@@ -265,28 +279,30 @@ buyBuySellLoss = property $ do
   let sl = b & item . price -~ 1
   checkJournal
     ( do
-        buy b [Position Open]
-        buy b [Position Open]
-        sell sl [Position Close, Loss 1]
-        wash sl [Washed (b ^. item . price)]
+        buy b
+        buy b
+        sell sl
     )
-    [ SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open]),
-      SawAction <$> (Buy <$> b),
-      AddEvent <$> (Opened True <$> b),
-      Result <$> (Buy <$> b & details <>~ [Position Open]),
-      SawAction <$> (Sell <$> sl),
-      Result <$> (Sell <$> sl & details <>~ [Position Close, Loss 1]),
+    [ SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [1] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [1]]),
+      SawAction <$> (Right . Buy <$> b),
+      AddEvent <$> (Opened True [2] <$> b),
+      Result <$> (Right . Buy <$> b),
+      Result <$> (Left . Open Long <$> b & details <>~ [Idents [2]]),
+      SawAction <$> (Right . Sell <$> sl),
+      Result <$> (Right . Sell <$> sl),
+      Result <$> (Left . flip (Close Long) (-1) <$> sl & details <>~ [Idents [1]]),
       RemoveEvent 1 <$ sl,
-      Submit <$> (sl & item . price .~ 1),
-      SawAction <$> (Wash <$> (sl & item . price .~ 1)),
+      SubmitWash (sl ^. time) <$> (sl & item . price .~ 1),
+      SawAction <$> (Left . Wash Future (sl ^. time) <$> (sl & item . price .~ 1)),
       RemoveEvent 2 <$ sl,
-      AddEvent <$> (Opened True <$> b & details <>~ [Washed 1]),
+      AddEvent <$> (Opened True [2] <$> b & details <>~ [Washed 1]),
       Result
-        <$> ( Wash
+        <$> ( Left . Wash Past (sl ^. time)
                 <$> ( b & item . price .~ 1
-                        & details <>~ [Washed (b ^. item . price)]
+                        & details <>~ [Idents [2]]
                     )
             ),
       SubmitEnd <$ b
@@ -297,11 +313,12 @@ simpleSell = property $ do
   s <- forAll $ genAnnotated genLot
   checkJournal
     ( do
-        sell s [Position Open]
+        sell s
     )
-    [ SawAction <$> (Sell <$> s),
-      AddEvent <$> (Opened False <$> s),
-      Result <$> Sell <$> s & details <>~ [Position Open]
+    [ SawAction <$> (Right . Sell <$> s),
+      AddEvent <$> (Opened False [1] <$> s),
+      Result <$> Right . Sell <$> s,
+      Result <$> Left . Open Short <$> s & details <>~ [Idents [1]]
     ]
 
 sellBuyProfit :: Property
@@ -309,14 +326,16 @@ sellBuyProfit = property $ do
   b <- forAll $ genAnnotated genLot
   checkJournal
     ( do
-        sell b [Position Open]
-        buy b [Position Close, Gain 0]
+        sell b
+        buy b
     )
-    [ SawAction <$> (Sell <$> b),
-      AddEvent <$> (Opened False <$> b),
-      Result <$> Sell <$> b & details <>~ [Position Open],
-      SawAction <$> (Buy <$> b),
-      Result <$> Buy <$> b & details <>~ [Position Close, Gain 0],
+    [ SawAction <$> (Right . Sell <$> b),
+      AddEvent <$> (Opened False [1] <$> b),
+      Result <$> Right . Sell <$> b,
+      Result <$> Left . Open Short <$> b & details <>~ [Idents [1]],
+      SawAction <$> (Right . Buy <$> b),
+      Result <$> Right . Buy <$> b,
+      Result <$> Left . flip (Close Short) 0 <$> b & details <>~ [Idents [1]],
       RemoveEvent 1 <$ b
     ]
 

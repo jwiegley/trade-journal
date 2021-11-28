@@ -3,12 +3,13 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Journal.GainsKeeper
-  ( Event (..),
+  ( GainsEvent (..),
     Change (..),
     gainsKeeper,
     pickResults,
@@ -22,7 +23,6 @@ import Control.Applicative
 import Control.Exception hiding (handle)
 import Control.Lens
 import Control.Monad.Except
-import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Writer
 import Data.Foldable
@@ -33,14 +33,21 @@ import Data.Text (Text)
 import Data.Time
 import GHC.Generics hiding (to)
 import Journal.Split
-import Journal.Types hiding (Action, _Buy, _Sell, _Wash)
+import Journal.Types hiding
+  ( Action,
+    _Buy,
+    _Close,
+    _Open,
+    _Sell,
+    _Wash,
+  )
 import Journal.Utils
 import Pipes
 import Text.Show.Pretty hiding (Time)
 import Prelude hiding (Double, Float)
 
-data Event
-  = Opened Bool Lot
+data GainsEvent
+  = Opened Bool [Int] Lot
   deriving
     ( Show,
       Eq,
@@ -49,19 +56,22 @@ data Event
       PrettyVal
     )
 
-makePrisms ''Event
+makePrisms ''GainsEvent
 
-opened :: Traversal' Event Lot
-opened = _Opened . _2
+openIds :: Traversal' GainsEvent [Int]
+openIds = _Opened . _2
+
+opened :: Traversal' GainsEvent Lot
+opened = _Opened . _3
 
 data Change a
   = SawAction a
-  | Submit Lot -- can only be an adjustment
+  | SubmitWash UTCTime Lot
   | SubmitEnd
   | Result a
-  | AddEvent Event
+  | AddEvent GainsEvent
   | RemoveEvent Int
-  | ReplaceEvent Int Event
+  | ReplaceEvent Int GainsEvent
   | SaveWash Text Lot
   deriving
     ( Show,
@@ -74,7 +84,7 @@ data Change a
 makePrisms ''Change
 
 data InstrumentState = InstrumentState
-  { _events :: IntMap (Annotated Event),
+  { _events :: IntMap (Annotated GainsEvent),
     _washSales :: Map Text [Annotated Lot]
   }
   deriving
@@ -103,14 +113,17 @@ data GainsKeeperError a
 class ActionLike a where
   _Buy :: Prism' a Lot
   _Sell :: Prism' a Lot
-  _Wash :: Prism' a Lot
+  _Open :: Prism' a (Disposition, Lot)
+  _Close :: Prism' a (Disposition, Lot, Amount 6)
+  _Wash :: Prism' a (Period, UTCTime, Lot)
 
   buyOrSell :: Traversal' a Lot
   buyOrSell = failing _Buy _Sell
 
 data GainsKeeperState = GainsKeeperState
-  { _nextId :: Int,
-    _instruments :: Map Text InstrumentState
+  { gkNextId :: Int,
+    gkNextEventId :: Int,
+    gkInstruments :: Map Text InstrumentState
   }
   deriving
     ( Show,
@@ -119,16 +132,41 @@ data GainsKeeperState = GainsKeeperState
       Generic
     )
 
-symbolName :: ActionLike a => Traversal' a Text
-symbolName f s = s & failing _Buy (failing _Sell _Wash) . symbol %%~ f
+data LocalState = LocalState
+  { _nextId :: Int,
+    _nextEventId :: Int,
+    _instrumentState :: InstrumentState
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic
+    )
 
-makeLenses ''GainsKeeperState
+makeLenses ''LocalState
+
+localState :: Text -> Traversal' GainsKeeperState LocalState
+localState instrument f GainsKeeperState {..} =
+  let s = gkInstruments ^. at instrument . non newInstrumentState
+   in f (LocalState gkNextId gkNextEventId s) <&> \lst ->
+        GainsKeeperState
+          { gkNextId = _nextId lst,
+            gkNextEventId = _nextEventId lst,
+            gkInstruments =
+              gkInstruments & at instrument ?~ _instrumentState lst
+          }
+
+symbolName :: ActionLike a => Traversal' a Text
+symbolName f s =
+  s & failing _Buy (failing _Sell (_Wash . _3)) . symbol %%~ f
 
 newGainsKeeperState :: GainsKeeperState
 newGainsKeeperState =
   GainsKeeperState
-    { _nextId = 1,
-      _instruments = mempty
+    { gkNextId = 0,
+      gkNextEventId = 1,
+      gkInstruments = mempty
     }
 
 gainsKeeper ::
@@ -138,15 +176,8 @@ gainsKeeper = flip evalStateT newGainsKeeperState $
   forever $ do
     entry <- lift await
     results <-
-      zoom
-        ( zipped
-            nextId
-            ( instruments . at (entry ^. item . symbolName)
-                . non newInstrumentState
-            )
-        )
-        $ do
-          processAction entry
+      zoom (localState (entry ^. item . symbolName)) $
+        processAction entry
     forM_ results $ lift . yield
 
 pickResults :: Functor m => Pipe (Annotated (Change a)) (Annotated a) m r
@@ -160,29 +191,29 @@ processAction ::
   (MonadError (GainsKeeperError a) m, Show a, ActionLike a) =>
   Annotated a ->
   StateT
-    (Int, InstrumentState)
+    LocalState
     m
     [Annotated (Change a)]
 processAction =
-  fmap concat . mapM applyChange <=< readonly . impliedChanges
+  fmap concat . mapM applyChange <=< impliedChanges
   where
     applyChange chg = case chg ^. item of
-      Submit lot ->
+      SubmitWash moment a ->
         (\xs -> chg : xs ++ [SubmitEnd <$ chg])
-          <$> processAction ((_Wash #) <$> (lot <$ chg))
+          <$> processAction ((_Wash # (Future, moment, a)) <$ chg)
       AddEvent e -> do
-        ident <- use _1
-        _1 += 1
-        _2 . events . at ident ?= (e <$ chg)
+        ident <- use nextEventId
+        nextEventId += 1
+        instrumentState . events . at ident ?= (e <$ chg)
         pure [chg]
       RemoveEvent ident -> do
-        _2 . events . at ident .= Nothing
+        instrumentState . events . at ident .= Nothing
         pure [chg]
       ReplaceEvent ident e -> do
-        _2 . events . at ident ?= (e <$ chg)
+        instrumentState . events . at ident ?= (e <$ chg)
         pure [chg]
       SaveWash name lot -> do
-        _2 . washSales . at name
+        instrumentState . washSales . at name
           %= \case
             Nothing -> Just [lot <$ chg]
             Just xs -> Just ((lot <$ chg) : xs)
@@ -194,9 +225,13 @@ processAction =
 impliedChanges ::
   (MonadError (GainsKeeperError a) m, Show a, ActionLike a) =>
   Annotated a ->
-  ReaderT (Int, InstrumentState) m [Annotated (Change a)]
+  StateT LocalState m [Annotated (Change a)]
 impliedChanges x = do
-  hist <- asks (sortOn fst . toListOf (_2 . events . ifolded . withIndex))
+  hist <-
+    gets
+      ( sortOn fst
+          . toListOf (instrumentState . events . ifolded . withIndex)
+      )
   (mx, changes) <-
     runWriterT $ foldAM x (tails hist) $ maybe (pure Nothing) . handle
   forM_ mx $ throwError . UnexpectedRemainder
@@ -204,48 +239,49 @@ impliedChanges x = do
 
 handle ::
   (Monad m, Show a, ActionLike a) =>
-  [(Int, Annotated Event)] ->
+  [(Int, Annotated GainsEvent)] ->
   Annotated a ->
   WriterT
     [Annotated (Change a)]
-    (ReaderT (Int, InstrumentState) m)
+    (StateT LocalState m)
     (Maybe (Annotated a))
 handle
-  ((n, open@(view item -> Opened buyToOpen _)) : _)
+  ((n, open@(view item -> Opened buyToOpen _ _)) : _)
   close@(preview (item . buyOrSell) -> Just _)
     | buyToOpen == has (item . _Sell) close =
       closePosition n open close
 handle
-  ((n, open@(view item -> Opened _ _)) : _)
-  washing@(preview (item . _Wash) -> Just _)
+  ((n, open@(has (item . _Opened) -> True)) : _)
+  washing@(preview (item . _Wash) -> Just (Future, _, _))
     | all
         (\ann -> hasn't _Exempt ann && hasn't _Washed ann)
         (open ^.. details . traverse),
       (open ^. time) `distance` (washing ^. time) <= 30 =
-      washExistingPosition n open washing
+      washPast n open washing
 -- If a wash sale couldn't be applied to the current history, record it to
 -- apply to a future opening.
-handle [] act@(preview (item . _Wash) -> Just x) = do
-  case act ^? details . traverse . _WashTo of
-    Just (name, mres) ->
-      Nothing
-        <$ tell
-          [ SaveWash
-              name
-              <$> ( ( case mres of
-                        Nothing -> x
-                        Just (_amount, _price) ->
-                          let _symbol = x ^. symbol
-                           in Lot {..}
-                    )
-                      <$ act
-                  ),
-            Result <$> (_Wash # x <$ act)
-          ]
-    _ -> pure Nothing
+handle [] act@(preview (item . _Wash) -> Just (Future, moment, x)) =
+  washFuture act moment x
 -- Otherwise, if there is no history to examine then this buy or sale must
 -- open a new position.
-handle [] action = do
+handle [] action = openPosition action
+handle _ x = pure $ Just x
+
+-- | The most common trading activities are either to open a new position, or
+--   to close an existing one for a profit or loss. If there is a loss within
+--   30 days of the opening, it implies a wash sale adjustment of any
+--   preceeding or subsequent openings 30 days before or after.
+openPosition ::
+  (Monad m, Show a, ActionLike a) =>
+  Annotated a ->
+  WriterT
+    [Annotated (Change a)]
+    (StateT LocalState m)
+    (Maybe (Annotated a))
+openPosition action = do
+  lift $ nextId += 1
+  ident <- lift $ use nextId
+
   -- An application of a wash sale amount is not something that this code ever
   -- generates, but it may be specified manually by the user when they know
   -- that a wash sale is applicable (based on information from their broker).
@@ -256,35 +292,49 @@ handle [] action = do
       Just (act@(preview (item . buyOrSell) -> Just open)) -> do
         sales <-
           lift $
-            asks
+            gets
               ( toListOf
-                  ( _2 . washSales
+                  ( instrumentState
+                      . washSales
                       . ix name
                       . folded
                       . filtered
                         ( \adj ->
-                            (adj ^. time)
-                              `distance` (act ^. time) <= 30
+                            (adj ^. time) `distance` (act ^. time) <= 30
                         )
                       . to (\x -> x ^. item . amount * x ^. item . price)
                   )
               )
         let _price = sum sales / _amount
             _symbol = open ^. symbol
-        washNewPosition Lot {..} act
+        washPresent Lot {..} [ident] act
       _ -> pure Nothing
+
   case mact of
     Just (act@(preview (item . buyOrSell) -> Just open)) ->
       Nothing
         <$ tell
-          [ AddEvent <$> (Opened (has (item . _Buy) act) open <$ act),
-            Result <$> (act & details <>~ [Position Open])
+          [ AddEvent
+              <$> (Opened (has (item . _Buy) act) [ident] open <$ act),
+            Result <$> act,
+            Result
+              <$> ( ( ( _Open
+                          # ( ( if has (item . _Buy) act
+                                  then Long
+                                  else Short
+                              ),
+                              open
+                            )
+                      )
+                        <$ act
+                    )
+                      & details <>~ [Idents [ident]]
+                  )
           ]
     _ ->
-      -- If none of the above apply, nothing is done for this action, pass
-      -- it through
+      -- If none of the above apply, nothing is done for this action, pass it
+      -- through
       pure mact
-handle _ x = pure $ Just x
 
 -- | The most common trading activities are either to open a new position, or
 --   to close an existing one for a profit or loss. If there is a loss within
@@ -293,7 +343,7 @@ handle _ x = pure $ Just x
 closePosition ::
   (Monad m, Show a, ActionLike a) =>
   Int ->
-  Annotated Event ->
+  Annotated GainsEvent ->
   Annotated a ->
   WriterT [Annotated (Change a)] m (Maybe (Annotated a))
 closePosition n open close = do
@@ -308,14 +358,19 @@ closePosition n open close = do
             pricing close du - pricing open su - lotFees
           | otherwise = pricing open su - pricing close du - lotFees
     tell
-      [ Result
-          <$> ( close & item . buyOrSell .~ du
+      [ Result <$> (close & item . buyOrSell .~ du),
+        Result
+          <$> ( ( _Close
+                    # ( if has (item . _Sell) close
+                          then Long
+                          else Short,
+                        close ^?! item . buyOrSell,
+                        pl
+                      )
+                    <$ close
+                )
                   & details
-                  <>~ [ Position Close,
-                        if pl < 0
-                          then Loss (- pl)
-                          else Gain pl
-                      ]
+                  <>~ [Idents (open ^?! item . openIds)]
               )
       ]
     -- After closing at a loss, and if the loss occurs within 30 days
@@ -335,22 +390,25 @@ closePosition n open close = do
       ]
     when mayWash $
       tell
-        [ Submit <$> ((du & price .~ negate pl) <$ close)
+        [ SubmitWash (close ^. time)
+            <$> ((du & price .~ negate pl) <$ close)
         ]
   pure $ (\x -> close & item . buyOrSell .~ x) <$> d ^? _SplitKept
 
 -- | If the action is a wash sale adjustment, determine if can be applied to
 -- any existing open positions. If not, it is remembered, to be applied at the
 -- next opening within 30 days of sale.
-washExistingPosition ::
+washPast ::
   (Monad m, ActionLike a) =>
   Int ->
-  Annotated Event ->
+  Annotated GainsEvent ->
   Annotated a ->
   WriterT [Annotated (Change a)] m (Maybe (Annotated a))
-washExistingPosition n open washing =
-  assert (washing ^?! item . _Wash . amount /= 0) $ do
-    let (s, d) = (open ^?! item . opened) `align` (washing ^?! item . _Wash)
+washPast n open washing =
+  assert (washing ^?! item . _Wash . _3 . amount /= 0) $ do
+    let (s, d) =
+          (open ^?! item . opened)
+            `align` (washing ^?! item . _Wash . _3)
     -- Wash failing closes by adding the amount to the cost basis of the
     -- opening transaction.
     tell
@@ -369,20 +427,25 @@ washExistingPosition n open washing =
         ]
     forM_ (d ^.. _SplitUsed) $ \x ->
       tell
-        [ washing & item .~ Result (_Wash # x)
+        [ washing & item .~ Result (_Wash # (Past, washing ^. time, x))
             & time .~ (washing ^. time)
-            & details .~ [Washed (s ^?! _SplitUsed . price)]
+            & details
+              <>~ [Idents (open ^?! item . openIds)]
         ]
-    pure $ (\x -> washing & item . _Wash .~ x) <$> d ^? _SplitKept
+    pure $ (\x -> washing & item . _Wash . _3 .~ x) <$> d ^? _SplitKept
 
 -- | If we are opening a position and there is a pending wash sale within the
 -- last 30 days, apply the adjustment to the applicable part of this opening.
-washNewPosition ::
+washPresent ::
   (Monad m, ActionLike a) =>
   Lot ->
+  [Int] ->
   Annotated a ->
-  WriterT [Annotated (Change a)] m (Maybe (Annotated a))
-washNewPosition washing open =
+  WriterT
+    [Annotated (Change a)]
+    (StateT LocalState m)
+    (Maybe (Annotated a))
+washPresent washing ids open =
   assert (washing ^. amount <= open ^?! item . buyOrSell . amount) $ do
     let (_s, d) = washing `align` (open ^?! item . buyOrSell)
     -- We wash failing closes by adding the amount to the cost basis of
@@ -390,14 +453,52 @@ washNewPosition washing open =
     -- WashLossApplied, but only one OpenPosition.
     forM_ (d ^.. _SplitUsed) $ \x ->
       tell
-        [ open & item .~ AddEvent (Opened (has (item . _Buy) open) x)
+        [ open & item .~ AddEvent (Opened (has (item . _Buy) open) ids x)
             & details <>~ [Washed (washing ^. price)],
+          Result <$> (open & item . buyOrSell .~ x),
           Result
-            <$> ( open & item . buyOrSell .~ x
+            <$> ( ( ( _Open
+                        # ( if has (item . _Buy) open
+                              then Long
+                              else Short,
+                            open ^?! item . buyOrSell
+                          )
+                    )
+                      <$ open
+                  )
                     & details
-                      <>~ [ Position Open,
-                            Washed (washing ^. price)
-                          ]
-                )
+                    <>~ [ Idents ids,
+                          Washed (washing ^. price)
+                        ]
+                ),
+          Result
+            <$> ((_Wash # (Present, open ^. time, washing)) <$ open)
         ]
     pure $ (\x -> open & item . buyOrSell .~ x) <$> d ^? _SplitKept
+
+-- | If a wash sale adjustment could not be applied, record it in case a
+-- related position is opened within the next 30 days.
+washFuture ::
+  (Monad m, ActionLike a) =>
+  Annotated a ->
+  UTCTime ->
+  Lot ->
+  WriterT [Annotated (Change a)] m (Maybe (Annotated a))
+washFuture act moment lot = do
+  case act ^? details . traverse . _WashTo of
+    Just (name, mres) ->
+      Nothing
+        <$ tell
+          [ SaveWash
+              name
+              <$> ( ( case mres of
+                        Nothing -> lot
+                        Just (_amount, _price) ->
+                          let _symbol = lot ^. symbol
+                           in Lot {..}
+                    )
+                      <$ act
+                  ),
+            Result <$> (_Wash # (Future, moment, lot) <$ act)
+          ]
+    _ -> pure Nothing
