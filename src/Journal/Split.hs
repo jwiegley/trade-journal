@@ -1,4 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -14,6 +16,7 @@ import Data.Default
 import Data.List (foldl')
 import Data.Maybe (isNothing)
 import Data.Traversable
+import GHC.Generics
 
 data Split a
   = Some
@@ -101,6 +104,9 @@ align x y
     yq = y ^. howmuch
     diff = abs (xq - yq)
 
+data Remainder a = Remainder a | Finished
+  deriving (Show, Eq, Generic, Functor, Foldable, Traversable)
+
 alignedA ::
   forall n a b x y z m.
   (Splittable n a, Splittable n b, Applicative m) =>
@@ -109,17 +115,17 @@ alignedA ::
   (a -> b -> m x) ->
   (a -> m y) ->
   (b -> m z) ->
-  m (Maybe x, Maybe (Either y z))
+  m (Maybe x, Remainder (Either y z))
 alignedA a b f g h = do
   let (sa, sb) = a `align` b
   (,) <$> for ((,) <$> sa ^? _SplitUsed <*> sb ^? _SplitUsed) (uncurry f)
     <*> case sa ^? _SplitKept of
       Nothing -> case sb ^? _SplitKept of
-        Nothing -> pure Nothing
-        Just sbk -> Just . Right <$> h sbk
+        Nothing -> pure Finished
+        Just sbk -> Remainder . Right <$> h sbk
       Just sak ->
         assert (isNothing (sb ^? _SplitKept)) $
-          Just . Left <$> g sak
+          Remainder . Left <$> g sak
 
 data Applied v a b = Applied
   { _value :: v,

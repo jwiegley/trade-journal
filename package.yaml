@@ -24,6 +24,7 @@ dependencies:
   - pipes-text
   - pretty-show
   - simple-amount
+  - tardis
   - text
   - time
   - transformers

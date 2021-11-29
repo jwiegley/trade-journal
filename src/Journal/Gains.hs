@@ -12,7 +12,6 @@
 
 module Journal.Gains
   ( Calculation (..),
-    GainsEvent (..),
     ActionLike (..),
     gains,
   )
@@ -20,22 +19,33 @@ where
 
 import Amount
 import Control.Applicative
+import Control.Arrow ((***))
 import Control.Lens
-import Control.Monad.Except
-import Control.Monad.Trans.State
+import Control.Monad.State
 import Data.Foldable
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import GHC.Generics hiding (to)
 import Journal.Split
-import Journal.Types hiding
-  ( Action,
-    _Buy,
-    _Close,
-    _Open,
-    _Sell,
+import Journal.Types
+  ( Annotated,
+    Annotation (Idents),
+    Disposition (..),
+    Lot,
+    details,
+    fees,
+    item,
+    price,
+    symbol,
   )
+-- import Journal.Types hiding
+--   ( Action,
+--     _Buy,
+--     _Close,
+--     _Open,
+--     _Sell,
+--   )
 import Pipes
 import Text.Show.Pretty hiding (Time)
 import Prelude hiding (Double, Float)
@@ -43,6 +53,7 @@ import Prelude hiding (Double, Float)
 class ActionLike a where
   _Buy :: Prism' a Lot
   _Sell :: Prism' a Lot
+
   _Open :: Prism' a (Disposition, Lot)
   _Close :: Prism' a (Disposition, Lot, Amount 6)
 
@@ -78,8 +89,11 @@ data BasicState a = BasicState
 
 makeLenses ''BasicState
 
-data GainsEvent
-  = Opened Bool [Int] Lot
+data Opened = Opened
+  { _openLong :: Bool,
+    _openIds :: [Int],
+    _openLot :: Lot
+  }
   deriving
     ( Show,
       Eq,
@@ -88,15 +102,9 @@ data GainsEvent
       PrettyVal
     )
 
-makePrisms ''GainsEvent
+makeLenses ''Opened
 
-openIds :: Traversal' GainsEvent [Int]
-openIds = _Opened . _2
-
-opened :: Traversal' GainsEvent Lot
-opened = _Opened . _3
-
-type GainsState = BasicState (Map Text [Annotated GainsEvent])
+type GainsState = BasicState (Map Text [Annotated Opened])
 
 newGainsState :: Calculation -> GainsState
 newGainsState c =
@@ -106,7 +114,7 @@ newGainsState c =
       _events = mempty
     }
 
-type LocalState = BasicState [Annotated GainsEvent]
+type LocalState = BasicState [Annotated Opened]
 
 localState :: Text -> Traversal' GainsState LocalState
 localState instrument f s =
@@ -121,111 +129,103 @@ gains ::
 gains c = flip evalStateT (newGainsState c) $
   forever $ do
     entry <- lift await
-    results <-
-      zoom (localState (entry ^. item . symbolName)) $
-        untilDone handle entry
+    gst <- get
+    let (results, gst') =
+          flip runState gst $
+            zoom (localState (entry ^. item . symbolName)) $
+              untilDone handle entry
+    put gst'
     forM_ results $ lift . yield
 
 handle ::
-  (ActionLike a, Monad m) =>
+  ActionLike a =>
   Annotated a ->
-  StateT
+  State
     LocalState
-    m
     ([Annotated a], Remainder (Annotated a))
 handle ann@(has (item . buyOrSell) -> True) =
   use events >>= \case
-    open@(preview (item . _Opened . _1) -> Just buyToOpen) : rest
-      | buyToOpen == has (item . _Sell) ann ->
-        closePosition open rest ann
+    open@(preview (item . openLong) -> Just buyToOpen) : rest
+      | buyToOpen == has (item . _Sell) ann -> do
+        events .= rest
+        closePosition open ann
     _ -> (,Finished) <$> openPosition ann
 handle x = pure ([x], Finished)
 
 -- | Open a new position.
 openPosition ::
-  (ActionLike a, Monad m) =>
+  ActionLike a =>
   Annotated a ->
-  StateT LocalState m [Annotated a]
+  State LocalState [Annotated a]
 openPosition open = do
   nextId += 1
   ident <- use nextId
   let event =
         Opened
-          (has (item . _Buy) open)
-          [ident]
-          (open ^?! item . buyOrSell)
+          { _openLong = has (item . _Buy) open,
+            _openIds = [ident],
+            _openLot = open ^?! item . buyOrSell
+          }
           <$ open
   use calc >>= \case
     FIFO -> events <>= [event]
     LIFO -> events %= (event :)
   pure
     [ open,
-      ( ( _Open
-            # ( if has (item . _Buy) open
-                  then Long
-                  else Short,
-                open ^?! item . buyOrSell
-              )
-        )
-          <$ open
-      )
+      --
+      _Open
+        # ( if has (item . _Buy) open
+              then Long
+              else Short,
+            open ^?! item . buyOrSell
+          )
+        <$ open
         & details <>~ [Idents [ident]]
     ]
 
 -- | Close an existing position. If the amount to close is more than what is
 --   open, the remainder is considered a separate opening event.
 closePosition ::
-  (ActionLike a, Monad m) =>
-  Annotated GainsEvent ->
-  [Annotated GainsEvent] ->
+  ActionLike a =>
+  Annotated Opened ->
   Annotated a ->
-  StateT LocalState m ([Annotated a], Remainder (Annotated a))
-closePosition open rest close = do
-  events .= []
+  State LocalState ([Annotated a], Remainder (Annotated a))
+closePosition open close =
   alignForClose
-    (open ^?! item . opened)
+    (open ^?! item . openLot)
     (close ^?! item . buyOrSell)
     ( \su du -> do
-        let lotFees =
-              sum (close ^.. fees) + sum (open ^.. fees)
-            pricing o x =
-              x ^. price
-                + sum (o ^.. details . traverse . _Washed)
-            pl
+        let pl
               | has (item . _Sell) close =
-                pricing close du - pricing open su - lotFees
+                du ^. price - su ^. price
               | otherwise =
-                pricing open su - pricing close du - lotFees
+                su ^. price - du ^. price
+            lotFees = sum (close ^.. fees) + sum (open ^.. fees)
         pure
           [ close & item . buyOrSell .~ du,
-            ( _Close
-                # ( if has (item . _Sell) close
-                      then Long
-                      else Short,
-                    su,
-                    pl
-                  )
-                <$ close
-            )
+            --
+            _Close
+              # ( if has (item . _Sell) close
+                    then Long
+                    else Short,
+                  su,
+                  pl - lotFees
+                )
+              <$ close
               & details <>~ [Idents (open ^?! item . openIds)]
           ]
     )
-    (\sk -> events .= [open & item . opened .~ sk])
+    (\sk -> events %= ((open & item . openLot .~ sk) :))
     (\dk -> pure $ close & item . buyOrSell .~ dk)
-    <* (events <>= rest)
-
-data Remainder a = Remainder a | Finished
-  deriving (Show, Eq, Generic, Functor, Foldable, Traversable)
 
 untilDone :: Monad m => (a -> m ([a], Remainder a)) -> a -> m [a]
 untilDone f = go
   where
-    go entry = do
-      (results, remaining) <- f entry
-      case remaining of
-        Finished -> pure results
-        Remainder entry' ->
-          (results ++) <$> go entry'
+    go =
+      f >=> \(results, remaining) ->
+        case remaining of
+          Finished -> pure results
+          Remainder r -> (results ++) <$> go r
 
 alignForClose ::
   (Splittable n a, Splittable n b, Applicative m) =>
@@ -236,9 +236,9 @@ alignForClose ::
   (b -> m z) ->
   m ([x], Remainder z)
 alignForClose l r f g h =
-  alignedA l r f g h <&> \(mresult, meremaining) ->
-    ( fromMaybe [] mresult,
-      case meremaining of
-        Just (Right r') -> Remainder r'
-        _ -> Finished
-    )
+  alignedA l r f g h
+    <&> ( fromMaybe []
+            *** \case
+              Remainder (Right r') -> Remainder r'
+              _ -> Finished
+        )

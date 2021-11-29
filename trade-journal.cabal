@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d6aeae44758de6eb557f5c3cccd5c144e353a5dc095249d31551fa76c2a52985
+-- hash: ee3123837fdd8618d730ab501b4785259d36a982a1d1dab2bfeb11457c8c1552
 
 name:           trade-journal
 version:        0.0.2
@@ -54,6 +54,7 @@ library
     , profunctors
     , simple-amount
     , split
+    , tardis
     , text
     , time
     , transformers
@@ -82,6 +83,7 @@ executable trade-journal
     , pipes-text
     , pretty-show
     , simple-amount
+    , tardis
     , text
     , time
     , trade-journal
@@ -119,6 +121,7 @@ test-suite trade-journal-tests
     , pipes-text
     , pretty-show
     , simple-amount
+    , tardis
     , tasty
     , tasty-hedgehog
     , tasty-hunit

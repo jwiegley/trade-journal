@@ -25,8 +25,7 @@ readonly f = lift . runReaderT f =<< get
 {-# INLINE readonly #-}
 
 justify :: [a] -> [Maybe a]
-justify [] = [Nothing]
-justify (x : xs) = Just x : justify xs
+justify = foldr ((:) . Just) [Nothing]
 {-# INLINE justify #-}
 
 unzipBoth :: [([a], [b])] -> ([a], [b])
@@ -68,6 +67,12 @@ contractList _ [x] = [x]
 contractList f (x : y : xs) = case f x y of
   Nothing -> x : contractList f (y : xs)
   Just z -> contractList f (z : xs)
+
+foldrs :: (a -> [a] -> b -> b) -> b -> [a] -> b
+foldrs f z = go
+  where
+    go [] = z
+    go (x : xs) = f x xs (go xs)
 
 -- | A specialized variant of 'foldM' with some arguments shifted around.
 foldAM :: Monad m => a -> [b] -> (b -> a -> m a) -> m a

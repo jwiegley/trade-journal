@@ -40,7 +40,7 @@ data Annotation
   | Account Text
   | Note Text
   | Meta Text Text
-  deriving (Show, Eq, Ord, Generic, PrettyVal)
+  deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makePrisms ''Annotation
 
@@ -51,7 +51,7 @@ data Annotated a = Annotated
     -- just like the price.
     _details :: [Annotation]
   }
-  deriving (Show, Eq, Ord, Generic, PrettyVal, Functor, Traversable, Foldable)
+  deriving (Show, PrettyVal, Eq, Ord, Generic, Functor, Traversable, Foldable)
 
 makeLenses ''Annotated
 
@@ -62,7 +62,7 @@ data Lot = Lot
     _symbol :: Text,
     _price :: Amount 6
   }
-  deriving (Show, Eq, Ord, Generic, PrettyVal)
+  deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makeLenses ''Lot
 
@@ -87,10 +87,10 @@ data Action
   | Exercise Lot -- exercise a long options position
   deriving
     ( Show,
+      PrettyVal,
       Eq,
       Ord,
-      Generic,
-      PrettyVal
+      Generic
     )
 
 makePrisms ''Action
@@ -136,10 +136,10 @@ actionNetAmount ann = case ann ^. item of
   Exercise _lot -> 0 -- jww (2021-06-12): NYI
 
 data Disposition = Long | Short
-  deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
+  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
 data Period = Past | Present | Future
-  deriving (Show, Eq, Ord, Enum, Bounded, Generic, PrettyVal)
+  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
 -- | An Event represents "internal events" that occur within an account,
 -- either directly due to the actions above, or indirectly because of other
@@ -156,10 +156,10 @@ data Event
   | Credit (Amount 2) -- account credit received
   deriving
     ( Show,
+      PrettyVal,
       Eq,
       Ord,
-      Generic,
-      PrettyVal
+      Generic
     )
 
 makePrisms ''Event
@@ -225,10 +225,10 @@ eventNetAmount ann = case ann ^. item of
 data Entry = Action Action | Event Event
   deriving
     ( Show,
+      PrettyVal,
       Eq,
       Ord,
-      Generic,
-      PrettyVal
+      Generic
     )
 
 makePrisms ''Entry
