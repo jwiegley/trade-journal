@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.4.
+-- This file has been generated from package.yaml by hpack version 0.34.5.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 6ed9753951f46f9c8fc9701a1ab61cdd1bb1ca0541569f6dbb37d8bac17f586a
+-- hash: d6aeae44758de6eb557f5c3cccd5c144e353a5dc095249d31551fa76c2a52985
 
 name:           trade-journal
 version:        0.0.2
@@ -17,6 +17,7 @@ build-type:     Simple
 
 library
   exposed-modules:
+      Journal.Gains
       Journal.GainsKeeper
       Journal.Parse
       Journal.Pipes
@@ -93,7 +94,8 @@ test-suite trade-journal-tests
   main-is: Main.hs
   other-modules:
       Examples
-      ModelTests
+      Gains
+      GainsKeeper
       ThinkOrSwim
       Paths_trade_journal
   hs-source-dirs:

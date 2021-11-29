@@ -45,7 +45,7 @@ journalBuySellProfit = ii @--> oo
 2020-07-02 00:00:00 buy 100 AAPL 260.0000
 2020-07-02 00:00:00 open long 100 AAPL 260.0000 ids [1]
 2020-07-03 00:00:00 sell 100 AAPL 300.0000 fees 0.20
-2020-07-03 00:00:00 close long 100 AAPL 300.0000 gain 3999.80 fees 0.20 ids [1]
+2020-07-03 00:00:00 close long 100 AAPL 260.0000 gain 3999.80 fees 0.20 ids [1]
         |]
 
 journalBuySellLossBuy :: Assertion
@@ -63,7 +63,7 @@ journalBuySellLossBuy = ii @--> oo
 2020-07-02 00:00:00 buy 100 AAPL 260.0000
 2020-07-02 00:00:00 open long 100 AAPL 260.0000 ids [1]
 2020-07-03 00:00:00 sell 100 AAPL 240.0000 fees 0.20 wash to A
-2020-07-03 00:00:00 close long 100 AAPL 240.0000 loss 2000.20 fees 0.20 wash to A ids [1]
+2020-07-03 00:00:00 close long 100 AAPL 260.0000 loss 2000.20 fees 0.20 wash to A ids [1]
 2020-07-03 00:00:00 wash future 2020-07-03 00:00:00 100 AAPL 20.0020 fees 0.20 wash to A
 2020-07-04 00:00:00 buy 100 AAPL 260.0000 apply A 100
 2020-07-04 00:00:00 open long 100 AAPL 260.0000 apply A 100 ids [2]

@@ -34,6 +34,7 @@ in haskellPackages.developPackage rec {
       haskellPackages.hasktags
       haskellPackages.ghcid
       haskellPackages.ormolu
+      haskellPackages.haskell-language-server
     ];
 
     passthru = {

@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -13,6 +12,8 @@ import Control.Exception (assert)
 import Control.Lens
 import Data.Default
 import Data.List (foldl')
+import Data.Maybe (isNothing)
+import Data.Traversable
 
 data Split a
   = Some
@@ -99,6 +100,26 @@ align x y
     xq = x ^. howmuch
     yq = y ^. howmuch
     diff = abs (xq - yq)
+
+alignedA ::
+  forall n a b x y z m.
+  (Splittable n a, Splittable n b, Applicative m) =>
+  a ->
+  b ->
+  (a -> b -> m x) ->
+  (a -> m y) ->
+  (b -> m z) ->
+  m (Maybe x, Maybe (Either y z))
+alignedA a b f g h = do
+  let (sa, sb) = a `align` b
+  (,) <$> for ((,) <$> sa ^? _SplitUsed <*> sb ^? _SplitUsed) (uncurry f)
+    <*> case sa ^? _SplitKept of
+      Nothing -> case sb ^? _SplitKept of
+        Nothing -> pure Nothing
+        Just sbk -> Just . Right <$> h sbk
+      Just sak ->
+        assert (isNothing (sb ^? _SplitKept)) $
+          Just . Left <$> g sak
 
 data Applied v a b = Applied
   { _value :: v,

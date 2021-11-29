@@ -233,7 +233,14 @@ impliedChanges x = do
           . toListOf (instrumentState . events . ifolded . withIndex)
       )
   (mx, changes) <-
-    runWriterT $ foldAM x (tails hist) $ maybe (pure Nothing) . handle
+    runWriterT $
+      foldAM
+        (Just x)
+        (tails hist)
+        ( \hs -> \case
+            Nothing -> pure Nothing
+            Just x' -> handle hs x'
+        )
   forM_ mx $ throwError . UnexpectedRemainder
   pure ((SawAction <$> x) : changes)
 
@@ -286,10 +293,10 @@ openPosition action = do
   -- generates, but it may be specified manually by the user when they know
   -- that a wash sale is applicable (based on information from their broker).
   mact <- foldAM
-    action
+    (Just action)
     (action ^.. details . traverse . _WashApply)
     $ \(name, _amount) -> \case
-      Just (act@(preview (item . buyOrSell) -> Just open)) -> do
+      Just act@(preview (item . buyOrSell) -> Just open) -> do
         sales <-
           lift $
             gets
@@ -311,7 +318,7 @@ openPosition action = do
       _ -> pure Nothing
 
   case mact of
-    Just (act@(preview (item . buyOrSell) -> Just open)) ->
+    Just act@(preview (item . buyOrSell) -> Just open) ->
       Nothing
         <$ tell
           [ AddEvent
@@ -319,10 +326,9 @@ openPosition action = do
             Result <$> act,
             Result
               <$> ( ( ( _Open
-                          # ( ( if has (item . _Buy) act
-                                  then Long
-                                  else Short
-                              ),
+                          # ( if has (item . _Buy) act
+                                then Long
+                                else Short,
                               open
                             )
                       )
@@ -364,7 +370,7 @@ closePosition n open close = do
                     # ( if has (item . _Sell) close
                           then Long
                           else Short,
-                        close ^?! item . buyOrSell,
+                        su,
                         pl
                       )
                     <$ close
@@ -461,7 +467,7 @@ washPresent washing ids open =
                         # ( if has (item . _Buy) open
                               then Long
                               else Short,
-                            open ^?! item . buyOrSell
+                            x
                           )
                     )
                       <$ open

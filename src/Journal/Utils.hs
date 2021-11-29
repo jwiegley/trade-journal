@@ -70,14 +70,22 @@ contractList f (x : y : xs) = case f x y of
   Just z -> contractList f (z : xs)
 
 -- | A specialized variant of 'foldM' with some arguments shifted around.
-foldAM ::
-  (Monad m, Applicative f) =>
-  a ->
-  [b] ->
-  (b -> f a -> m (f a)) ->
-  m (f a)
-foldAM z xs f = foldM (flip f) (pure z) xs
+foldAM :: Monad m => a -> [b] -> (b -> a -> m a) -> m a
+foldAM z xs f = foldM (flip f) z xs
 {-# INLINE foldAM #-}
+
+foldAM' :: Monad m => a -> [b] -> (b -> a -> m (Maybe b, a)) -> m a
+foldAM' z [] _ = pure z
+foldAM' z (x : xs) f = do
+  (mres, z') <- f x z
+  foldAM'
+    z'
+    ( case mres of
+        Nothing -> xs
+        Just x' -> x' : xs
+    )
+    f
+{-# INLINE foldAM' #-}
 
 renderList :: (a -> Doc) -> [a] -> Doc
 renderList _ [] = brackets P.empty

@@ -1,7 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -107,8 +105,8 @@ mapAction f = \case
   TransferOut lot -> TransferOut (f lot)
   Exercise lot -> Exercise (f lot)
 
-_Lot :: Traversal' Action Lot
-_Lot f = \case
+_ActionLot :: Traversal' Action Lot
+_ActionLot f = \case
   Deposit amt -> pure $ Deposit amt
   Withdraw amt -> pure $ Withdraw amt
   Buy lot -> Buy <$> f lot
@@ -224,8 +222,23 @@ eventNetAmount ann = case ann ^. item of
   Income amt -> amt
   Credit amt -> amt
 
-crossAnnotate ::
-  Annotated (Either Event Action) -> Either (Annotated Event) (Annotated Action)
-crossAnnotate ann = case ann ^. item of
-  Left x -> Left (x <$ ann)
-  Right x -> Right (x <$ ann)
+data Entry = Action Action | Event Event
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+makePrisms ''Entry
+
+_Lot :: Traversal' Entry Lot
+_Lot f = \case
+  Action act -> Action <$> (act & _ActionLot %%~ f)
+  Event ev -> Event <$> (ev & _EventLot %%~ f)
+
+netAmount :: Annotated Entry -> Amount 2
+netAmount ann = case ann ^. item of
+  Action act -> actionNetAmount (act <$ ann)
+  Event ev -> eventNetAmount (ev <$ ann)

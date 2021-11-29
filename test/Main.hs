@@ -1,7 +1,8 @@
 module Main where
 
 import Examples
-import ModelTests
+import Gains
+import GainsKeeper
 import Test.Tasty
 import ThinkOrSwim
 
@@ -10,7 +11,8 @@ main =
   defaultMain $
     testGroup
       "trade-journal"
-      [ testExamples,
-        testModel,
+      [ testGains,
+        testGainsKeeper,
+        testExamples,
         testThinkOrSwim
       ]

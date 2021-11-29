@@ -24,7 +24,7 @@ import GHC.TypeLits
 import Journal.Types
 import Pipes
 
-printActions :: MonadIO m => Pipe (Annotated (Either Event Action)) T.Text m r
+printActions :: MonadIO m => Pipe (Annotated Entry) T.Text m r
 printActions = forever $ do
   x <- await
   yield $
@@ -33,15 +33,17 @@ printActions = forever $ do
           Just t -> printTime t <> " "
           Nothing -> ""
       )
-        <> either printEvent printAction (x ^. item)
-        <> case printAnnotated
-          x
-          (x ^? item . failing (_Left . _EventLot) (_Right . _Lot)) of
+        <> printEntry (x ^. item)
+        <> case printAnnotated x (x ^? item . _Lot) of
           "" -> ""
           anns -> " " <> anns
 
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
+
+printEntry :: Entry -> Text
+printEntry (Action act) = printAction act
+printEntry (Event ev) = printEvent ev
 
 printAction :: Action -> Text
 printAction = \case

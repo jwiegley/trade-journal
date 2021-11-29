@@ -50,12 +50,12 @@ entryParse xact =
 entryToAction ::
   TOSTransaction ->
   TOSEntry ->
-  Either String (Annotated (Either Event Action))
+  Either String (Annotated Entry)
 entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
       annotate $
-        Right $
+        Action $
           Buy
             Lot
               { _amount = coerce tdQuantity,
@@ -65,7 +65,7 @@ entryToAction xact = \case
   Sold _device TOSTrade' {..} ->
     Right $
       annotate $
-        Right $
+        Action $
           Sell
             Lot
               { _amount = coerce (abs tdQuantity),
@@ -75,12 +75,12 @@ entryToAction xact = \case
   AchCredit ->
     Right $
       annotate $
-        Right $
+        Action $
           Deposit (xact ^. xactAmount)
   AchDebit ->
     Right $
       annotate $
-        Right $
+        Action $
           Withdraw (xact ^. xactAmount . to abs)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
@@ -88,7 +88,7 @@ entryToAction xact = \case
   CourtesyCredit ->
     Right $
       annotate $
-        Left $
+        Event $
           Credit (xact ^. xactAmount)
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
@@ -96,12 +96,12 @@ entryToAction xact = \case
   InterestAdjustment ->
     Right $
       annotate $
-        Left $
+        Event $
           Interest (xact ^. xactAmount) Nothing
   InterestIncome sym ->
     Right $
       annotate $
-        Left $
+        Event $
           Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
   -- MarkToMarket -> undefined
   -- MiscellaneousJournalEntry -> undefined
@@ -111,7 +111,7 @@ entryToAction xact = \case
   Rebate ->
     Right $
       annotate $
-        Left $
+        Event $
           Income (xact ^. xactAmount)
   -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
   -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
@@ -120,7 +120,7 @@ entryToAction xact = \case
   TransferInSecurityOrOption amt sym ->
     Right $
       annotate $
-        Right $
+        Action $
           TransferIn
             Lot
               { _amount = coerce (abs amt),
@@ -132,7 +132,7 @@ entryToAction xact = \case
   WireIncoming ->
     Right $
       annotate $
-        Right $
+        Action $
           Deposit (xact ^. xactAmount)
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
@@ -157,21 +157,18 @@ entryToAction xact = \case
 xactAction ::
   TOSTransaction ->
   Amount 2 ->
-  Either String (Annotated (Either Event Action))
+  Either String (Annotated Entry)
 xactAction xact bal = do
   ent <- left show $ entryParse xact
   x <- entryToAction xact ent
-  assert
-    ( either eventNetAmount actionNetAmount (crossAnnotate x)
-        == xact ^. xactAmount
-    )
-    $ assert (bal == xact ^. xactBalance) $
+  assert (netAmount x == xact ^. xactAmount) $
+    assert (bal == xact ^. xactBalance) $
       pure x
 
 thinkOrSwimActions ::
   Functor m =>
   ThinkOrSwim ->
-  Producer (Annotated (Either Event Action)) m ()
+  Producer (Annotated Entry) m ()
 thinkOrSwimActions tos =
   each $
     concatMap

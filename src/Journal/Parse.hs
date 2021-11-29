@@ -1,11 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Journal.Parse
   ( parseActionsAndEvents,
@@ -16,6 +13,7 @@ where
 import Amount
 import Control.Lens hiding (each, noneOf)
 import Data.Char
+import Data.Functor
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -35,7 +33,7 @@ skipLineComment' :: Tokens Text -> Parser ()
 skipLineComment' prefix =
   string prefix
     *> takeWhileP (Just "character") (\x -> x /= '\n' && x /= '\r')
-    *> pure ()
+    $> ()
 
 whiteSpace :: Parser ()
 whiteSpace = L.space space1 lineCmnt blockCmnt
@@ -52,7 +50,7 @@ keyword = lexeme . string
 parseActionsAndEvents ::
   (MonadFail m, MonadIO m) =>
   FilePath ->
-  Producer (Annotated (Either Event Action)) m ()
+  Producer (Annotated Entry) m ()
 parseActionsAndEvents path = do
   input <- liftIO $ TL.readFile path
   parseActionsAndEventsFromText path input
@@ -61,7 +59,7 @@ parseActionsAndEventsFromText ::
   MonadFail m =>
   FilePath ->
   Text ->
-  Producer (Annotated (Either Event Action)) m ()
+  Producer (Annotated Entry) m ()
 parseActionsAndEventsFromText path input =
   case parse
     ( many (whiteSpace *> parseAnnotatedActionOrEvent)
@@ -72,19 +70,19 @@ parseActionsAndEventsFromText path input =
     Left e -> fail $ errorBundlePretty e
     Right res -> each res
 
-parseAnnotatedActionOrEvent :: Parser (Annotated (Either Event Action))
+parseAnnotatedActionOrEvent :: Parser (Annotated Entry)
 parseAnnotatedActionOrEvent = do
   _time <- Journal.Parse.parseTime
-  _item <- (Left <$> parseEvent <|> Right <$> parseAction)
+  _item <- Event <$> parseEvent <|> Action <$> parseAction
   _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
     Annotated {..}
       & details . traverse . failing _Fees _Commission
-        //~ (_item ^?! failing (_Left . _EventLot) (_Right . _Lot) . amount)
+        //~ (_item ^?! _Lot . amount)
 
 quotedString :: Parser T.Text
-quotedString = identPQuoted >>= return . T.pack
+quotedString = identPQuoted <&> T.pack
   where
     escape :: Parser String
     escape = do
@@ -158,7 +156,7 @@ parseAnnotation = do
     <|> keyword "wash" *> parseWash
     <|> keyword "apply"
       *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
-    <|> keyword "exempt" *> pure Exempt
+    <|> (keyword "exempt" $> Exempt)
     <|> keyword "account" *> (Account <$> parseText)
     -- <|> keyword "ids" *> (Idents <$> bracket parseAmount)
     <|> keyword "order" *> (Order <$> parseText)
