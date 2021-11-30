@@ -17,16 +17,15 @@
 module Journal.Wash (washSaleRule) where
 
 import Amount
-import Control.Arrow (second)
 import Control.Lens
-import Control.Monad.State
-import Data.IntMap (IntMap)
-import Data.Maybe (fromJust)
+import Control.Monad
 import Data.Time
+import Debug.Trace
 import GHC.Generics hiding (to)
 import Journal.Split
 import Journal.Types (Disposition (..), Lot (..))
-import Journal.Utils (distance, foldrs)
+import Journal.Utils (distance)
+import Journal.Zippered
 import Text.Show.Pretty hiding (Time)
 
 class HasTime a where
@@ -84,12 +83,70 @@ makePrisms ''Washing
 -- non-exempt position open, we check 30 days back and then 30 days forward
 -- for an eligible losing close; if it exists, the loss is moved into the cost
 -- basis of the open.
-washSaleRule :: (EventLike o c a, HasExempt a) => [a] -> [(Washing, a)]
+washSaleRule ::
+  (EventLike o c a, HasExempt a, Show o, Show c, Eq a) =>
+  [a] ->
+  [(Washing, a)]
 washSaleRule =
   go . map (\x -> (if x ^. exempt then Exempted else Eligible, x))
   where
-    go :: [(Washing, a)] -> [(Washing, a)]
-    go = foldrs (\x xs b -> []) []
+    go xs = maybe xs go $ do
+      -- The wash sale rule proceeds by looking for losing sales that haven't
+      -- been washed. If there are none, we are done.
+      let z = eligibleClose xs
+      x <- z ^? focus
+      c <- x ^? _2 . _Close
+      traceM $ "c = " ++ ppShow c
+
+      -- Once an eligible losing sale is found, we look for an eligible
+      -- opening within 30 days before or after that sale.
+      (z', xx') <-
+        applyToPrefixOrSuffix (eligibleOpen (c ^. time)) (handleOpen x) z
+
+      let z'' = z' & focii .~ xx'
+      guard $ z /= z''
+      pure $ unzippered z''
+
+    eligibleClose = zippered $ \(w, x) ->
+      w == Eligible
+        && case x ^? _Close . gains of
+          Just pl | pl < 0 -> True
+          _ -> False
+
+    eligibleOpen anchor (w, y) =
+      w == Eligible
+        && case y ^? _Open . time of
+          Just t -> abs (anchor `distance` t) <= 30
+          Nothing -> False
+
+    handleOpen x _inPast part = do
+      c <- x ^? _2 . _Close
+      y <- part ^? focus
+      o <- y ^? _2 . _Open
+      traceM $ "o = " ++ ppShow o
+      (Just (l, r), reyz) <-
+        alignedA
+          (c ^. lot)
+          (o ^. lot)
+          (curry pure)
+          pure
+          pure
+      pure
+        ( part & focii
+            .~ ( ( y & _1 .~ NotApplicable
+                     & _2 . _Open . lot .~ r
+                 ) :
+                 case reyz of
+                   Remainder (Right z) -> [y & _2 . _Open . lot .~ z]
+                   _ -> []
+               ),
+          ( x & _1 .~ NotApplicable
+              & _2 . _Close . lot .~ l
+          ) :
+          case reyz of
+            Remainder (Left z) -> [x & _2 . _Close . lot .~ z]
+            _ -> []
+        )
 
 {-
 washStep ::
@@ -156,6 +213,7 @@ wash f c o = do
       (\_cu ou -> pure (f (c ^. gains), ou))
       (\ck -> unappliedCloses %= ((c & lot .~ ck) :))
       (\ok -> unwashedOpens %= ((o & lot .~ ok) :))
+-}
 
 data Opening = Opening
   { _openTime :: UTCTime,
@@ -225,6 +283,11 @@ data Event
     )
 
 makePrisms ''Event
+
+instance HasExempt Event where
+  exempt f = \case
+    EOpen open -> EOpen <$> (open & exempt %%~ f)
+    EClose close -> EClose close <$ f False
 
 instance EventLike Opening Closing Event where
   _Open = _EOpen
@@ -315,4 +378,3 @@ testWashSale = do
               (-50)
           )
       ]
--}

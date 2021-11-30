@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ee3123837fdd8618d730ab501b4785259d36a982a1d1dab2bfeb11457c8c1552
+-- hash: 397b85157ea0001a41039d7feb48caa934a9ec6f9999598d833663192a2b850a
 
 name:           trade-journal
 version:        0.0.2
@@ -26,11 +26,13 @@ library
       Journal.ThinkOrSwim
       Journal.Types
       Journal.Utils
+      Journal.Zippered
   other-modules:
       Journal.GainsKeeper2
       Journal.ThinkOrSwim.Parser
       Journal.ThinkOrSwim.Process
       Journal.ThinkOrSwim.Types
+      Journal.Wash
       Paths_trade_journal
   hs-source-dirs:
       src

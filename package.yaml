@@ -42,6 +42,7 @@ library:
     - Journal.ThinkOrSwim
     - Journal.Types
     - Journal.Utils
+    - Journal.Zippered
   dependencies:
     - data-default
     - pretty
