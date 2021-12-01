@@ -15,14 +15,14 @@ import Pipes
 instance Gains.ActionLike Entry where
   _Buy = _Action . _Buy
   _Sell = _Action . _Sell
-  _Open = _Event . _Open
-  _Close = _Event . _Close
+  _Open = undefined -- _Event . _Open
+  _Close = undefined -- _Event . _Close
 
 instance GainsKeeper.ActionLike Entry where
   _Buy = _Action . _Buy
   _Sell = _Action . _Sell
-  _Open = _Event . _Open
-  _Close = _Event . _Close
+  _Open = undefined -- _Event . _Open
+  _Close = undefined -- _Event . _Close
   _Wash = _Event . _Wash
 
 processActions ::

@@ -33,16 +33,18 @@ dependencies:
 library:
   source-dirs: src
   exposed-modules:
-    - Journal.Gains
+    - Journal.Closings
     - Journal.GainsKeeper
+    - Journal.Gains
     - Journal.Parse
     - Journal.Pipes
     - Journal.Print
     - Journal.Split
-    - Journal.ThinkOrSwim
     - Journal.Types
     - Journal.Utils
     - Journal.Zippered
+    - Broker.ThinkOrSwim
+    - Taxes.USA.WashSaleRule
   dependencies:
     - data-default
     - pretty
@@ -51,9 +53,21 @@ library:
     - vector
 
 tests:
-  trade-journal-tests:
+  journal-tests:
     main: Main.hs
-    source-dirs: test
+    source-dirs: tests/Journal
+    dependencies:
+      - HUnit
+      - hedgehog
+      - here
+      - tasty
+      - tasty-hedgehog
+      - tasty-hunit
+      - trade-journal
+
+  thinkorswim-tests:
+    main: Main.hs
+    source-dirs: tests/Broker/ThinkOrSwim
     dependencies:
       - HUnit
       - hedgehog
@@ -65,7 +79,7 @@ tests:
 
 executables:
   trade-journal:
-    main: Main.hs
+    main: bin/Main.hs
     other-modules:
       - Options
     dependencies:

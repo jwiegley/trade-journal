@@ -9,6 +9,7 @@
 module Main where
 
 import Amount
+import Broker.ThinkOrSwim
 import Control.Lens
 import Control.Monad.Except
 import Data.Aeson hiding ((.=))
@@ -19,7 +20,6 @@ import GHC.Generics hiding (to)
 import Journal.Parse
 import Journal.Pipes
 import Journal.Print
-import Journal.ThinkOrSwim
 import Options
 import qualified Pipes.Prelude.Text as P
 

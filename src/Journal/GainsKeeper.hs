@@ -35,6 +35,7 @@ import GHC.Generics hiding (to)
 import Journal.Split
 import Journal.Types hiding
   ( Action,
+    buyOrSell,
     _Buy,
     _Close,
     _Open,
@@ -47,7 +48,7 @@ import Text.Show.Pretty hiding (Time)
 import Prelude hiding (Double, Float)
 
 data GainsEvent
-  = Opened Bool [Int] Lot
+  = Opened Bool Int Lot
   deriving
     ( Show,
       Eq,
@@ -58,8 +59,8 @@ data GainsEvent
 
 makePrisms ''GainsEvent
 
-openIds :: Traversal' GainsEvent [Int]
-openIds = _Opened . _2
+openId :: Traversal' GainsEvent Int
+openId = _Opened . _2
 
 opened :: Traversal' GainsEvent Lot
 opened = _Opened . _3
@@ -314,7 +315,7 @@ openPosition action = do
               )
         let _price = sum sales / _amount
             _symbol = open ^. symbol
-        washPresent Lot {..} [ident] act
+        washPresent Lot {..} ident act
       _ -> pure Nothing
 
   case mact of
@@ -322,7 +323,7 @@ openPosition action = do
       Nothing
         <$ tell
           [ AddEvent
-              <$> (Opened (has (item . _Buy) act) [ident] open <$ act),
+              <$> (Opened (has (item . _Buy) act) ident open <$ act),
             Result <$> act,
             Result
               <$> ( ( ( _Open
@@ -334,7 +335,7 @@ openPosition action = do
                       )
                         <$ act
                     )
-                      & details <>~ [Idents [ident]]
+                      & details <>~ [Ident ident]
                   )
           ]
     _ ->
@@ -376,7 +377,7 @@ closePosition n open close = do
                     <$ close
                 )
                   & details
-                  <>~ [Idents (open ^?! item . openIds)]
+                  <>~ [Ident (open ^?! item . openId)]
               )
       ]
     -- After closing at a loss, and if the loss occurs within 30 days
@@ -436,7 +437,7 @@ washPast n open washing =
         [ washing & item .~ Result (_Wash # (Past, washing ^. time, x))
             & time .~ (washing ^. time)
             & details
-              <>~ [Idents (open ^?! item . openIds)]
+              <>~ [Ident (open ^?! item . openId)]
         ]
     pure $ (\x -> washing & item . _Wash . _3 .~ x) <$> d ^? _SplitKept
 
@@ -445,13 +446,13 @@ washPast n open washing =
 washPresent ::
   (Monad m, ActionLike a) =>
   Lot ->
-  [Int] ->
+  Int ->
   Annotated a ->
   WriterT
     [Annotated (Change a)]
     (StateT LocalState m)
     (Maybe (Annotated a))
-washPresent washing ids open =
+washPresent washing ident open =
   assert (washing ^. amount <= open ^?! item . buyOrSell . amount) $ do
     let (_s, d) = washing `align` (open ^?! item . buyOrSell)
     -- We wash failing closes by adding the amount to the cost basis of
@@ -459,7 +460,7 @@ washPresent washing ids open =
     -- WashLossApplied, but only one OpenPosition.
     forM_ (d ^.. _SplitUsed) $ \x ->
       tell
-        [ open & item .~ AddEvent (Opened (has (item . _Buy) open) ids x)
+        [ open & item .~ AddEvent (Opened (has (item . _Buy) open) ident x)
             & details <>~ [Washed (washing ^. price)],
           Result <$> (open & item . buyOrSell .~ x),
           Result
@@ -473,7 +474,7 @@ washPresent washing ids open =
                       <$ open
                   )
                     & details
-                    <>~ [ Idents ids,
+                    <>~ [ Ident ident,
                           Washed (washing ^. price)
                         ]
                 ),

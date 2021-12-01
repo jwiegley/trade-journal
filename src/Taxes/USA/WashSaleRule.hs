@@ -14,7 +14,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Journal.Wash (washSaleRule) where
+module Taxes.USA.WashSaleRule (washSaleRule) where
 
 import Amount
 import Control.Lens
@@ -31,8 +31,8 @@ import Text.Show.Pretty hiding (Time)
 class HasTime a where
   time :: Lens' a UTCTime
 
-class HasDisposition a where
-  disposition :: Lens' a Disposition
+-- class HasDisposition a where
+--   disposition :: Lens' a Disposition
 
 class HasLot a where
   lot :: Lens' a Lot
@@ -45,11 +45,11 @@ class HasGains a where
 
 class
   ( HasTime o,
-    HasDisposition o,
+    -- HasDisposition o,
     HasLot o,
     HasExempt o,
     HasTime c,
-    HasDisposition c,
+    -- HasDisposition c,
     HasLot c,
     HasGains c
   ) =>
@@ -234,8 +234,8 @@ makeLenses ''Opening
 instance HasTime Opening where
   time = openTime
 
-instance HasDisposition Opening where
-  disposition = openDisp
+-- instance HasDisposition Opening where
+--   disposition = openDisp
 
 instance HasLot Opening where
   lot = openLot
@@ -262,8 +262,8 @@ makeLenses ''Closing
 instance HasTime Closing where
   time = closeTime
 
-instance HasDisposition Closing where
-  disposition = closeDisp
+-- instance HasDisposition Closing where
+--   disposition = closeDisp
 
 instance HasLot Closing where
   lot = closeLot

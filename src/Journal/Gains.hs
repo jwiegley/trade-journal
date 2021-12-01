@@ -30,7 +30,7 @@ import GHC.Generics hiding (to)
 import Journal.Split
 import Journal.Types
   ( Annotated,
-    Annotation (Idents),
+    Annotation (Ident),
     Disposition (..),
     Lot,
     details,
@@ -39,13 +39,6 @@ import Journal.Types
     price,
     symbol,
   )
--- import Journal.Types hiding
---   ( Action,
---     _Buy,
---     _Close,
---     _Open,
---     _Sell,
---   )
 import Pipes
 import Text.Show.Pretty hiding (Time)
 import Prelude hiding (Double, Float)
@@ -91,7 +84,7 @@ makeLenses ''BasicState
 
 data Opened = Opened
   { _openLong :: Bool,
-    _openIds :: [Int],
+    _openId :: Int,
     _openLot :: Lot
   }
   deriving
@@ -129,6 +122,7 @@ gains ::
 gains c = flip evalStateT (newGainsState c) $
   forever $ do
     entry <- lift await
+    lift $ yield entry
     gst <- get
     let (results, gst') =
           flip runState gst $
@@ -136,6 +130,15 @@ gains c = flip evalStateT (newGainsState c) $
               untilDone handle entry
     put gst'
     forM_ results $ lift . yield
+
+untilDone :: Monad m => (a -> m ([a], Remainder a)) -> a -> m [a]
+untilDone f = go
+  where
+    go =
+      f >=> \(results, remaining) ->
+        case remaining of
+          Finished -> pure results
+          Remainder r -> (results ++) <$> go r
 
 handle ::
   ActionLike a =>
@@ -150,7 +153,7 @@ handle ann@(has (item . buyOrSell) -> True) =
         events .= rest
         closePosition open ann
     _ -> (,Finished) <$> openPosition ann
-handle x = pure ([x], Finished)
+handle _ = pure ([], Finished)
 
 -- | Open a new position.
 openPosition ::
@@ -163,7 +166,7 @@ openPosition open = do
   let event =
         Opened
           { _openLong = has (item . _Buy) open,
-            _openIds = [ident],
+            _openId = ident,
             _openLot = open ^?! item . buyOrSell
           }
           <$ open
@@ -171,16 +174,14 @@ openPosition open = do
     FIFO -> events <>= [event]
     LIFO -> events %= (event :)
   pure
-    [ open,
-      --
-      _Open
+    [ _Open
         # ( if has (item . _Buy) open
               then Long
               else Short,
             open ^?! item . buyOrSell
           )
         <$ open
-        & details <>~ [Idents [ident]]
+        & details <>~ [Ident ident]
     ]
 
 -- | Close an existing position. If the amount to close is more than what is
@@ -202,9 +203,7 @@ closePosition open close =
                 su ^. price - du ^. price
             lotFees = sum (close ^.. fees) + sum (open ^.. fees)
         pure
-          [ close & item . buyOrSell .~ du,
-            --
-            _Close
+          [ _Close
               # ( if has (item . _Sell) close
                     then Long
                     else Short,
@@ -212,20 +211,11 @@ closePosition open close =
                   pl - lotFees
                 )
               <$ close
-              & details <>~ [Idents (open ^?! item . openIds)]
+              & details <>~ [Ident (open ^?! item . openId)]
           ]
     )
     (\sk -> events %= ((open & item . openLot .~ sk) :))
     (\dk -> pure $ close & item . buyOrSell .~ dk)
-
-untilDone :: Monad m => (a -> m ([a], Remainder a)) -> a -> m [a]
-untilDone f = go
-  where
-    go =
-      f >=> \(results, remaining) ->
-        case remaining of
-          Finished -> pure results
-          Remainder r -> (results ++) <$> go r
 
 alignForClose ::
   (Splittable n a, Splittable n b, Applicative m) =>

@@ -6,12 +6,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-module Journal.ThinkOrSwim.Parser where
+module Broker.ThinkOrSwim.Parser where
 
 -- import qualified Data.ByteString as B
 -- import qualified Data.ByteString.Lazy as BL
 
 import Amount
+import Broker.ThinkOrSwim.Types
 import Control.Applicative (liftA2)
 import Control.Lens
 import Control.Monad.State
@@ -28,7 +29,6 @@ import Data.Time
 import Data.Void (Void)
 import Debug.Trace
 import GHC.TypeLits (KnownNat)
-import Journal.ThinkOrSwim.Types
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L

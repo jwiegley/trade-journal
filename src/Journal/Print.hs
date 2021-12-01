@@ -4,8 +4,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Journal.Print (printActions) where
 
@@ -55,18 +53,29 @@ printAction = \case
   TransferOut lot -> "xferout " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot
 
+printPosition :: Position -> Text
+printPosition Position {..} =
+  TL.pack (show _posIdent)
+    <> " "
+    <> printLot _posLot
+    <> " "
+    <> printDisposition _posDisp
+    <> " "
+    <> printAmount 2 _posBasis
+  where
+    printDisposition Long = "long"
+    printDisposition Short = "short"
+
+printClosing :: Closing -> Text
+printClosing Closing {..} =
+  "(" <> printPosition _closingPos
+    <> ") "
+    <> printLot _closingLot
+
 printEvent :: Event -> Text
 printEvent = \case
-  Open disp lot -> "open " <> printDisposition disp <> " " <> printLot lot
-  Close disp lot pl ->
-    "close "
-      <> printDisposition disp
-      <> " "
-      <> printLot lot
-      <> " "
-      <> (if pl < 0 then "loss" else "gain")
-      <> " "
-      <> totalAmount (Just lot) 2 (abs pl)
+  Open pos -> "open " <> printPosition pos
+  Close cl -> "close " <> printClosing cl
   Wash period moment lot ->
     "wash "
       <> printPeriod period
@@ -83,9 +92,6 @@ printEvent = \case
   Income amt -> "income " <> printAmount 2 amt
   Credit amt -> "credit " <> printAmount 2 amt
   where
-    printDisposition Long = "long"
-    printDisposition Short = "short"
-
     printPeriod Past = "past"
     printPeriod Present = "present"
     printPeriod Future = "future"
@@ -138,7 +144,7 @@ printAnnotated ann mlot =
         Just $ Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
       Exempt -> Just $ Left "exempt"
       Account x -> Just $ Left $ "account " <> printText x
-      Idents xs -> Just $ Left $ "ids " <> TL.pack (show xs)
+      Ident x -> Just $ Left $ "id " <> TL.pack (show x)
       Order x -> Just $ Left $ "order " <> printText x
       Strategy x -> Just $ Left $ "strategy " <> printText x
       Note x -> Just $ Left $ "note " <> printString x

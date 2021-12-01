@@ -3,9 +3,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Journal.ThinkOrSwim.Process (thinkOrSwimActions) where
+module Broker.ThinkOrSwim.Process (thinkOrSwimActions) where
 
 import Amount
+import Broker.ThinkOrSwim.Parser
+import Broker.ThinkOrSwim.Types
 import Control.Arrow (left)
 import Control.Exception
 import Control.Lens hiding (each)
@@ -17,8 +19,6 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
-import Journal.ThinkOrSwim.Parser
-import Journal.ThinkOrSwim.Types
 import Journal.Types
 import Pipes
 import Text.Megaparsec

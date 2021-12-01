@@ -34,7 +34,7 @@ data Annotation
   | WashTo Text (Maybe (Amount 6, Amount 6))
   | WashApply Text (Amount 6) -- per share wash applied
   | Exempt
-  | Idents [Int]
+  | Ident Int
   | Order Text
   | Strategy Text
   | Account Text
@@ -95,6 +95,9 @@ data Action
 
 makePrisms ''Action
 
+buyOrSell :: Traversal' Action Lot
+buyOrSell = failing _Buy _Sell
+
 mapAction :: (Lot -> Lot) -> Action -> Action
 mapAction f = \case
   Deposit amt -> Deposit amt
@@ -141,12 +144,42 @@ data Disposition = Long | Short
 data Period = Past | Present | Future
   deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
+data Position = Position
+  { _posIdent :: Int,
+    _posLot :: Lot,
+    _posDisp :: Disposition,
+    _posBasis :: Amount 6
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+makeLenses ''Position
+
+data Closing = Closing
+  { _closingPos :: Position,
+    _closingLot :: Lot
+  }
+  deriving
+    ( Show,
+      Eq,
+      Ord,
+      Generic,
+      PrettyVal
+    )
+
+makeLenses ''Closing
+
 -- | An Event represents "internal events" that occur within an account,
 -- either directly due to the actions above, or indirectly because of other
 -- factors.
 data Event
-  = Open Disposition Lot
-  | Close Disposition Lot (Amount 6)
+  = Open Position
+  | Close Closing
   | Wash Period UTCTime Lot
   | Assign Lot -- assignment of a short options position
   | Expire Lot -- expiration of a short options position
@@ -166,8 +199,8 @@ makePrisms ''Event
 
 mapEvent :: (Lot -> Lot) -> Event -> Event
 mapEvent f = \case
-  Open disp lot -> Open disp (f lot)
-  Close disp lot pl -> Close disp (f lot) pl
+  Open pos -> Open (pos & posLot %~ f)
+  Close cl -> Close (cl & closingLot %~ f)
   Wash period moment lot -> Wash period moment (f lot)
   Assign lot -> Assign (f lot)
   Expire lot -> Expire (f lot)
@@ -178,8 +211,8 @@ mapEvent f = \case
 
 _EventLot :: Traversal' Event Lot
 _EventLot f = \case
-  Open disp lot -> Open disp <$> f lot
-  Close disp lot pl -> Close disp <$> f lot <*> pure pl
+  Open pos -> Open <$> (pos & posLot %%~ f)
+  Close cl -> Close <$> (cl & closingLot %%~ f)
   Wash period moment lot -> Wash period moment <$> f lot
   Assign lot -> Assign <$> f lot
   Expire lot -> Expire <$> f lot
@@ -192,26 +225,19 @@ _EventLot f = \case
 -- represents.
 eventNetAmount :: Annotated Event -> Amount 2
 eventNetAmount ann = case ann ^. item of
-  Open Long lot ->
-    - totaled
-      lot
-      (lot ^. price + sum (ann ^.. fees))
-      ^. coerced
-  Open Short lot ->
-    totaled
-      lot
-      (lot ^. price - sum (ann ^.. fees))
-      ^. coerced
-  Close Long lot _pl ->
-    totaled
-      lot
-      (lot ^. price - sum (ann ^.. fees))
-      ^. coerced
-  Close Short lot _pl ->
-    - totaled
-      lot
-      (lot ^. price + sum (ann ^.. fees))
-      ^. coerced
+  Open pos
+    | pos ^. posDisp == Long ->
+      - totaled
+        (pos ^. posLot)
+        (pos ^. posLot . price + sum (ann ^.. fees))
+        ^. coerced
+  Open pos
+    | pos ^. posDisp == Short ->
+      totaled
+        (pos ^. posLot)
+        (pos ^. posLot . price - sum (ann ^.. fees))
+        ^. coerced
+  Close cl -> undefined
   Wash Past _ _lot -> 0
   Wash Present _ _lot -> 0
   Wash Future _ _lot -> 0

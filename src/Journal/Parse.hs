@@ -112,16 +112,35 @@ parseAction =
     <|> keyword "xferout" *> (TransferOut <$> parseLot)
     <|> keyword "exercise" *> (Exercise <$> parseLot)
 
+parsePosition :: Parser Position
+parsePosition =
+  Position
+    <$> L.decimal <* whiteSpace
+    <*> parseLot
+    <*> parseDisposition
+    <*> parseAmount
+  where
+    parseDisposition :: Parser Disposition
+    parseDisposition =
+      Long <$ keyword "long"
+        <|> Short <$ keyword "short"
+
+parseClosing :: Parser Closing
+parseClosing =
+  Closing
+    <$> ( char '('
+            *> whiteSpace
+            *> parsePosition
+            <* whiteSpace
+            <* char ')'
+            <* whiteSpace
+        )
+    <*> parseLot
+
 parseEvent :: Parser Event
 parseEvent =
-  keyword "open" *> keyword "long" *> (Open Long <$> parseLot)
-    <|> keyword "open" *> keyword "short" *> (Open Short <$> parseLot)
-    <|> keyword "close"
-      *> keyword "long"
-      *> (Close Long <$> parseLot <*> parseAmount)
-    <|> keyword "close"
-      *> keyword "short"
-      *> (Close Short <$> parseLot <*> parseAmount)
+  keyword "open" *> (Open <$> parsePosition)
+    <|> keyword "close" *> (Close <$> parseClosing)
     <|> keyword "wash"
       *> keyword "past"
       *> (Wash Past <$> parseTime <*> parseLot)
@@ -158,7 +177,7 @@ parseAnnotation = do
       *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
     <|> (keyword "exempt" $> Exempt)
     <|> keyword "account" *> (Account <$> parseText)
-    -- <|> keyword "ids" *> (Idents <$> bracket parseAmount)
+    <|> keyword "id" *> (Ident <$> L.decimal)
     <|> keyword "order" *> (Order <$> parseText)
     <|> keyword "strategy" *> (Strategy <$> parseText)
     <|> keyword "note" *> (Note <$> quotedString)

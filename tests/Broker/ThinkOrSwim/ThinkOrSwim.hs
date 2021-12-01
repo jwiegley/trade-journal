@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
+
+-- {-# LANGUAGE QuasiQuotes #-}
 
 module ThinkOrSwim (testThinkOrSwim) where
 

@@ -5,8 +5,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
-module Gains (testGains) where
+module Gains where
 
+{-
 import Amount
 import Control.Exception
 import Control.Lens hiding (each)
@@ -100,7 +101,7 @@ open ::
   Annotated Lot ->
   Int ->
   Annotated Entry
-open disp b n = Event . Open disp <$> b & details <>~ [Idents [n]]
+open disp b n = Event . Open disp <$> b & details <>~ [Ident n]
 
 close ::
   Disposition ->
@@ -109,7 +110,7 @@ close ::
   Amount 6 ->
   Annotated Entry
 close disp b n pl =
-  Event . flip (Close disp) pl <$> b & details <>~ [Idents [n]]
+  Event . flip (Close disp) pl <$> b & details <>~ [Ident n]
 
 {--------------------------------------------------------------------------}
 
@@ -410,3 +411,4 @@ genLot = do
   q <- genAmount (Range.linear 1 1000)
   p <- genAmount (Range.linear 1 2000)
   pure $ Lot q "FOO" p
+-}

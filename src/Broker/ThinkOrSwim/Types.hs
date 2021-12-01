@@ -5,7 +5,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Journal.ThinkOrSwim.Types where
+module Broker.ThinkOrSwim.Types where
 
 import Amount
 import Control.Lens
