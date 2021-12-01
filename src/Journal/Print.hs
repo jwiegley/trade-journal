@@ -5,11 +5,10 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Journal.Print (printActions) where
+module Journal.Print where
 
 import Amount
 import Control.Lens hiding (noneOf)
-import Control.Monad
 import Data.Char
 import Data.Either
 import Data.List (intersperse, sort)
@@ -20,28 +19,25 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
 import Journal.Types
-import Pipes
 
-printActions :: MonadIO m => Pipe (Annotated Entry) T.Text m r
-printActions = forever $ do
-  x <- await
-  yield $
-    TL.toStrict $
-      ( case x ^? time of
-          Just t -> printTime t <> " "
-          Nothing -> ""
-      )
-        <> printEntry (x ^. item)
-        <> case printAnnotated x (x ^? item . _Lot) of
-          "" -> ""
-          anns -> " " <> anns
+printActions :: (a -> Text) -> [Annotated (Entry a)] -> [T.Text]
+printActions printData = map $ \x ->
+  TL.toStrict $
+    ( case x ^? time of
+        Just t -> printTime t <> " "
+        Nothing -> ""
+    )
+      <> printEntry printData (x ^. item)
+      <> case printAnnotated x (x ^? item . _Lot) of
+        "" -> ""
+        anns -> " " <> anns
 
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
 
-printEntry :: Entry -> Text
-printEntry (Action act) = printAction act
-printEntry (Event ev) = printEvent ev
+printEntry :: (a -> Text) -> Entry a -> Text
+printEntry _ (Action act) = printAction act
+printEntry printData (Event ev) = printEvent printData ev
 
 printAction :: Action -> Text
 printAction = \case
@@ -53,8 +49,8 @@ printAction = \case
   TransferOut lot -> "xferout " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot
 
-printPosition :: Position -> Text
-printPosition Position {..} =
+printPosition :: (a -> Text) -> Position a -> Text
+printPosition printData Position {..} =
   TL.pack (show _posIdent)
     <> " "
     <> printLot _posLot
@@ -62,20 +58,22 @@ printPosition Position {..} =
     <> printDisposition _posDisp
     <> " "
     <> printAmount 2 _posBasis
+    <> printData _posData
   where
     printDisposition Long = "long"
     printDisposition Short = "short"
 
-printClosing :: Closing -> Text
-printClosing Closing {..} =
-  "(" <> printPosition _closingPos
+printClosing :: (a -> Text) -> Closing a -> Text
+printClosing printData Closing {..} =
+  "(" <> printPosition printData _closingPos
     <> ") "
     <> printLot _closingLot
+    <> printData _closingData
 
-printEvent :: Event -> Text
-printEvent = \case
-  Open pos -> "open " <> printPosition pos
-  Close cl -> "close " <> printClosing cl
+printEvent :: (a -> Text) -> Event a -> Text
+printEvent printData = \case
+  Open pos -> "open " <> printPosition printData pos
+  Close cl -> "close " <> printClosing printData cl
   Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot
@@ -99,36 +97,16 @@ totalAmount :: forall n. KnownNat n => Maybe Lot -> Int -> Amount n -> Text
 totalAmount mlot n x =
   printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
 
-printWashing :: Washing -> Either Text Text
-printWashing = \case
-  WashedFromPast x _ -> Right $ "washed from past " <> printAmount 2 x
-  WashedFromFuture x _ -> Right $ "washed from future " <> printAmount 2 x
-  WashTo x (Just (q, p)) ->
-    Left $
-      "wash "
-        <> printAmount 0 q
-        <> " @ "
-        <> printAmount 4 p
-        <> " to "
-        <> TL.fromStrict x
-  WashTo x Nothing -> Left $ "wash to " <> TL.fromStrict x
-  WashApply x amt ->
-    Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
-  Exempt -> Left "exempt"
-
 printAnnotated :: Annotated a -> Maybe Lot -> Text
 printAnnotated ann mlot =
-  ( TL.concat $
-      intersperse
+  TL.concat
+    ( intersperse
         " "
         inlineAnns
-  )
+    )
     <> case separateAnns of
       [] -> ""
-      xs ->
-        ( TL.concat $
-            intersperse "\n  " ("" : xs)
-        )
+      xs -> TL.concat $ intersperse "\n  " ("" : xs)
   where
     annotations = mapMaybe printAnnotation (sort (ann ^. details))
     (inlineAnns, separateAnns) = partitionEithers annotations

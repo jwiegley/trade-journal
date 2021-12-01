@@ -17,9 +17,10 @@ module Journal.Closings
 where
 
 import Control.Applicative
-import Control.Arrow ((***))
+import Control.Arrow
 import Control.Lens
 import Control.Monad.State
+import Data.Aeson hiding ((.=))
 import Data.Foldable
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
@@ -27,7 +28,6 @@ import Data.Text (Text)
 import GHC.Generics hiding (to)
 import Journal.Split
 import Journal.Types
-import Pipes
 import Text.Show.Pretty hiding (Time)
 import Prelude hiding (Double, Float)
 
@@ -37,13 +37,14 @@ data Calculation = FIFO | LIFO
       Eq,
       Ord,
       Generic,
-      PrettyVal
+      PrettyVal,
+      FromJSON
     )
 
-data BasicState a = BasicState
+data BasicState e = BasicState
   { _calc :: Calculation,
     _nextId :: Int,
-    _events :: a
+    _events :: e
   }
   deriving
     ( Show,
@@ -57,9 +58,9 @@ data BasicState a = BasicState
 
 makeLenses ''BasicState
 
-type ClosingState = BasicState (Map Text [Annotated Entry])
+type ClosingState a = BasicState (Map Text [Annotated (Entry a)])
 
-newClosingState :: Calculation -> ClosingState
+newClosingState :: Calculation -> ClosingState a
 newClosingState c =
   BasicState
     { _calc = c,
@@ -67,39 +68,36 @@ newClosingState c =
       _events = mempty
     }
 
-type LocalState = BasicState [Annotated Entry]
+type LocalState a = BasicState [Annotated (Entry a)]
 
-localState :: Text -> Traversal' ClosingState LocalState
+localState ::
+  (Eq a, Monoid a) =>
+  Text ->
+  Traversal' (ClosingState a) (LocalState a)
 localState instrument f s =
-  f (view (at instrument . non []) <$> s) <&> \m ->
+  f (view (at instrument . non mempty) <$> s) <&> \m ->
     s & nextId .~ (m ^. nextId)
       & events . at instrument ?~ (m ^. events)
 
 closings ::
-  Functor m =>
+  (Eq a, Monoid a) =>
   Calculation ->
-  Pipe
-    (Maybe (Annotated Entry))
-    (Annotated Entry)
-    m
-    (Map Text [Annotated Entry])
-closings = evalStateT go . newClosingState
+  [Annotated (Entry a)] ->
+  ([Annotated (Entry a)], Map Text [Annotated (Entry a)])
+closings mode =
+  (concat *** _events) . flip runState (newClosingState mode) . mapM go
   where
-    go = do
-      mentry <- lift await
-      case mentry of
-        Nothing -> use events
-        Just entry -> do
-          lift $ yield entry
-          gst <- get
-          forM_ (entry ^? item . _Action . buyOrSell . symbol) $ \sym -> do
-            let (results, gst') =
-                  flip runState gst $
-                    zoom (localState sym) $
-                      untilDone handle entry
-            put gst'
-            forM_ results $ lift . yield
-          go
+    go entry = do
+      gst <- get
+      case entry ^? item . _Action . buyOrSell . symbol of
+        Just sym -> do
+          let (results, gst') =
+                flip runState gst $
+                  zoom (localState sym) $
+                    untilDone handle entry
+          put gst'
+          pure (entry : results)
+        Nothing -> pure [entry]
 
 untilDone :: Monad m => (a -> m ([a], Remainder a)) -> a -> m [a]
 untilDone f = go
@@ -111,10 +109,11 @@ untilDone f = go
           Remainder r -> (results ++) <$> go r
 
 handle ::
-  Annotated Entry ->
+  (Eq a, Monoid a) =>
+  Annotated (Entry a) ->
   State
-    LocalState
-    ([Annotated Entry], Remainder (Annotated Entry))
+    (LocalState a)
+    ([Annotated (Entry a)], Remainder (Annotated (Entry a)))
 handle ann@(has (item . _Action . buyOrSell) -> True) =
   use events >>= \case
     open@(preview (item . _Event . _Open . posDisp) -> Just disp) : rest
@@ -129,8 +128,9 @@ handle _ = pure ([], Finished)
 
 -- | Open a new position.
 openPosition ::
-  Annotated Entry ->
-  State LocalState [Annotated Entry]
+  (Eq a, Monoid a) =>
+  Annotated (Entry a) ->
+  State (LocalState a) [Annotated (Entry a)]
 openPosition open = do
   nextId += 1
   ident <- use nextId
@@ -146,7 +146,7 @@ openPosition open = do
                   then Long
                   else Short,
               _posBasis = lot ^. price,
-              _posWash = []
+              _posData = mempty
             }
           <$ open
   use calc >>= \case
@@ -157,9 +157,10 @@ openPosition open = do
 -- | Close an existing position. If the amount to close is more than what is
 --   open, the remainder is considered a separate opening event.
 closePosition ::
-  Annotated Entry ->
-  Annotated Entry ->
-  State LocalState ([Annotated Entry], Remainder (Annotated Entry))
+  (Eq a, Monoid a) =>
+  Annotated (Entry a) ->
+  Annotated (Entry a) ->
+  State (LocalState a) ([Annotated (Entry a)], Remainder (Annotated (Entry a)))
 closePosition open close =
   let o = open ^?! item . _Event . _Open
    in alignForClose
@@ -172,7 +173,7 @@ closePosition open close =
                   # Closing
                     { _closingPos = o,
                       _closingLot = du,
-                      _closingWash = []
+                      _closingData = mempty
                     }
                   <$ close
               ]

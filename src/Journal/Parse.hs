@@ -4,14 +4,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Journal.Parse
-  ( parseActionsAndEvents,
-    parseActionsAndEventsFromText,
-  )
-where
+module Journal.Parse where
 
 import Amount
 import Control.Lens hiding (each, noneOf)
+import Control.Monad.IO.Class
 import Data.Char
 import Data.Functor
 import qualified Data.Text as T
@@ -22,7 +19,6 @@ import Data.Time hiding (parseTime)
 import Data.Void
 import GHC.TypeLits
 import Journal.Types
-import Pipes
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -49,31 +45,33 @@ keyword = lexeme . string
 
 parseActionsAndEvents ::
   (MonadFail m, MonadIO m) =>
+  Parser a ->
   FilePath ->
-  Producer (Annotated Entry) m ()
-parseActionsAndEvents path = do
+  m [Annotated (Entry a)]
+parseActionsAndEvents parseData path = do
   input <- liftIO $ TL.readFile path
-  parseActionsAndEventsFromText path input
+  parseActionsAndEventsFromText parseData path input
 
 parseActionsAndEventsFromText ::
   MonadFail m =>
+  Parser a ->
   FilePath ->
   Text ->
-  Producer (Annotated Entry) m ()
-parseActionsAndEventsFromText path input =
+  m [Annotated (Entry a)]
+parseActionsAndEventsFromText parseData path input =
   case parse
-    ( many (whiteSpace *> parseAnnotatedActionOrEvent)
+    ( many (whiteSpace *> parseAnnotatedActionOrEvent parseData)
         <* eof
     )
     path
     input of
     Left e -> fail $ errorBundlePretty e
-    Right res -> each res
+    Right res -> pure res
 
-parseAnnotatedActionOrEvent :: Parser (Annotated Entry)
-parseAnnotatedActionOrEvent = do
+parseAnnotatedActionOrEvent :: Parser a -> Parser (Annotated (Entry a))
+parseAnnotatedActionOrEvent parseData = do
   _time <- Journal.Parse.parseTime
-  _item <- Event <$> parseEvent <|> Action <$> parseAction
+  _item <- Event <$> parseEvent parseData <|> Action <$> parseAction
   _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
@@ -112,53 +110,37 @@ parseAction =
     <|> keyword "xferout" *> (TransferOut <$> parseLot)
     <|> keyword "exercise" *> (Exercise <$> parseLot)
 
-parseWashing :: Parser Washing
-parseWashing =
-  -- keyword "wash"
-  --   *> keyword "from"
-  --   *> keyword "past"
-  --   *> (WashedFromPast <$> parseTime <*> parseLot)
-  --   <|> keyword "wash"
-  --     *> keyword "from"
-  --     *> keyword "future"
-  --     *> (WashedFromFuture <$> parseTime <*> parseLot)
-  -- <|> keyword "washed" *> (Washed <$> parseAmount)
-  -- <|> keyword "wash" *> parseWash
-  keyword "apply"
-    *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
-    <|> (keyword "exempt" $> Exempt)
-
-parsePosition :: Parser Position
-parsePosition =
+parsePosition :: Parser a -> Parser (Position a)
+parsePosition parseData =
   Position
     <$> L.decimal <* whiteSpace
     <*> parseLot
     <*> parseDisposition
     <*> parseAmount
-    <*> many parseWashing
+    <*> parseData
   where
     parseDisposition :: Parser Disposition
     parseDisposition =
       Long <$ keyword "long"
         <|> Short <$ keyword "short"
 
-parseClosing :: Parser Closing
-parseClosing =
+parseClosing :: Parser a -> Parser (Closing a)
+parseClosing parseData =
   Closing
     <$> ( char '('
             *> whiteSpace
-            *> parsePosition
+            *> parsePosition parseData
             <* whiteSpace
             <* char ')'
             <* whiteSpace
         )
     <*> parseLot
-    <*> many parseWashing
+    <*> parseData
 
-parseEvent :: Parser Event
-parseEvent =
-  keyword "open" *> (Open <$> parsePosition)
-    <|> keyword "close" *> (Close <$> parseClosing)
+parseEvent :: Parser a -> Parser (Event a)
+parseEvent parseData =
+  keyword "open" *> (Open <$> parsePosition parseData)
+    <|> keyword "close" *> (Close <$> parseClosing parseData)
     <|> keyword "assign" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
     <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
@@ -186,16 +168,6 @@ parseAnnotation = do
     <|> keyword "strategy" *> (Strategy <$> parseText)
     <|> keyword "note" *> (Note <$> quotedString)
     <|> keyword "meta" *> (Meta <$> parseText <*> parseText)
-  where
-    parseWash = do
-      mres <- optional $ do
-        q <- parseAmount
-        _ <- char '@' <* whiteSpace
-        p <- parseAmount
-        pure (q, p)
-      _ <- keyword "to"
-      sym <- parseSymbol
-      pure $ WashTo (TL.toStrict sym) mres
 
 parseText :: Parser T.Text
 parseText =

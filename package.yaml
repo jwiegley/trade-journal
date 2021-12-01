@@ -19,9 +19,6 @@ dependencies:
   - lens
   - megaparsec
   - mtl
-  - pipes
-  - pipes-group
-  - pipes-text
   - pretty-show
   - simple-amount
   - tardis
@@ -34,8 +31,6 @@ library:
   source-dirs: src
   exposed-modules:
     - Journal.Closings
-    - Journal.GainsKeeper
-    - Journal.Gains
     - Journal.Parse
     - Journal.Pipes
     - Journal.Print

@@ -20,7 +20,6 @@ import Data.Time
 import Data.Void (Void)
 import Debug.Trace
 import Journal.Types
-import Pipes
 import Text.Megaparsec
 import Text.Printf
 
@@ -50,7 +49,7 @@ entryParse xact =
 entryToAction ::
   TOSTransaction ->
   TOSEntry ->
-  Either String (Annotated Entry)
+  Either String (Annotated (Entry a))
 entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
@@ -157,7 +156,7 @@ entryToAction xact = \case
 xactAction ::
   TOSTransaction ->
   Amount 2 ->
-  Either String (Annotated Entry)
+  Either String (Annotated (Entry a))
 xactAction xact bal = do
   ent <- left show $ entryParse xact
   x <- entryToAction xact ent
@@ -166,20 +165,18 @@ xactAction xact bal = do
       pure x
 
 thinkOrSwimActions ::
-  Functor m =>
   ThinkOrSwim ->
-  Producer (Annotated Entry) m ()
+  [Annotated (Entry a)]
 thinkOrSwimActions tos =
-  each $
-    concatMap
-      ( \case
-          Left err -> trace err []
-          Right x -> [x]
-      )
-      $ snd $
-        (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts)) $
-          \xact (bal, rest) ->
-            let nxt = bal + xact ^. xactAmount
-             in case xactAction xact nxt of
-                  x@(Left _) -> (bal, x : rest)
-                  x -> (nxt, x : rest)
+  concatMap
+    ( \case
+        Left err -> trace err []
+        Right x -> [x]
+    )
+    $ snd $
+      (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts)) $
+        \xact (bal, rest) ->
+          let nxt = bal + xact ^. xactAmount
+           in case xactAction xact nxt of
+                x@(Left _) -> (bal, x : rest)
+                x -> (nxt, x : rest)

@@ -7,14 +7,15 @@ module Examples (testExamples) where
 import Control.Monad.Writer
 import Data.List (intersperse)
 import Data.String.Here.Interpolated
-import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
+import qualified Journal.Closings as Closings
 import Journal.Parse
 import Journal.Pipes
-import Pipes
+import Taxes.USA.WashSaleRule
 import Test.Tasty
 import Test.Tasty.HUnit
+import Text.Megaparsec (many)
 
 testExamples :: TestTree
 testExamples =
@@ -194,16 +195,17 @@ zoomHistory = ii @--> oo
   gain 897.78
         |]
 
-combine :: MonadWriter [T.Text] m => Consumer T.Text m r
-combine = forever $ do
-  msg <- await
-  lift $ tell [msg]
-
 (@-->) :: Text -> Text -> Assertion
 x @--> y = do
   (_, msgs) <-
-    runWriterT $
-      parseProcessPrint (parseActionsAndEventsFromText "" x) combine
+    runWriterT $ do
+      entries <- parseActionsAndEventsFromText (many parseWashing) "" x
+      parseProcessPrint
+        Closings.FIFO
+        washSaleRule
+        (TL.concat . map (either id id . printWashing))
+        entries
+        tell
   let y' = TL.intercalate "\n" (map TL.fromStrict msgs)
   trimLines y' @?= trimLines y
   where

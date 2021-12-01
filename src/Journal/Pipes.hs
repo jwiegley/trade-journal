@@ -6,57 +6,28 @@ module Journal.Pipes where
 
 import Control.Monad.Except
 import Data.Text (Text)
-import qualified Journal.Gains as Gains
-import qualified Journal.GainsKeeper as GainsKeeper
+import qualified Data.Text.Lazy as TL
+import qualified Journal.Closings as Closings
 import Journal.Print
 import Journal.Types
-import Pipes
-
-instance Gains.ActionLike Entry where
-  _Buy = _Action . _Buy
-  _Sell = _Action . _Sell
-  _Open = undefined -- _Event . _Open
-  _Close = undefined -- _Event . _Close
-
-instance GainsKeeper.ActionLike Entry where
-  _Buy = _Action . _Buy
-  _Sell = _Action . _Sell
-  _Open = undefined -- _Event . _Open
-  _Close = undefined -- _Event . _Close
-  _Wash = _Event . _Wash
 
 processActions ::
-  (MonadError (GainsKeeper.GainsKeeperError Entry) m, MonadIO m) =>
-  Pipe (Annotated Entry) Text m r
-processActions =
-  GainsKeeper.gainsKeeper
-    >-> GainsKeeper.pickResults
-    >-> printActions
-
-handleActions ::
-  (MonadFail m, MonadIO m) =>
-  Producer (Annotated Entry) m r ->
-  Pipe
-    (Annotated Entry)
-    Text
-    (ExceptT (GainsKeeper.GainsKeeperError Entry) m)
-    r ->
-  Consumer Text m r ->
-  m r
-handleActions actions pipe printer = do
-  eres <-
-    runExceptT $
-      runEffect $
-        hoist lift actions
-          >-> pipe
-          >-> hoist lift printer
-  case eres of
-    Left err -> fail $ "Error " ++ show err
-    Right res -> pure res
+  (Monoid a, Eq a) =>
+  Closings.Calculation ->
+  ([Annotated (Entry a)] -> [Annotated (Entry a)]) ->
+  (a -> TL.Text) ->
+  [Annotated (Entry a)] ->
+  [Text]
+processActions mode handleData printData =
+  printActions printData . handleData . fst . Closings.closings mode
 
 parseProcessPrint ::
-  (MonadFail m, MonadIO m) =>
-  Producer (Annotated Entry) m r ->
-  Consumer Text m r ->
-  m r
-parseProcessPrint actions = handleActions actions processActions
+  (Monoid a, Eq a, MonadFail m, MonadIO m) =>
+  Closings.Calculation ->
+  ([Annotated (Entry a)] -> [Annotated (Entry a)]) ->
+  (a -> TL.Text) ->
+  [Annotated (Entry a)] ->
+  ([Text] -> m ()) ->
+  m ()
+parseProcessPrint mode handleData printData entries printer =
+  printer (processActions mode handleData printData entries)

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1af8f64dc4f4e6aa1d4aab41999646f27602370d0b54d73787d90f73af838949
+-- hash: 1fe14552b1d1f648b2e874d75165b915ef42751c66423f2e154f1da41235b6fe
 
 name:           trade-journal
 version:        0.0.2
@@ -18,8 +18,6 @@ build-type:     Simple
 library
   exposed-modules:
       Journal.Closings
-      Journal.GainsKeeper
-      Journal.Gains
       Journal.Parse
       Journal.Pipes
       Journal.Print
@@ -33,7 +31,6 @@ library
       Broker.ThinkOrSwim.Parser
       Broker.ThinkOrSwim.Process
       Broker.ThinkOrSwim.Types
-      Journal.GainsKeeper2
       Paths_trade_journal
   hs-source-dirs:
       src
@@ -49,9 +46,6 @@ library
     , lens
     , megaparsec
     , mtl
-    , pipes
-    , pipes-group
-    , pipes-text
     , pretty
     , pretty-show
     , profunctors
@@ -81,9 +75,6 @@ executable trade-journal
     , megaparsec
     , mtl
     , optparse-applicative
-    , pipes
-    , pipes-group
-    , pipes-text
     , pretty-show
     , simple-amount
     , tardis
@@ -100,8 +91,6 @@ test-suite journal-tests
   other-modules:
       Closings
       Examples
-      Gains
-      GainsKeeper
       Paths_trade_journal
   hs-source-dirs:
       tests/Journal
@@ -119,9 +108,6 @@ test-suite journal-tests
     , lens
     , megaparsec
     , mtl
-    , pipes
-    , pipes-group
-    , pipes-text
     , pretty-show
     , simple-amount
     , tardis
@@ -157,9 +143,6 @@ test-suite thinkorswim-tests
     , lens
     , megaparsec
     , mtl
-    , pipes
-    , pipes-group
-    , pipes-text
     , pretty-show
     , simple-amount
     , tardis

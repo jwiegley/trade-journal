@@ -25,8 +25,6 @@ import qualified Hedgehog.Range as Range
 import Journal.Closings
 import Journal.Pipes ()
 import Journal.Types
-import Pipes
-import qualified Pipes.Prelude as P
 import Test.HUnit.Lang (FailureReason (..))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -36,7 +34,7 @@ import Text.Show.Pretty hiding (Time)
 {--------------------------------------------------------------------------}
 
 data TestAction = TestAction
-  { _action :: Annotated Entry,
+  { _action :: Annotated (Entry ()),
     _annotations :: [Annotation],
     _regular :: Bool
   }
@@ -68,14 +66,14 @@ sell b =
   where
     c = ((b ^. item . amount) * (b ^. item . price)) ^. coerced
 
-input :: State TestState a -> [Annotated Entry]
+input :: State TestState a -> [Annotated (Entry ())]
 input =
   map _action
     . filter _regular
     . _pending
     . flip execState (TestState [] 0)
 
-trades :: State TestState a -> [Annotated Entry]
+trades :: State TestState a -> [Annotated (Entry ())]
 trades =
   map (\x -> (x ^. action) & details <>~ (x ^. annotations))
     . _pending
@@ -85,14 +83,17 @@ instance (PrettyVal a, PrettyVal b) => PrettyVal (Map a b) where
   prettyVal m = Con "Map.fromList" (map prettyVal (M.assocs m))
 
 data Positions = Positions
-  { _positions :: IntMap Position,
-    _entries :: [Annotated Entry]
+  { _positions :: IntMap (Position ()),
+    _entries :: [Annotated (Entry ())]
   }
 
 makeLenses ''Positions
 
-getEntries :: MonadIO m => StateT Positions m b -> m [Annotated Entry]
+getEntries :: MonadIO m => StateT Positions m b -> m [Annotated (Entry ())]
 getEntries act = view entries <$> execStateT act (Positions mempty mempty)
+
+instance PrettyVal () where
+  prettyVal () = String "()"
 
 checkJournal ::
   MonadIO m =>
@@ -101,15 +102,7 @@ checkJournal ::
   StateT Positions m c ->
   m ()
 checkJournal journal act actLeft = do
-  result <-
-    P.toListM'
-      ( ( do
-            for (each (input journal)) $ yield . Just
-            yield Nothing
-            pure mempty
-        )
-          >-> closings FIFO
-      )
+  let result = closings FIFO (input journal)
   entries' <- getEntries act
   entriesLeft' <- getEntries actLeft
   let expected = M.fromList [("FOO", entriesLeft')]
@@ -130,7 +123,7 @@ open ::
   Annotated Lot ->
   StateT Positions m ()
 open n disp b = do
-  let pos = Position n (b ^. item) disp (b ^. item . price)
+  let pos = Position n (b ^. item) disp (b ^. item . price) ()
   positions . at n ?= pos
   entries <>= [Event (Open pos) <$ b]
 
@@ -148,7 +141,7 @@ close n b pl = do
             Long -> (b ^. item . price) - (pos ^. posBasis)
             Short -> (pos ^. posBasis) - (b ^. item . price)
       liftIO $ assertEqual' "closing gain/less" pl pl'
-      entries <>= [Event (Close (Closing pos (b ^. item))) <$ b]
+      entries <>= [Event (Close (Closing pos (b ^. item) ())) <$ b]
       let pos' = pos & posLot . amount -~ (b ^. item . amount)
           amt = pos' ^?! posLot . amount
       if amt < 0

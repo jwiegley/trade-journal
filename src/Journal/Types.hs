@@ -47,7 +47,7 @@ data Annotated a = Annotated
     -- just like the price.
     _details :: [Annotation]
   }
-  deriving (Show, PrettyVal, Eq, Ord, Generic, Functor, Traversable, Foldable)
+  deriving (Show, PrettyVal, Eq, Generic, Functor, Traversable, Foldable)
 
 makeLenses ''Annotated
 
@@ -85,7 +85,6 @@ data Action
     ( Show,
       PrettyVal,
       Eq,
-      Ord,
       Generic
     )
 
@@ -140,22 +139,12 @@ data Disposition = Long | Short
 data Period = Past | Present | Future
   deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
-data Washing
-  = Exempt
-  | WashTo Text (Maybe (Amount 6, Amount 6))
-  | WashPast (Amount 6) Position
-  | WashFuture (Amount 6) Position
-  | WashApply Text (Amount 6) -- per share wash applied
-  | WashedFromPast (Amount 6) Closing
-  | WashedFromFuture (Amount 6) Closing
-  deriving (Show, PrettyVal, Eq, Ord, Generic)
-
-data Position = Position
+data Position a = Position
   { _posIdent :: Int,
     _posLot :: Lot,
     _posDisp :: Disposition,
     _posBasis :: Amount 6,
-    _posWash :: [Washing]
+    _posData :: a
   }
   deriving
     ( Show,
@@ -165,10 +154,10 @@ data Position = Position
       PrettyVal
     )
 
-data Closing = Closing
-  { _closingPos :: Position,
+data Closing a = Closing
+  { _closingPos :: Position a,
     _closingLot :: Lot,
-    _closingWash :: [Washing]
+    _closingData :: a
   }
   deriving
     ( Show,
@@ -178,7 +167,6 @@ data Closing = Closing
       PrettyVal
     )
 
-makePrisms ''Washing
 makeLenses ''Position
 makeLenses ''Closing
 
@@ -188,9 +176,9 @@ makeLenses ''Closing
 --
 -- jww (2021-11-30): It may need to be Event f, with Open (f Position) in
 -- order to support wash sale rule without encoding it here.
-data Event
-  = Open Position
-  | Close Closing
+data Event a
+  = Open (Position a)
+  | Close (Closing a)
   | Assign Lot -- assignment of a short options position
   | Expire Lot -- expiration of a short options position
   | Dividend (Amount 2) Lot -- dividend paid on a long position
@@ -201,13 +189,12 @@ data Event
     ( Show,
       PrettyVal,
       Eq,
-      Ord,
       Generic
     )
 
 makePrisms ''Event
 
-mapEvent :: (Lot -> Lot) -> Event -> Event
+mapEvent :: (Lot -> Lot) -> Event a -> Event a
 mapEvent f = \case
   Open pos -> Open (pos & posLot %~ f)
   Close cl -> Close (cl & closingLot %~ f)
@@ -218,7 +205,7 @@ mapEvent f = \case
   Income amt -> Income amt
   Credit amt -> Credit amt
 
-_EventLot :: Traversal' Event Lot
+_EventLot :: Traversal' (Event a) Lot
 _EventLot f = \case
   Open pos -> Open <$> (pos & posLot %%~ f)
   Close cl -> Close <$> (cl & closingLot %%~ f)
@@ -231,7 +218,7 @@ _EventLot f = \case
 
 -- | The 'netAmount' indicates the exact effect on account balance this action
 -- represents.
-eventNetAmount :: Annotated Event -> Amount 2
+eventNetAmount :: Annotated (Event a) -> Amount 2
 eventNetAmount ann = case ann ^. item of
   Open pos
     | pos ^. posDisp == Long ->
@@ -253,23 +240,28 @@ eventNetAmount ann = case ann ^. item of
   Income amt -> amt
   Credit amt -> amt
 
-data Entry = Action Action | Event Event
+data Entry a = Action Action | Event (Event a)
   deriving
     ( Show,
       PrettyVal,
       Eq,
-      Ord,
       Generic
     )
 
 makePrisms ''Entry
 
-_Lot :: Traversal' Entry Lot
+_Lot :: Traversal' (Entry a) Lot
 _Lot f = \case
   Action act -> Action <$> (act & _ActionLot %%~ f)
   Event ev -> Event <$> (ev & _EventLot %%~ f)
 
-netAmount :: Annotated Entry -> Amount 2
+netAmount :: Annotated (Entry a) -> Amount 2
 netAmount ann = case ann ^. item of
   Action act -> actionNetAmount (act <$ ann)
   Event ev -> eventNetAmount (ev <$ ann)
+
+opening :: Traversal' (Annotated (Entry a)) (Position a)
+opening = item . _Event . _Open
+
+closing :: Traversal' (Annotated (Entry a)) (Closing a)
+closing = item . _Event . _Close

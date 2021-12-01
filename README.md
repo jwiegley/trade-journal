@@ -21,5 +21,3 @@ broker:
   5. Adjust this profit and loss by applying any tax-related laws. This may
      not apply for every country, and may apply differently based on the
      instrument itself.
-
-Each segment in this flow is implemented as a Pipe.

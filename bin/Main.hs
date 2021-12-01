@@ -1,9 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main where
@@ -15,17 +13,22 @@ import Control.Monad.Except
 import Data.Aeson hiding ((.=))
 import Data.List (isSuffixOf)
 import Data.Map (Map)
+import qualified Data.Text as T
 import Data.Text.Lazy (Text)
+import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
+import qualified Journal.Closings as Closings
 import Journal.Parse
 import Journal.Pipes
 import Journal.Print
 import Options
-import qualified Pipes.Prelude.Text as P
+import Taxes.USA.WashSaleRule
+import Text.Megaparsec (many)
 
 data Config = Config
   { splits :: Map Text [Amount 6],
-    rounding :: Map Text (Amount 2)
+    rounding :: Map Text (Amount 2),
+    modes :: Map Text Closings.Calculation
   }
   deriving (Generic, Show, FromJSON)
 
@@ -33,7 +36,8 @@ newConfig :: Config
 newConfig =
   Config
     { splits = mempty,
-      rounding = mempty
+      rounding = mempty,
+      modes = mempty
     }
 
 main :: IO ()
@@ -47,10 +51,16 @@ main = do
         case etos of
           Left err -> error $ "Error " ++ show err
           Right tos ->
-            handleActions
-              (thinkOrSwimActions tos)
+            putStrLn . T.unpack . T.concat $
               printActions
-              P.stdoutLn
+                (either id id . printWashing)
+                (thinkOrSwimActions tos)
       else do
         putStrLn $ "Reading journal " ++ path
-        parseProcessPrint (parseActionsAndEvents path) P.stdoutLn
+        entries <- parseActionsAndEvents (many parseWashing) path
+        parseProcessPrint
+          Closings.FIFO
+          washSaleRule
+          (TL.concat . map (either id id . printWashing))
+          entries
+          (putStrLn . T.unpack . T.concat)
