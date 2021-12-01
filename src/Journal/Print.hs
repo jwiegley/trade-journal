@@ -76,13 +76,6 @@ printEvent :: Event -> Text
 printEvent = \case
   Open pos -> "open " <> printPosition pos
   Close cl -> "close " <> printClosing cl
-  Wash period moment lot ->
-    "wash "
-      <> printPeriod period
-      <> " "
-      <> printTime moment
-      <> " "
-      <> printLot lot
   Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot
@@ -91,10 +84,6 @@ printEvent = \case
     "interest " <> printAmount 2 amt <> " from " <> printString sym
   Income amt -> "income " <> printAmount 2 amt
   Credit amt -> "credit " <> printAmount 2 amt
-  where
-    printPeriod Past = "past"
-    printPeriod Present = "present"
-    printPeriod Future = "future"
 
 printLot :: Lot -> Text
 printLot lot =
@@ -109,6 +98,23 @@ printLot lot =
 totalAmount :: forall n. KnownNat n => Maybe Lot -> Int -> Amount n -> Text
 totalAmount mlot n x =
   printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
+
+printWashing :: Washing -> Either Text Text
+printWashing = \case
+  WashedFromPast x _ -> Right $ "washed from past " <> printAmount 2 x
+  WashedFromFuture x _ -> Right $ "washed from future " <> printAmount 2 x
+  WashTo x (Just (q, p)) ->
+    Left $
+      "wash "
+        <> printAmount 0 q
+        <> " @ "
+        <> printAmount 4 p
+        <> " to "
+        <> TL.fromStrict x
+  WashTo x Nothing -> Left $ "wash to " <> TL.fromStrict x
+  WashApply x amt ->
+    Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
+  Exempt -> Left "exempt"
 
 printAnnotated :: Annotated a -> Maybe Lot -> Text
 printAnnotated ann mlot =
@@ -129,20 +135,6 @@ printAnnotated ann mlot =
     printAnnotation = \case
       Fees x -> Just $ Left $ "fees " <> totalAmount mlot 2 x
       Commission x -> Just $ Left $ "commission " <> totalAmount mlot 2 x
-      Washed x -> Just $ Right $ "washed " <> totalAmount mlot 6 x
-      WashTo x (Just (q, p)) ->
-        Just $
-          Left $
-            "wash "
-              <> printAmount 0 q
-              <> " @ "
-              <> printAmount 4 p
-              <> " to "
-              <> TL.fromStrict x
-      WashTo x Nothing -> Just $ Left $ "wash to " <> TL.fromStrict x
-      WashApply x amt ->
-        Just $ Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
-      Exempt -> Just $ Left "exempt"
       Account x -> Just $ Left $ "account " <> printText x
       Ident x -> Just $ Left $ "id " <> TL.pack (show x)
       Order x -> Just $ Left $ "order " <> printText x

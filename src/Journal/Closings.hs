@@ -145,7 +145,8 @@ openPosition open = do
                 if has (item . _Action . _Buy) open
                   then Long
                   else Short,
-              _posBasis = lot ^. price
+              _posBasis = lot ^. price,
+              _posWash = []
             }
           <$ open
   use calc >>= \case
@@ -170,7 +171,8 @@ closePosition open close =
                   # _Close
                   # Closing
                     { _closingPos = o,
-                      _closingLot = du
+                      _closingLot = du,
+                      _closingWash = []
                     }
                   <$ close
               ]

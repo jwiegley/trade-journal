@@ -1,18 +1,6 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Taxes.USA.WashSaleRule (washSaleRule) where
 
@@ -22,36 +10,17 @@ import Control.Lens
 import Control.Monad
 import Data.Time
 import Debug.Trace
-import GHC.Generics hiding (to)
 import Journal.Split
 import Journal.Types
 import Journal.Utils (distance)
 import Journal.Zippered
 import Text.Show.Pretty hiding (Time)
 
-data Washing
-  = Exempted
-  | Eligible
-  | NotApplicable
-  | WashFromPast (Amount 6)
-  | WashFromFuture (Amount 6)
-  | WashedBackward
-  | WashedFoward
-  deriving
-    ( Show,
-      PrettyVal,
-      Eq,
-      Ord,
-      Generic
-    )
+opening :: Traversal' (Annotated Entry) Position
+opening = item . _Event . _Open
 
-makePrisms ''Washing
-
-opening :: Traversal' (Washing, Annotated Entry) Position
-opening = _2 . item . _Event . _Open
-
-closing :: Traversal' (Washing, Annotated Entry) Closing
-closing = _2 . item . _Event . _Close
+closing :: Traversal' (Annotated Entry) Closing
+closing = item . _Event . _Close
 
 -- This implementation of the wash sale rule requires that we know the total
 -- set of broker events in advance. Basically, each time we encounter a
@@ -60,25 +29,25 @@ closing = _2 . item . _Event . _Close
 -- basis of the open.
 washSaleRule ::
   [Annotated Entry] ->
-  [(Washing, Annotated Entry)]
+  [Annotated Entry]
 washSaleRule =
-  go
+  map snd
+    . go
     . map
       ( \x ->
-          ( if null (x ^.. details . traverse . _Exempt)
-              then Eligible
-              else Exempted,
+          ( null (x ^.. opening . posWash . traverse . _Exempt)
+              && null (x ^.. closing . closingWash . traverse . _Exempt),
             x
           )
       )
   where
-    go :: [(Washing, Annotated Entry)] -> [(Washing, Annotated Entry)]
+    go :: [(Bool, Annotated Entry)] -> [(Bool, Annotated Entry)]
     go xs = maybe xs go $ do
       -- The wash sale rule proceeds by looking for losing sales that haven't
       -- been washed. If there are none, we are done.
       let z = eligibleClose xs
       x <- z ^? focus
-      c <- x ^? closing
+      c <- x ^? _2 . closing
       traceM $ "c = " ++ ppShow c
 
       -- Once an eligible losing sale is found, we look for an eligible
@@ -99,31 +68,30 @@ washSaleRule =
             Short -> b - p
 
     eligibleClose ::
-      [(Washing, Annotated Entry)] -> Zippered (Washing, Annotated Entry)
+      [(Bool, Annotated Entry)] -> Zippered (Bool, Annotated Entry)
     eligibleClose = zippered $ \(w, x) ->
-      w == Eligible
-        && gains (x ^?! item . _Event . _Close) < 0
+      w && gains (x ^?! item . _Event . _Close) < 0
 
     eligibleOpen anchor (w, y) =
-      w == Eligible
-        && abs (anchor `distance` (y ^. time)) <= 30
+      w && abs (anchor `distance` (y ^. time)) <= 30
 
     handleOpen ::
-      (Washing, Annotated Entry) ->
+      (Bool, Annotated Entry) ->
       Bool ->
-      Zippered (Washing, Annotated Entry) ->
+      Zippered (Bool, Annotated Entry) ->
       Maybe
-        ( Zippered (Washing, Annotated Entry),
-          [(Washing, Annotated Entry)]
+        ( Zippered (Bool, Annotated Entry),
+          [(Bool, Annotated Entry)]
         )
     handleOpen x _inPast part = do
-      c <- x ^? closing
+      c <- x ^? _2 . closing
       let loss = gains c
       assert (loss < 0) $ do
         y <- part ^? focus
-        o <- y ^? opening
+        o <- y ^? _2 . opening
         traceM $ "o = " ++ ppShow o
         traceM $ "loss = " ++ ppShow loss
+
         (Just (l, r), reyz) <-
           alignedA
             (c ^. closingLot)
@@ -131,28 +99,29 @@ washSaleRule =
             (curry pure)
             pure
             pure
+
         let o' =
-              o & posBasis .~ ((o ^. posBasis) - loss)
+              o & posBasis -~ loss
                 & posLot .~ r
         pure
           ( part & focii
-              .~ ( ( y & _1 .~ NotApplicable
-                       & opening .~ o'
+              .~ ( ( y & _1 .~ False
+                       & _2 . opening .~ o'
                    ) :
                    case reyz of
                      Remainder (Right z) ->
-                       [ y & _1 .~ Exempted
-                           & opening . posLot .~ z
+                       [ y & _1 .~ False
+                           & _2 . opening . posLot .~ z
                        ]
                      _ -> []
                  ),
-            ( x & _1 .~ NotApplicable
-                & closing . closingPos .~ o'
-                & closing . closingLot .~ l
+            ( x & _1 .~ False
+                & _2 . closing . closingPos .~ o'
+                & _2 . closing . closingLot .~ l
             ) :
             case reyz of
               Remainder (Left z) ->
-                [x & closing . closingLot .~ z]
+                [x & _2 . closing . closingLot .~ z]
               _ -> []
           )
 
@@ -176,6 +145,7 @@ testWashSale = do
                     }
                   Long
                   100
+                  []
               )
           ),
         Event
@@ -189,6 +159,7 @@ testWashSale = do
                     }
                   Long
                   200
+                  []
               )
           ),
         Event
@@ -202,6 +173,7 @@ testWashSale = do
                     }
                   Long
                   300
+                  []
               )
           ),
         Event
@@ -216,12 +188,14 @@ testWashSale = do
                         }
                       Long
                       100
+                      []
                   )
                   Lot
                     { _amount = 100,
                       _symbol = "FOO",
                       _price = 50
                     }
+                  []
               )
           ),
         Event
@@ -235,6 +209,7 @@ testWashSale = do
                     }
                   Long
                   200
+                  []
               )
           ),
         Event
@@ -248,6 +223,7 @@ testWashSale = do
                     }
                   Long
                   300
+                  []
               )
           ),
         Event
@@ -262,12 +238,14 @@ testWashSale = do
                         }
                       Long
                       200
+                      []
                   )
                   Lot
                     { _amount = 300,
                       _symbol = "FOO",
                       _price = 300
                     }
+                  []
               )
           )
       ]

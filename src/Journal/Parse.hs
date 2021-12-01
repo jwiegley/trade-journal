@@ -112,6 +112,22 @@ parseAction =
     <|> keyword "xferout" *> (TransferOut <$> parseLot)
     <|> keyword "exercise" *> (Exercise <$> parseLot)
 
+parseWashing :: Parser Washing
+parseWashing =
+  -- keyword "wash"
+  --   *> keyword "from"
+  --   *> keyword "past"
+  --   *> (WashedFromPast <$> parseTime <*> parseLot)
+  --   <|> keyword "wash"
+  --     *> keyword "from"
+  --     *> keyword "future"
+  --     *> (WashedFromFuture <$> parseTime <*> parseLot)
+  -- <|> keyword "washed" *> (Washed <$> parseAmount)
+  -- <|> keyword "wash" *> parseWash
+  keyword "apply"
+    *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
+    <|> (keyword "exempt" $> Exempt)
+
 parsePosition :: Parser Position
 parsePosition =
   Position
@@ -119,6 +135,7 @@ parsePosition =
     <*> parseLot
     <*> parseDisposition
     <*> parseAmount
+    <*> many parseWashing
   where
     parseDisposition :: Parser Disposition
     parseDisposition =
@@ -136,20 +153,12 @@ parseClosing =
             <* whiteSpace
         )
     <*> parseLot
+    <*> many parseWashing
 
 parseEvent :: Parser Event
 parseEvent =
   keyword "open" *> (Open <$> parsePosition)
     <|> keyword "close" *> (Close <$> parseClosing)
-    <|> keyword "wash"
-      *> keyword "past"
-      *> (Wash Past <$> parseTime <*> parseLot)
-    <|> keyword "wash"
-      *> keyword "present"
-      *> (Wash Present <$> parseTime <*> parseLot)
-    <|> keyword "wash"
-      *> keyword "future"
-      *> (Wash Future <$> parseTime <*> parseLot)
     <|> keyword "assign" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
     <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
@@ -171,11 +180,6 @@ parseAnnotation :: Parser Annotation
 parseAnnotation = do
   keyword "fees" *> (Fees <$> parseAmount)
     <|> keyword "commission" *> (Commission <$> parseAmount)
-    <|> keyword "washed" *> (Washed <$> parseAmount)
-    <|> keyword "wash" *> parseWash
-    <|> keyword "apply"
-      *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
-    <|> (keyword "exempt" $> Exempt)
     <|> keyword "account" *> (Account <$> parseText)
     <|> keyword "id" *> (Ident <$> L.decimal)
     <|> keyword "order" *> (Order <$> parseText)

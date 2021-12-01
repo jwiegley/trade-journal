@@ -30,10 +30,6 @@ instance PrettyVal UTCTime where
 data Annotation
   = Fees (Amount 6) -- per share fee
   | Commission (Amount 6) -- per share commission
-  | Washed (Amount 6) -- per share washed amount
-  | WashTo Text (Maybe (Amount 6, Amount 6))
-  | WashApply Text (Amount 6) -- per share wash applied
-  | Exempt
   | Ident Int
   | Order Text
   | Strategy Text
@@ -144,11 +140,22 @@ data Disposition = Long | Short
 data Period = Past | Present | Future
   deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
+data Washing
+  = Exempt
+  | WashTo Text (Maybe (Amount 6, Amount 6))
+  | WashPast (Amount 6) Position
+  | WashFuture (Amount 6) Position
+  | WashApply Text (Amount 6) -- per share wash applied
+  | WashedFromPast (Amount 6) Closing
+  | WashedFromFuture (Amount 6) Closing
+  deriving (Show, PrettyVal, Eq, Ord, Generic)
+
 data Position = Position
   { _posIdent :: Int,
     _posLot :: Lot,
     _posDisp :: Disposition,
-    _posBasis :: Amount 6
+    _posBasis :: Amount 6,
+    _posWash :: [Washing]
   }
   deriving
     ( Show,
@@ -157,12 +164,11 @@ data Position = Position
       Generic,
       PrettyVal
     )
-
-makeLenses ''Position
 
 data Closing = Closing
   { _closingPos :: Position,
-    _closingLot :: Lot
+    _closingLot :: Lot,
+    _closingWash :: [Washing]
   }
   deriving
     ( Show,
@@ -172,15 +178,19 @@ data Closing = Closing
       PrettyVal
     )
 
+makePrisms ''Washing
+makeLenses ''Position
 makeLenses ''Closing
 
 -- | An Event represents "internal events" that occur within an account,
 -- either directly due to the actions above, or indirectly because of other
 -- factors.
+--
+-- jww (2021-11-30): It may need to be Event f, with Open (f Position) in
+-- order to support wash sale rule without encoding it here.
 data Event
   = Open Position
   | Close Closing
-  | Wash Period UTCTime Lot
   | Assign Lot -- assignment of a short options position
   | Expire Lot -- expiration of a short options position
   | Dividend (Amount 2) Lot -- dividend paid on a long position
@@ -201,7 +211,6 @@ mapEvent :: (Lot -> Lot) -> Event -> Event
 mapEvent f = \case
   Open pos -> Open (pos & posLot %~ f)
   Close cl -> Close (cl & closingLot %~ f)
-  Wash period moment lot -> Wash period moment (f lot)
   Assign lot -> Assign (f lot)
   Expire lot -> Expire (f lot)
   Dividend amt lot -> Dividend amt (f lot)
@@ -213,7 +222,6 @@ _EventLot :: Traversal' Event Lot
 _EventLot f = \case
   Open pos -> Open <$> (pos & posLot %%~ f)
   Close cl -> Close <$> (cl & closingLot %%~ f)
-  Wash period moment lot -> Wash period moment <$> f lot
   Assign lot -> Assign <$> f lot
   Expire lot -> Expire <$> f lot
   Dividend amt lot -> Dividend amt <$> f lot
@@ -238,9 +246,6 @@ eventNetAmount ann = case ann ^. item of
         (pos ^. posLot . price - sum (ann ^.. fees))
         ^. coerced
   Close cl -> undefined
-  Wash Past _ _lot -> 0
-  Wash Present _ _lot -> 0
-  Wash Future _ _lot -> 0
   Assign _lot -> 0 -- jww (2021-06-12): NYI
   Expire _lot -> 0
   Dividend amt _lot -> amt
