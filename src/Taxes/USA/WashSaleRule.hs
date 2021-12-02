@@ -64,19 +64,32 @@ washSaleRule =
     go xs = maybe xs go $ do
       -- The wash sale rule proceeds by looking for losing sales that haven't
       -- been washed. If there are none, we are done.
-      let z = eligibleClose xs
-      x <- z ^? focus
+      let z1 = eligibleClose xs
+      x <- z1 ^? focus
+      c <- x ^? _2 . closing
+
+      let ident = c ^. closingPos . posIdent
+          z2 =
+            z1 & prefix . traverse %~ \(b, y) ->
+              ( case y ^? opening . posIdent of
+                  Just pid | pid == ident -> False
+                  _ -> b,
+                y
+              )
 
       -- Once an eligible losing sale is found, we look for an eligible
       -- opening within 30 days before or after that sale. If there isn't one,
       -- or if the following action results in no change to the set of washed
       -- openings, we are done.
-      (z', xx') <-
-        applyToPrefixOrSuffix (eligibleOpen (x ^. _2 . time)) (handleOpen x) z
+      (z3, xx') <-
+        applyToPrefixOrSuffix
+          (eligibleOpen (x ^. _2 . time))
+          (handleOpen x)
+          z2
 
-      let z'' = z' & focii .~ xx'
-      guard $ z /= z''
-      pure $ unzippered z''
+      let z4 = z3 & focii .~ xx'
+      guard $ z1 /= z4
+      pure $ unzippered z4
 
     gains :: Closing [Washing] -> Amount 6
     gains c =
@@ -95,7 +108,8 @@ washSaleRule =
         _ -> False
 
     eligibleOpen anchor (w, y) =
-      w && has opening y && abs (anchor `distance` (y ^. time)) <= 30
+      w && has opening y
+        && abs (anchor `distance` (y ^. time)) <= 30
 
     handleOpen ::
       (Bool, Annotated (Entry [Washing])) ->

@@ -56,6 +56,79 @@ testWashSaleRule =
                 open 2 Long b
                 washedFrom Future (-10) $
                   open 3 Long b
+            ),
+      --
+      testProperty "buy-sell-buy" $
+        property $ do
+          b <-
+            forAll $
+              Gen.filter (\b -> (b ^. item . price) > 10) $
+                genAnnotated genLot
+          checkJournal @[Washing]
+            washSaleRuleTest
+            ( do
+                buy b
+                sell $ b & item . price -~ 10
+                buy b
+                buy b
+            )
+            ( evalDSL $ do
+                bought b
+                open 1 Long b
+                --
+                sold $ b & item . price -~ 10
+                wash Future 2 $
+                  close 1 b (-10)
+                --
+                bought b
+                washedFrom Past (-10) $
+                  open 2 Long b
+                --
+                bought b
+                open 3 Long b
+            )
+            ( evalDSL $ do
+                washedFrom Past (-10) $
+                  open 2 Long b
+                open 3 Long b
+            ),
+      --
+      testProperty "buy-buy-sell-buy-sell" $
+        property $ do
+          b <-
+            forAll $
+              Gen.filter (\b -> (b ^. item . price) > 10) $
+                genAnnotated genLot
+          checkJournal @[Washing]
+            washSaleRuleTest
+            ( do
+                buy b
+                buy b
+                sell b
+                buy b
+                sell $ b & item . price -~ 10
+            )
+            ( evalDSL $ do
+                bought b
+                open 1 Long b
+                --
+                bought b
+                open 2 Long b
+                --
+                sold b
+                close 1 b 0
+                --
+                bought b
+                washedFrom Future (-10) $
+                  open 3 Long b
+                --
+                sold $ b & item . price -~ 10
+                wash Past 3 $
+                  close 2 b (-10)
+            )
+            ( evalDSL $ do
+                washedFrom Future (-10) $
+                  open 3 Long b
             )
     ]
 
