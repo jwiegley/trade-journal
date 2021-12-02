@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds -Wno-orphans #-}
 
 module TestAction where
@@ -123,16 +124,11 @@ sold s = entries <>= [Action . Sell <$> s]
 
 openWashed ::
   MonadIO m =>
-  Int ->
-  Disposition ->
-  Annotated Lot ->
-  Amount 6 ->
-  a ->
+  Annotated (Position a) ->
   StateT (Positions a) m ()
-openWashed n disp b pr w = do
-  let pos = Position n (b ^. item) disp pr w
-  positions . at n ?= pos
-  entries <>= [Event (Open pos) <$ b]
+openWashed p@(view item -> pos) = do
+  positions . at (pos ^. posIdent) ?= pos
+  entries <>= [Event (Open pos) <$ p]
 
 open ::
   (Monoid a, MonadIO m) =>
@@ -140,7 +136,16 @@ open ::
   Disposition ->
   Annotated Lot ->
   StateT (Positions a) m ()
-open n disp b = openWashed n disp b (b ^. item . price) mempty
+open n disp b =
+  openWashed $
+    Position
+      { _posIdent = n,
+        _posLot = b ^. item,
+        _posDisp = disp,
+        _posBasis = b ^. item . price,
+        _posData = mempty
+      }
+      <$ b
 
 closeWashed ::
   (Monoid a, MonadIO m) =>

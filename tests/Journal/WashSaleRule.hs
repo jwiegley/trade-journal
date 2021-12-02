@@ -35,25 +35,36 @@ testWashSaleRule =
             ( do
                 bought b
                 open 1 Long b
+                --
                 bought b
                 open 2 Long b
+                --
                 bought b
-                openWashed
-                  3
-                  Long
-                  b
-                  ((b ^. item . price) + 10)
-                  [WashedFromFuture (-10) ((b ^. item) & price -~ 10)]
+                openWashed $
+                  Position
+                    { _posIdent = 3,
+                      _posLot = b ^. item,
+                      _posDisp = Long,
+                      _posBasis = b ^. item . price + 10,
+                      _posData =
+                        [WashedFromFuture (-10) ((b ^. item) & price -~ 10)]
+                    }
+                    <$ b
+                --
                 sold $ b & item . price -~ 10
                 closeWashed 1 (b & item . price -~ 10) (-10) [WashPast (-10) 3]
             )
             ( do
                 open 2 Long b
-                openWashed
-                  3
-                  Long
-                  b
-                  ((b ^. item . price) + 10)
-                  [WashedFromFuture (-10) ((b ^. item) & price -~ 10)]
+                openWashed $
+                  Position
+                    { _posIdent = 3,
+                      _posLot = b ^. item,
+                      _posDisp = Long,
+                      _posBasis = b ^. item . price + 10,
+                      _posData =
+                        [WashedFromFuture (-10) ((b ^. item) & price -~ 10)]
+                    }
+                    <$ b
             )
     ]
