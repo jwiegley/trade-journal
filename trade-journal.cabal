@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1fe14552b1d1f648b2e874d75165b915ef42751c66423f2e154f1da41235b6fe
+-- hash: cc4be5c15b080ca741949c16102017c9a3a204d4a0ab4b169c91dbe218848adb
 
 name:           trade-journal
 version:        0.0.2
@@ -91,6 +91,7 @@ test-suite journal-tests
   other-modules:
       Closings
       Examples
+      TestAction
       Paths_trade_journal
   hs-source-dirs:
       tests/Journal

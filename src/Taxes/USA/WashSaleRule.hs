@@ -31,11 +31,11 @@ import Text.Show.Pretty hiding (Time)
 data Washing
   = Exempt
   | WashTo Text (Maybe (Amount 6, Amount 6))
-  | WashPast (Amount 6) (Position [Washing])
-  | WashFuture (Amount 6) (Position [Washing])
+  | WashPast (Amount 6) Int
+  | WashFuture (Amount 6) Int
   | WashApply Text (Amount 6) -- per share wash applied
-  | WashedFromPast (Amount 6) (Closing [Washing])
-  | WashedFromFuture (Amount 6) (Closing [Washing])
+  | WashedFromPast (Amount 6) Lot
+  | WashedFromFuture (Amount 6) Lot
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makePrisms ''Washing
@@ -132,10 +132,12 @@ washSaleRule =
       [(Bool, Annotated (Entry [Washing]))] ->
       Zippered (Bool, Annotated (Entry [Washing]))
     eligibleClose = zippered $ \(w, x) ->
-      w && gains (x ^?! item . _Event . _Close) < 0
+      w && case x ^? closing of
+        Just c | gains c < 0 -> True
+        _ -> False
 
     eligibleOpen anchor (w, y) =
-      w && abs (anchor `distance` (y ^. time)) <= 30
+      w && has opening y && abs (anchor `distance` (y ^. time)) <= 30
 
     handleOpen ::
       (Bool, Annotated (Entry [Washing])) ->
@@ -145,7 +147,7 @@ washSaleRule =
         ( Zippered (Bool, Annotated (Entry [Washing])),
           [(Bool, Annotated (Entry [Washing]))]
         )
-    handleOpen x _inPast part = do
+    handleOpen x inPast part = do
       c <- x ^? _2 . closing
       let loss = gains c
       assert (loss < 0) $ do
@@ -165,6 +167,26 @@ washSaleRule =
         let o' =
               o & posBasis -~ loss
                 & posLot .~ r
+                & posData
+                  <>~ [ ( if inPast
+                            then WashedFromFuture
+                            else WashedFromPast
+                        )
+                          loss
+                          (c ^. closingLot)
+                      ]
+            c' =
+              c & closingLot .~ l
+                & closingData
+                  <>~ [ ( if inPast
+                            then WashPast
+                            else WashFuture
+                        )
+                          loss
+                          (o' ^. posIdent)
+                      ]
+        traceM $ "o' = " ++ ppShow o'
+        traceM $ "c' = " ++ ppShow c'
         pure
           ( part & focii
               .~ ( ( y & _1 .~ False
@@ -178,8 +200,7 @@ washSaleRule =
                      _ -> []
                  ),
             ( x & _1 .~ False
-                & _2 . closing . closingPos .~ o'
-                & _2 . closing . closingLot .~ l
+                & _2 . closing .~ c'
             ) :
             case reyz of
               Remainder (Left z) ->

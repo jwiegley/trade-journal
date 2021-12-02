@@ -5,14 +5,16 @@ import Closings
 -- import Gains
 -- import GainsKeeper
 import Test.Tasty
+import WashSaleRule
 
 main :: IO ()
 main =
   defaultMain $
     testGroup
       "journal"
-      [ testClosings
-      -- testGains,
-      -- testGainsKeeper,
-      -- testExamples
+      [ testClosings,
+        testWashSaleRule
+        -- testGains,
+        -- testGainsKeeper,
+        -- testExamples
       ]

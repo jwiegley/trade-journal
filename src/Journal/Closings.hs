@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -13,6 +14,7 @@
 module Journal.Closings
   ( Calculation (..),
     closings,
+    openPositions,
   )
 where
 
@@ -78,6 +80,62 @@ localState instrument f s =
   f (view (at instrument . non mempty) <$> s) <&> \m ->
     s & nextId .~ (m ^. nextId)
       & events . at instrument ?~ (m ^. events)
+
+openPositions ::
+  (Monoid a, Eq a, Show a) =>
+  Calculation ->
+  [Annotated (Entry a)] ->
+  Map Text [Annotated (Entry a)]
+openPositions mode = flip execState mempty . go
+  where
+    remember ::
+      (Monoid a, Eq a, Show a) =>
+      Annotated (Entry a) ->
+      Text ->
+      State (Map Text [Annotated (Entry a)]) ()
+    remember x sym = case mode of
+      FIFO -> at sym . non mempty <>= [x]
+      LIFO -> at sym . non mempty %= (x :)
+
+    go ::
+      (Monoid a, Eq a, Show a) =>
+      [Annotated (Entry a)] ->
+      State (Map Text [Annotated (Entry a)]) ()
+    go [] = pure ()
+    go (o@((^? opening) -> Just pos) : xs) = do
+      remember o (pos ^. posLot . symbol)
+      go xs
+    go (c@((^? closing) -> Just cl) : xs) = do
+      let sym = cl ^. closingLot . symbol
+      preuse (ix sym . _head) >>= \case
+        Nothing ->
+          error $
+            "Expected open position "
+              ++ show (cl ^. closingPos . posIdent)
+        Just o -> do
+          ix sym %= tail
+          case o ^? opening of
+            Nothing ->
+              error $ "Unexpected entry in open positions list " ++ show o
+            Just p
+              | p ^. posIdent /= cl ^. closingPos . posIdent ->
+                error $
+                  "Unexpected open position "
+                    ++ show (p ^. posIdent)
+                    ++ " /= "
+                    ++ show (cl ^. closingPos . posIdent)
+              | otherwise -> do
+                (_, remainder) <-
+                  alignedA
+                    (p ^. posLot)
+                    (cl ^. closingLot)
+                    (\_ou _cu -> pure ())
+                    (\ok -> remember (o & opening . posLot .~ ok) sym)
+                    (\ck -> pure (c & closing . closingLot .~ ck))
+                case remainder of
+                  Remainder (Right x) -> go (x : xs)
+                  _ -> go xs
+    go (_ : xs) = go xs
 
 closings ::
   (Eq a, Monoid a) =>
