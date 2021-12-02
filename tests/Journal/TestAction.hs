@@ -26,6 +26,7 @@ import Data.Ratio
 import Data.Text (Text)
 import Data.Time
 import Data.Typeable
+-- import Debug.Trace
 import GHC.Generics hiding (to)
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
@@ -145,22 +146,26 @@ makePrisms ''TestExpr
 
 type TestDSL a = State [TestExpr a]
 
-eval :: MonadIO m => TestExpr a -> StateT (Positions a) m ()
+eval :: (Show a, MonadIO m) => TestExpr a -> StateT (Positions a) m ()
 eval (EBought b) = entries <>= [Action . Buy <$> b]
 eval (ESold s) = entries <>= [Action . Sell <$> s]
 eval (EOpen p@(view item -> pos)) = do
   positions . at (pos ^. posIdent) ?= pos
+  -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
   entries <>= [Event (Open pos) <$ p]
-eval (EClose n b pl w) = do
+eval (EClose n s pl w) = do
   preuse (positions . ix n) >>= \case
     Nothing -> error $ "No open position " ++ show n
     Just pos -> do
+      -- traceM $ "read " ++ show n ++ " => " ++ ppShow pos
       let pl' = case pos ^. posDisp of
-            Long -> (b ^. item . price) - (pos ^. posBasis)
-            Short -> (pos ^. posBasis) - (b ^. item . price)
+            Long -> (s ^. item . price) - (pos ^. posBasis)
+            Short -> (pos ^. posBasis) - (s ^. item . price)
       liftIO $ assertEqual' "closing gain/less" pl pl'
-      entries <>= [Event (Close (Closing pos (b ^. item) w)) <$ b]
-      let pos' = pos & posLot . amount -~ (b ^. item . amount)
+      entries <>= [Event (Close (Closing pos (s ^. item) w)) <$ s]
+      entries' <- use entries
+      -- traceM $ "entries' = " ++ ppShow entries'
+      let pos' = pos & posLot . amount -~ (s ^. item . amount)
           amt = pos' ^?! posLot . amount
       if amt < 0
         then error $ "Not enough shares in open position " ++ show n
@@ -169,7 +174,7 @@ eval (EClose n b pl w) = do
             then positions . at n .= Nothing
             else positions . at n ?= pos'
 
-evalDSL :: MonadIO m => TestDSL a () -> StateT (Positions a) m ()
+evalDSL :: (Show a, MonadIO m) => TestDSL a () -> StateT (Positions a) m ()
 evalDSL = mapM_ TestAction.eval . flip execState []
 
 bought :: Annotated Lot -> TestDSL a ()
@@ -254,17 +259,16 @@ trades =
     . flip execState (TestState [] 0)
 
 checkJournal ::
-  (Monoid a, Eq a, PrettyVal a, MonadIO m) =>
+  (Monoid a, Eq a, Show a, PrettyVal a, MonadIO m) =>
   ( ([Annotated (Entry a)], Map Text [Annotated (Entry a)]) ->
     ([Annotated (Entry a)], Map Text [Annotated (Entry a)])
   ) ->
   State (TestState a) r ->
-  StateT (Positions a) m s ->
-  StateT (Positions a) m t ->
+  TestDSL a () ->
+  TestDSL a () ->
   m ()
 checkJournal f journal act actLeft = do
-  let result = f (closings FIFO (input journal))
-  entries' <- getEntries act
-  entriesLeft' <- getEntries actLeft
-  let expected = M.fromList [("FOO", entriesLeft')]
-  result @?== (entries', expected)
+  entries' <- getEntries (evalDSL act)
+  entriesLeft' <- getEntries (evalDSL actLeft)
+  f (closings FIFO (input journal))
+    @?== (entries', M.fromList [("FOO", entriesLeft')])

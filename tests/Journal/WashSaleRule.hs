@@ -1,5 +1,5 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module WashSaleRule where
@@ -29,34 +29,31 @@ testWashSaleRule =
             forAll $
               Gen.filter (\b -> (b ^. item . price) > 10) $
                 genAnnotated genLot
-          checkJournal @[Washing]
+          checkJournal
             washSaleRuleTest
-            ( do
-                buy b
-                buy b
-                buy b
-                sell $ b & item . price -~ 10
-            )
-            ( evalDSL $ do
-                bought b
-                open 1 Long b
-                --
-                bought b
-                open 2 Long b
-                --
-                bought b
-                washedFrom Future (-10) $
-                  open 3 Long b
-                --
-                sold $ b & item . price -~ 10
-                wash Past 3 $
-                  close 1 b (-10)
-            )
-            ( evalDSL $ do
-                open 2 Long b
-                washedFrom Future (-10) $
-                  open 3 Long b
-            ),
+            do
+              buy b
+              buy b
+              buy b
+              sell $ b & item . price -~ 10
+            do
+              bought b
+              open 1 Long b
+              --
+              bought b
+              open 2 Long b
+              --
+              bought b
+              washedFrom Future (-10) $
+                open 3 Long b
+              --
+              sold $ b & item . price -~ 10
+              wash Past 3 $
+                close 1 b (-10)
+            do
+              open 2 Long b
+              washedFrom Future (-10) $
+                open 3 Long b,
       --
       testProperty "buy-sell-buy" $
         property $ do
@@ -64,51 +61,48 @@ testWashSaleRule =
             forAll $
               Gen.filter (\b -> (b ^. item . price) > 10) $
                 genAnnotated genLot
-          checkJournal @[Washing]
+          checkJournal
             washSaleRuleTest
-            ( do
-                buy b
-                sell $ b & item . price -~ 10
-                buy b
-                buy b
-            )
-            ( evalDSL $ do
-                bought b
-                open 1 Long b
-                --
-                sold $ b & item . price -~ 10
-                wash Future 2 $
-                  close 1 b (-10)
-                --
-                bought b
-                washedFrom Past (-10) $
-                  open 2 Long b
-                --
-                bought b
-                open 3 Long b
-            )
-            ( evalDSL $ do
-                washedFrom Past (-10) $
-                  open 2 Long b
-                open 3 Long b
-            ),
+            do
+              buy b
+              sell $ b & item . price -~ 10
+              buy b
+              buy b
+            do
+              bought b
+              open 1 Long b
+              --
+              sold $ b & item . price -~ 10
+              wash Future 2 $
+                close 1 b (-10)
+              --
+              bought b
+              washedFrom Past (-10) $
+                open 2 Long b
+              --
+              bought b
+              open 3 Long b
+            do
+              washedFrom Past (-10) $
+                open 2 Long b
+              open 3 Long b,
       --
       testProperty "buy-buy-sell-buy-sell" $
-        property $ do
-          b <-
-            forAll $
-              Gen.filter (\b -> (b ^. item . price) > 10) $
-                genAnnotated genLot
-          checkJournal @[Washing]
-            washSaleRuleTest
-            ( do
+        property $
+          do
+            b <-
+              forAll $
+                Gen.filter (\b -> (b ^. item . price) > 10) $
+                  genAnnotated genLot
+            checkJournal
+              washSaleRuleTest
+              do
                 buy b
                 buy b
                 sell b
                 buy b
                 sell $ b & item . price -~ 10
-            )
-            ( evalDSL $ do
+              do
                 bought b
                 open 1 Long b
                 --
@@ -125,11 +119,45 @@ testWashSaleRule =
                 sold $ b & item . price -~ 10
                 wash Past 3 $
                   close 2 b (-10)
-            )
-            ( evalDSL $ do
+              do
                 washedFrom Future (-10) $
-                  open 3 Long b
-            )
+                  open 3 Long b,
+      --
+      testProperty
+        "buy-buy-sell-sell"
+        $ property $ do
+          b <-
+            forAll $
+              Gen.filter (\b -> (b ^. item . price) > 10) $
+                genAnnotated genLot
+          checkJournal
+            washSaleRuleTest
+            do
+              buy b
+              buy b
+              let s = b & item . price -~ 10
+              sell s
+              sell s
+            do
+              bought b
+              open 1 Long b
+              --
+              bought b
+              washedFrom Future (-10) $
+                open 2 Long b
+              --
+              let s = b & item . price -~ 10
+              -- sold s
+              -- wash Past 2 $
+              --   close 1 s 0
+              sold s
+              wash Past 2 $
+                close 1 b (-10)
+              --
+              sold s
+              close 2 s (-20)
+            do
+              pure mempty
     ]
 
 washSaleRuleTest ::
