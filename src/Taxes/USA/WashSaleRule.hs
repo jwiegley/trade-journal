@@ -70,6 +70,8 @@ washSaleRule =
 
       let ident = c ^. closingPos . posIdent
           z2 =
+            -- Once we close a position, that (now closed) opening is
+            -- ineligible to be washed.
             z1 & prefix . traverse %~ \(b, y) ->
               ( case y ^? opening . posIdent of
                   Just pid | pid == ident -> False
