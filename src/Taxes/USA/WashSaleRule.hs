@@ -18,7 +18,7 @@ import Journal.Parse
 import Journal.Print
 import Journal.Split
 import Journal.Types
-import Journal.Utils (distance, transported)
+import Journal.Utils (distance, sideline)
 import Journal.Zippered
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -46,7 +46,7 @@ makePrisms ''Washing
 -- basis of the open.
 washSaleRule :: [Annotated (Entry [Washing])] -> [Annotated (Entry [Washing])]
 washSaleRule =
-  transported
+  sideline
     ( null
         . ( ^..
               failing

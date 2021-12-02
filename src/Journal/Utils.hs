@@ -32,9 +32,9 @@ unzipBoth :: [([a], [b])] -> ([a], [b])
 unzipBoth = (concat *** concat) . unzip
 {-# INLINE unzipBoth #-}
 
-transported :: (b -> a) -> ([(a, b)] -> [(a, b)]) -> [b] -> [b]
-transported p f = map snd . f . map (p &&& id)
-{-# INLINE transported #-}
+sideline :: (b -> a) -> ([(a, b)] -> [(a, b)]) -> [b] -> [b]
+sideline p f = map snd . f . map (p &&& id)
+{-# INLINE sideline #-}
 
 distance :: UTCTime -> UTCTime -> Integer
 distance x y = abs (utctDay x `diffDays` utctDay y)
