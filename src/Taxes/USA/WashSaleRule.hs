@@ -28,22 +28,23 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Show.Pretty hiding (Time)
 
+data Period = Past | Future
+  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
+
 data Washing
   = Exempt
   | WashTo Text (Maybe (Amount 6, Amount 6))
-  | WashPast (Amount 6) Int
-  | WashFuture (Amount 6) Int
+  | Wash Period (Amount 6) Int
   | WashApply Text (Amount 6) -- per share wash applied
-  | WashedFromPast (Amount 6) Lot
-  | WashedFromFuture (Amount 6) Lot
+  | WashedFrom Period (Amount 6) Lot
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makePrisms ''Washing
 
 printWashing :: Washing -> Either TL.Text TL.Text
 printWashing = \case
-  WashedFromPast x _ -> Right $ "washed from past " <> printAmount 2 x
-  WashedFromFuture x _ -> Right $ "washed from future " <> printAmount 2 x
+  WashedFrom Past x _ -> Right $ "washed from past " <> printAmount 2 x
+  WashedFrom Future x _ -> Right $ "washed from future " <> printAmount 2 x
   WashTo x (Just (q, p)) ->
     Left $
       "wash "
@@ -168,20 +169,22 @@ washSaleRule =
               o & posBasis -~ loss
                 & posLot .~ r
                 & posData
-                  <>~ [ ( if inPast
-                            then WashedFromFuture
-                            else WashedFromPast
-                        )
+                  <>~ [ WashedFrom
+                          ( if inPast
+                              then Future
+                              else Past
+                          )
                           loss
                           (c ^. closingLot)
                       ]
             c' =
               c & closingLot .~ l
                 & closingData
-                  <>~ [ ( if inPast
-                            then WashPast
-                            else WashFuture
-                        )
+                  <>~ [ Wash
+                          ( if inPast
+                              then Past
+                              else Future
+                          )
                           loss
                           (o' ^. posIdent)
                       ]

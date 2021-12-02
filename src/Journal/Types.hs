@@ -136,9 +136,6 @@ actionNetAmount ann = case ann ^. item of
 data Disposition = Long | Short
   deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
-data Period = Past | Present | Future
-  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
-
 data Position a = Position
   { _posIdent :: Int,
     _posLot :: Lot,

@@ -23,7 +23,7 @@ testClosings =
                 buy b
                 buy b
             )
-            ( do
+            ( evalDSL $ do
                 bought b
                 open 1 Long b
                 bought b
@@ -31,7 +31,7 @@ testClosings =
                 bought b
                 open 3 Long b
             )
-            ( do
+            ( evalDSL $ do
                 open 1 Long b
                 open 2 Long b
                 open 3 Long b
@@ -50,7 +50,7 @@ testClosings =
                 sell b
                 sell b
             )
-            ( do
+            ( evalDSL $ do
                 bought b
                 open 1 Long b
                 bought b
@@ -78,7 +78,7 @@ testClosings =
                 buy b
                 sell b2
             )
-            ( do
+            ( evalDSL $ do
                 bought b
                 open 1 Long b
                 bought b
@@ -89,7 +89,7 @@ testClosings =
                 close 1 b 0
                 close 2 b 0
             )
-            ( do
+            ( evalDSL $ do
                 open 3 Long b
             ),
       --
@@ -105,7 +105,7 @@ testClosings =
                 buy b
                 sell b3
             )
-            ( do
+            ( evalDSL $ do
                 bought b
                 open 1 Long b
                 bought b
@@ -131,7 +131,7 @@ testClosings =
                 buy b
                 sell b4
             )
-            ( do
+            ( evalDSL $ do
                 bought b
                 open 1 Long b
                 bought b
@@ -144,7 +144,7 @@ testClosings =
                 close 3 b 0
                 open 4 Short b
             )
-            ( do
+            ( evalDSL $ do
                 open 4 Short b
             ),
       --
@@ -158,13 +158,13 @@ testClosings =
                 buy b2
                 sell b
             )
-            ( do
+            ( evalDSL $ do
                 bought b2
                 open 1 Long b2
                 sold b
                 close 1 b 0
             )
-            ( do
+            ( evalDSL $ do
                 open 1 Long b
             ),
       --
@@ -179,7 +179,7 @@ testClosings =
                 sell b
                 sell b
             )
-            ( do
+            ( evalDSL $ do
                 bought b2
                 open 1 Long b2
                 sold b
@@ -199,7 +199,7 @@ testClosings =
                 sell s
                 sell s
             )
-            ( do
+            ( evalDSL $ do
                 sold s
                 open 1 Short s
                 sold s
@@ -207,7 +207,7 @@ testClosings =
                 sold s
                 open 3 Short s
             )
-            ( do
+            ( evalDSL $ do
                 open 1 Short s
                 open 2 Short s
                 open 3 Short s
