@@ -110,17 +110,11 @@ washSaleRule =
       y <- part ^? focus
       o <- y ^? _2 . opening
 
-      (Just (l, r), reyz) <-
-        alignedA
-          (c ^. closingLot)
-          (o ^. posLot)
-          (curry pure)
-          pure
-          pure
-
-      let loss = gains c
+      let (Just (l, r), reyz) =
+            alignment (c ^. closingLot) (o ^. posLot)
+          loss = gains c
           o' =
-            o & posBasis -~ loss
+            o & posBasis -~ loss -- losses increase cost basis
               & posLot .~ r
               & posData
                 <>~ [ WashedFrom

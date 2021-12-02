@@ -127,6 +127,14 @@ alignedA a b f g h = do
         assert (isNothing (sb ^? _SplitKept)) $
           Remainder . Left <$> g sak
 
+alignment ::
+  forall n a b.
+  (Splittable n a, Splittable n b) =>
+  a ->
+  b ->
+  (Maybe (a, b), Remainder (Either a b))
+alignment a b = runIdentity $ alignedA a b (curry pure) pure pure
+
 data Applied v a b = Applied
   { _value :: v,
     _src :: Split a,
