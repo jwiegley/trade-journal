@@ -152,7 +152,7 @@ data Position a = Position
     )
 
 data Closing a = Closing
-  { _closingPos :: Position a,
+  { _closingIdent :: Int,
     _closingLot :: Lot,
     _closingData :: a
   }
@@ -166,6 +166,9 @@ data Closing a = Closing
 
 makeLenses ''Position
 makeLenses ''Closing
+
+instance Splittable (Amount 6) (Position a) where
+  howmuch = posLot . amount
 
 -- | An Event represents "internal events" that occur within an account,
 -- either directly due to the actions above, or indirectly because of other

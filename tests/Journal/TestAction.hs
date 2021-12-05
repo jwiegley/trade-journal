@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -20,6 +21,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
 import Data.IntMap (IntMap)
+import qualified Data.IntMap as IM
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Ratio
@@ -31,7 +33,8 @@ import GHC.Generics hiding (to)
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Journal.Closings
+import Journal.Closings hiding (positions)
+import qualified Journal.Closings as Closings
 import Journal.Pipes ()
 import Journal.Types
 import Test.HUnit.Lang (FailureReason (..))
@@ -117,7 +120,10 @@ genLot = do
 {--------------------------------------------------------------------------}
 
 instance (PrettyVal a, PrettyVal b) => PrettyVal (Map a b) where
-  prettyVal m = Con "Map.fromList" (map prettyVal (M.assocs m))
+  prettyVal = Con "Map.fromList" . map prettyVal . M.assocs
+
+instance PrettyVal a => PrettyVal (IntMap a) where
+  prettyVal = Con "IntMap.fromList" . map prettyVal . IM.assocs
 
 data Positions a = Positions
   { _positions :: IntMap (Position a),
@@ -136,8 +142,8 @@ instance PrettyVal () where
   prettyVal () = String "()"
 
 data TestExpr a
-  = EBought (Annotated Lot)
-  | ESold (Annotated Lot)
+  = EBuy (Annotated Lot)
+  | ESell (Annotated Lot)
   | EOpen (Annotated (Position a))
   | EClose Int (Annotated Lot) (Amount 6) a
   deriving (Show, Eq, Generic, PrettyVal, Typeable)
@@ -147,8 +153,8 @@ makePrisms ''TestExpr
 type TestDSL a = State [TestExpr a]
 
 eval :: (Show a, MonadIO m) => TestExpr a -> StateT (Positions a) m ()
-eval (EBought b) = entries <>= [Action . Buy <$> b]
-eval (ESold s) = entries <>= [Action . Sell <$> s]
+eval (EBuy b) = entries <>= [Action . Buy <$> b]
+eval (ESell s) = entries <>= [Action . Sell <$> s]
 eval (EOpen p@(view item -> pos)) = do
   positions . at (pos ^. posIdent) ?= pos
   -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
@@ -162,8 +168,14 @@ eval (EClose n s pl w) = do
             Long -> (s ^. item . price) - (pos ^. posBasis)
             Short -> (pos ^. posBasis) - (s ^. item . price)
       liftIO $ assertEqual' "closing gain/less" pl pl'
-      entries <>= [Event (Close (Closing pos (s ^. item) w)) <$ s]
-      entries' <- use entries
+      entries
+        <>= [ Event
+                ( Close
+                    (Closing n (s ^. item) w)
+                )
+                <$ s
+            ]
+      -- entries' <- use entries
       -- traceM $ "entries' = " ++ ppShow entries'
       let pos' = pos & posLot . amount -~ (s ^. item . amount)
           amt = pos' ^?! posLot . amount
@@ -177,11 +189,11 @@ eval (EClose n s pl w) = do
 evalDSL :: (Show a, MonadIO m) => TestDSL a () -> StateT (Positions a) m ()
 evalDSL = mapM_ TestAction.eval . flip execState []
 
-bought :: Annotated Lot -> TestDSL a ()
-bought b = id <>= [EBought b]
+buy :: Annotated Lot -> TestDSL a ()
+buy b = id <>= [EBuy b]
 
-sold :: Annotated Lot -> TestDSL a ()
-sold s = id <>= [ESold s]
+sell :: Annotated Lot -> TestDSL a ()
+sell s = id <>= [ESell s]
 
 open ::
   Monoid a =>
@@ -189,11 +201,11 @@ open ::
   Disposition ->
   Annotated Lot ->
   TestDSL a ()
-open n disp b =
+open i disp b =
   id
     <>= [ EOpen $
             Position
-              { _posIdent = n,
+              { _posIdent = i,
                 _posLot = b ^. item,
                 _posDisp = disp,
                 _posBasis = b ^. item . price,
@@ -212,63 +224,22 @@ close n b pl = id <>= [EClose n b pl mempty]
 
 {--------------------------------------------------------------------------}
 
-data TestAction a = TestAction
-  { _action :: Annotated (Entry a),
-    _annotations :: [Annotation],
-    _regular :: Bool
-  }
-
-makeLenses ''TestAction
-
-data TestState a = TestState
-  { _pending :: [TestAction a],
-    _balance :: Amount 2
-  }
-
-makeLenses ''TestState
-
-buy :: Annotated Lot -> State (TestState a) ()
-buy b =
-  do
-    -- bal <- use balance
-    balance += c
-    pending <>= [TestAction (Action . Buy <$> b) [] True]
-  where
-    c = ((b ^. item . amount) * (b ^. item . price)) ^. coerced . to negate
-
-sell :: Annotated Lot -> State (TestState a) ()
-sell b =
-  do
-    -- bal <- use balance
-    balance += c
-    pending <>= [TestAction (Action . Sell <$> b) [] True]
-  where
-    c = ((b ^. item . amount) * (b ^. item . price)) ^. coerced
-
-input :: State (TestState a) r -> [Annotated (Entry a)]
-input =
-  map _action
-    . filter _regular
-    . _pending
-    . flip execState (TestState [] 0)
-
-trades :: State (TestState a) r -> [Annotated (Entry a)]
-trades =
-  map (\x -> (x ^. action) & details <>~ (x ^. annotations))
-    . _pending
-    . flip execState (TestState [] 0)
-
 checkJournal ::
   (Monoid a, Eq a, Show a, PrettyVal a, MonadIO m) =>
-  ( ([Annotated (Entry a)], Map Text [Annotated (Entry a)]) ->
-    ([Annotated (Entry a)], Map Text [Annotated (Entry a)])
+  ( ([Annotated (Entry a)], Map Text (IntMap (Annotated (Entry a)))) ->
+    ([Annotated (Entry a)], Map Text (IntMap (Annotated (Entry a))))
   ) ->
-  State (TestState a) r ->
+  TestDSL a () ->
   TestDSL a () ->
   TestDSL a () ->
   m ()
 checkJournal f journal act actLeft = do
+  journal' <- getEntries (evalDSL journal)
   entries' <- getEntries (evalDSL act)
-  entriesLeft' <- getEntries (evalDSL actLeft)
-  f (closings FIFO (input journal))
-    @?== (entries', M.fromList [("FOO", entriesLeft')])
+  entriesLeft' <- Closings.positions <$> getEntries (evalDSL actLeft)
+  f (closings FIFO journal')
+    @?== ( entries',
+           case entriesLeft' ^? ix "FOO" of
+             Just _ -> entriesLeft'
+             Nothing -> entriesLeft' & at "FOO" ?~ mempty
+         )

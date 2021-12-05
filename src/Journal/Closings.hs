@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -14,7 +15,8 @@
 module Journal.Closings
   ( Calculation (..),
     closings,
-    openPositions,
+    positions,
+    positionsFromEntry,
   )
 where
 
@@ -24,6 +26,7 @@ import Control.Lens
 import Control.Monad.State
 import Data.Aeson hiding ((.=))
 import Data.Foldable
+import Data.IntMap (IntMap)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -60,7 +63,7 @@ data BasicState e = BasicState
 
 makeLenses ''BasicState
 
-type ClosingState a = BasicState (Map Text [Annotated (Entry a)])
+type ClosingState a = BasicState (Map Text (IntMap (Annotated (Entry a))))
 
 newClosingState :: Calculation -> ClosingState a
 newClosingState c =
@@ -70,7 +73,7 @@ newClosingState c =
       _events = mempty
     }
 
-type LocalState a = BasicState [Annotated (Entry a)]
+type LocalState a = BasicState (IntMap (Annotated (Entry a)))
 
 localState ::
   (Eq a, Monoid a) =>
@@ -81,67 +84,11 @@ localState instrument f s =
     s & nextId .~ (m ^. nextId)
       & events . at instrument ?~ (m ^. events)
 
-openPositions ::
-  (Monoid a, Eq a, Show a) =>
-  Calculation ->
-  [Annotated (Entry a)] ->
-  Map Text [Annotated (Entry a)]
-openPositions mode = flip execState mempty . go
-  where
-    remember ::
-      (Monoid a, Eq a, Show a) =>
-      Annotated (Entry a) ->
-      Text ->
-      State (Map Text [Annotated (Entry a)]) ()
-    remember x sym = case mode of
-      FIFO -> at sym . non mempty <>= [x]
-      LIFO -> at sym . non mempty %= (x :)
-
-    go ::
-      (Monoid a, Eq a, Show a) =>
-      [Annotated (Entry a)] ->
-      State (Map Text [Annotated (Entry a)]) ()
-    go [] = pure ()
-    go (o@((^? opening) -> Just pos) : xs) = do
-      remember o (pos ^. posLot . symbol)
-      go xs
-    go (c@((^? closing) -> Just cl) : xs) = do
-      let sym = cl ^. closingLot . symbol
-      preuse (ix sym . _head) >>= \case
-        Nothing ->
-          error $
-            "Expected open position "
-              ++ show (cl ^. closingPos . posIdent)
-        Just o -> do
-          ix sym %= tail
-          case o ^? opening of
-            Nothing ->
-              error $ "Unexpected entry in open positions list " ++ show o
-            Just p
-              | p ^. posIdent /= cl ^. closingPos . posIdent ->
-                error $
-                  "Unexpected open position "
-                    ++ show (p ^. posIdent)
-                    ++ " /= "
-                    ++ show (cl ^. closingPos . posIdent)
-              | otherwise -> do
-                (_, remainder) <-
-                  alignedA
-                    (p ^. posLot)
-                    (cl ^. closingLot)
-                    (\_ou _cu -> pure ())
-                    (\ok -> remember (o & opening . posLot .~ ok) sym)
-                    (\ck -> pure (c & closing . closingLot .~ ck))
-                case remainder of
-                  Remainder (Right x) -> go (x : xs)
-                  _ -> go xs
-    go (_ : xs) = go xs
-
 closings ::
   (Eq a, Monoid a) =>
   Calculation ->
   [Annotated (Entry a)] ->
-  ([Annotated (Entry a)], Map Text [Annotated (Entry a)])
+  ([Annotated (Entry a)], Map Text (IntMap (Annotated (Entry a))))
 closings mode =
   (concat *** _events) . flip runState (newClosingState mode) . mapM go
   where
@@ -172,16 +119,24 @@ handle ::
   State
     (LocalState a)
     ([Annotated (Entry a)], Remainder (Annotated (Entry a)))
-handle ann@(has (item . _Action . buyOrSell) -> True) =
-  use events >>= \case
-    open@(preview (item . _Event . _Open . posDisp) -> Just disp) : rest
-      | disp
-          == if has (item . _Action . _Sell) ann
-            then Long
-            else Short -> do
-        events .= rest
-        closePosition open ann
-    _ -> (,Finished) <$> openPosition ann
+handle ann@(has (item . _Action . buyOrSell) -> True) = do
+  mode <- use calc
+  -- jww (2021-12-04): the buy/sell should be able to specify FIFO or LIFO,
+  -- and the user should be able to set it as a default. In the case of LIFE,
+  -- this traversal needs to be reversed.
+  gets
+    ( (case mode of FIFO -> id; LIFO -> reverse)
+        . (^.. events . traverse)
+    )
+    >>= \case
+      open@(preview (opening . posDisp) -> Just disp) : _
+        | disp
+            == if has (item . _Action . _Sell) ann
+              then Long
+              else Short -> do
+          events . at (open ^?! opening . posIdent) .= Nothing
+          closePosition open ann
+      _ -> (,Finished) <$> openPosition ann
 handle _ = pure ([], Finished)
 
 -- | Open a new position.
@@ -207,9 +162,7 @@ openPosition open = do
               _posData = mempty
             }
           <$ open
-  use calc >>= \case
-    FIFO -> events <>= [event]
-    LIFO -> events %= (event :)
+  events . at ident ?= event
   pure [event]
 
 -- | Close an existing position. If the amount to close is more than what is
@@ -220,7 +173,7 @@ closePosition ::
   Annotated (Entry a) ->
   State (LocalState a) ([Annotated (Entry a)], Remainder (Annotated (Entry a)))
 closePosition open close =
-  let o = open ^?! item . _Event . _Open
+  let o = open ^?! opening
    in alignForClose
         (o ^. posLot)
         (close ^?! item . _Action . buyOrSell)
@@ -229,14 +182,17 @@ closePosition open close =
               [ _Event
                   # _Close
                   # Closing
-                    { _closingPos = o,
+                    { _closingIdent = o ^. posIdent,
                       _closingLot = du,
                       _closingData = mempty
                     }
                   <$ close
               ]
         )
-        (\sk -> events %= ((open & item . _Event . _Open . posLot .~ sk) :))
+        ( \sk ->
+            events . at (open ^?! opening . posIdent)
+              ?= (open & opening . posLot .~ sk)
+        )
         (\dk -> pure $ close & item . _Action . buyOrSell .~ dk)
 
 alignForClose ::
@@ -249,8 +205,53 @@ alignForClose ::
   m ([x], Remainder z)
 alignForClose l r f g h =
   alignedA l r f g h
-    <&> ( fromMaybe []
-            *** \case
-              Remainder (Right r') -> Remainder r'
-              _ -> Finished
-        )
+    <&> fromMaybe []
+      *** \case
+        Remainder (Right r') -> Remainder r'
+        _ -> Finished
+
+positions ::
+  (Monoid a, Eq a, Show a) =>
+  [Annotated (Entry a)] ->
+  Map Text (IntMap (Annotated (Entry a)))
+positions = foldl' positionsFromEntry mempty
+
+positionsFromEntry ::
+  (Monoid a, Eq a, Show a) =>
+  Map Text (IntMap (Annotated (Entry a))) ->
+  Annotated (Entry a) ->
+  Map Text (IntMap (Annotated (Entry a)))
+positionsFromEntry m = go
+  where
+    go o@((^? opening) -> Just pos) =
+      m
+        & at (pos ^. posLot . symbol)
+          . non mempty
+          . at (pos ^. posIdent)
+        ?~ o
+    go ((^? closing) -> Just cl) =
+      flip execState m do
+        let loc ::
+              Eq a =>
+              Traversal'
+                (Map Text (IntMap (Annotated (Entry a))))
+                (Maybe (Annotated (Entry a)))
+            loc =
+              at (cl ^. closingLot . symbol)
+                . non mempty
+                . at (cl ^. closingIdent)
+        preuse (loc . _Just) >>= \case
+          Nothing ->
+            error $
+              "Attempt to close non-open position:\n"
+                ++ ppShow cl
+                ++ "\n---- against open positions ----\n"
+                ++ ppShow m
+          Just o ->
+            alignedA
+              (o ^?! opening . posLot)
+              (cl ^. closingLot)
+              (\_ou _cu -> loc .= Nothing)
+              (\ok -> loc ?= (o & opening . posLot .~ ok))
+              (\_ck -> error "Invalid closing")
+    go _ = m

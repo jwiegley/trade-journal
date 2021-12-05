@@ -65,10 +65,13 @@ printPosition printData Position {..} =
 
 printClosing :: (a -> Text) -> Closing a -> Text
 printClosing printData Closing {..} =
-  "(" <> printPosition printData _closingPos
-    <> ") "
-    <> printLot _closingLot
-    <> printData _closingData
+  TL.concat $
+    intersperse
+      " "
+      [ TL.pack (show _closingIdent),
+        printLot _closingLot,
+        printData _closingData
+      ]
 
 printEvent :: (a -> Text) -> Event a -> Text
 printEvent printData = \case

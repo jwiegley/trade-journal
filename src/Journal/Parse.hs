@@ -124,16 +124,12 @@ parsePosition parseData =
       Long <$ keyword "long"
         <|> Short <$ keyword "short"
 
+-- jww (2021-12-03): A closing should display what it's closing the open
+-- position to, for example: FOO 100 @ <basis> -> 50.
 parseClosing :: Parser a -> Parser (Closing a)
 parseClosing parseData =
   Closing
-    <$> ( char '('
-            *> whiteSpace
-            *> parsePosition parseData
-            <* whiteSpace
-            <* char ')'
-            <* whiteSpace
-        )
+    <$> (L.decimal <* whiteSpace)
     <*> parseLot
     <*> parseData
 
