@@ -35,9 +35,6 @@ printActions printData = map $ \x ->
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
 
-printEntry :: (a -> Text) -> Entry a -> Text
-printEntry printData (Entry ev) = printEvent printData ev
-
 printPosition :: (a -> Text) -> Position a -> Text
 printPosition printData Position {..} =
   TL.pack (show _posIdent)
@@ -61,8 +58,8 @@ printClosing printData Closing {..} =
         printData _closingData
       ]
 
-printEvent :: (a -> Text) -> Event a -> Text
-printEvent printData = \case
+printEntry :: (a -> Text) -> Entry a -> Text
+printEntry printData = \case
   Deposit amt -> "deposit " <> printAmount 2 amt
   Withdraw amt -> "withdraw " <> printAmount 2 amt
   Buy lot -> "buy " <> printLot lot

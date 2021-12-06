@@ -71,7 +71,7 @@ parseActionsAndEventsFromText parseData path input =
 parseAnnotatedActionOrEvent :: Parser a -> Parser (Annotated (Entry a))
 parseAnnotatedActionOrEvent parseData = do
   _time <- Journal.Parse.parseTime
-  _item <- Entry <$> parseEvent parseData
+  _item <- parseEntry parseData
   _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
@@ -122,8 +122,8 @@ parseClosing parseData =
     <*> parseLot
     <*> parseData
 
-parseEvent :: Parser a -> Parser (Event a)
-parseEvent parseData =
+parseEntry :: Parser a -> Parser (Entry a)
+parseEntry parseData =
   keyword "deposit" *> (Deposit <$> parseAmount)
     <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
     <|> keyword "buy" *> (Buy <$> parseLot)

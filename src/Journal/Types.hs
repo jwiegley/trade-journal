@@ -113,7 +113,7 @@ instance Splittable (Amount 6) (Position a) where
 --
 -- jww (2021-11-30): It may need to be Event f, with Open (f Position) in
 -- order to support wash sale rule without encoding it here.
-data Event a
+data Entry a
   = Deposit (Amount 2) -- deposit money into the account
   | Withdraw (Amount 2) -- withdraw money from the account
   | Buy Lot -- buy securities using money in the account
@@ -136,13 +136,13 @@ data Event a
       Generic
     )
 
-makePrisms ''Event
+makePrisms ''Entry
 
-buyOrSell :: Traversal' (Event a) Lot
+buyOrSell :: Traversal' (Entry a) Lot
 buyOrSell = failing _Buy _Sell
 
-mapEvent :: (Lot -> Lot) -> Event a -> Event a
-mapEvent f = \case
+mapEntry :: (Lot -> Lot) -> Entry a -> Entry a
+mapEntry f = \case
   Deposit amt -> Deposit amt
   Withdraw amt -> Withdraw amt
   Buy lot -> Buy (f lot)
@@ -159,8 +159,8 @@ mapEvent f = \case
   Income amt -> Income amt
   Credit amt -> Credit amt
 
-_EventLot :: Traversal' (Event a) Lot
-_EventLot f = \case
+_Lot :: Traversal' (Entry a) Lot
+_Lot f = \case
   Deposit amt -> pure $ Deposit amt
   Withdraw amt -> pure $ Withdraw amt
   Buy lot -> Buy <$> f lot
@@ -179,8 +179,8 @@ _EventLot f = \case
 
 -- | The 'netAmount' indicates the exact effect on account balance this action
 -- represents.
-eventNetAmount :: Annotated (Event a) -> Amount 2
-eventNetAmount ann = case ann ^. item of
+netAmount :: Annotated (Entry a) -> Amount 2
+netAmount ann = case ann ^. item of
   Deposit amt -> amt
   Withdraw amt -> - amt
   Buy lot ->
@@ -216,26 +216,8 @@ eventNetAmount ann = case ann ^. item of
   Income amt -> amt
   Credit amt -> amt
 
-newtype Entry a = Entry (Event a)
-  deriving
-    ( Show,
-      PrettyVal,
-      Eq,
-      Generic
-    )
-
-makePrisms ''Entry
-
-_Lot :: Traversal' (Entry a) Lot
-_Lot f = \case
-  Entry ev -> Entry <$> (ev & _EventLot %%~ f)
-
-netAmount :: Annotated (Entry a) -> Amount 2
-netAmount ann = case ann ^. item of
-  Entry ev -> eventNetAmount (ev <$ ann)
-
 opening :: Traversal' (Annotated (Entry a)) (Position a)
-opening = item . _Entry . _Open
+opening = item . _Open
 
 closing :: Traversal' (Annotated (Entry a)) (Closing a)
-closing = item . _Entry . _Close
+closing = item . _Close

@@ -54,54 +54,47 @@ entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
       annotate $
-        Entry $
-          Buy
-            Lot
-              { _amount = coerce tdQuantity,
-                _symbol = TL.toStrict tdSymbol,
-                _price = coerce tdPrice
-              }
+        Buy
+          Lot
+            { _amount = coerce tdQuantity,
+              _symbol = TL.toStrict tdSymbol,
+              _price = coerce tdPrice
+            }
   Sold _device TOSTrade' {..} ->
     Right $
       annotate $
-        Entry $
-          Sell
-            Lot
-              { _amount = coerce (abs tdQuantity),
-                _symbol = TL.toStrict tdSymbol,
-                _price = coerce tdPrice
-              }
+        Sell
+          Lot
+            { _amount = coerce (abs tdQuantity),
+              _symbol = TL.toStrict tdSymbol,
+              _price = coerce tdPrice
+            }
   AchCredit ->
     Right $
       annotate $
-        Entry $
-          Deposit (xact ^. xactAmount)
+        Deposit (xact ^. xactAmount)
   AchDebit ->
     Right $
       annotate $
-        Entry $
-          Withdraw (xact ^. xactAmount . to abs)
+        Withdraw (xact ^. xactAmount . to abs)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
   CourtesyCredit ->
     Right $
       annotate $
-        Entry $
-          Credit (xact ^. xactAmount)
+        Credit (xact ^. xactAmount)
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined
   InterestAdjustment ->
     Right $
       annotate $
-        Entry $
-          Interest (xact ^. xactAmount) Nothing
+        Interest (xact ^. xactAmount) Nothing
   InterestIncome sym ->
     Right $
       annotate $
-        Entry $
-          Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
+        Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
   -- MarkToMarket -> undefined
   -- MiscellaneousJournalEntry -> undefined
   -- OffCycleInterest _symbol -> undefined
@@ -110,8 +103,7 @@ entryToAction xact = \case
   Rebate ->
     Right $
       annotate $
-        Entry $
-          Income (xact ^. xactAmount)
+        Income (xact ^. xactAmount)
   -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
   -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
   -- TransferBetweenAccounts -> undefined
@@ -119,20 +111,18 @@ entryToAction xact = \case
   TransferInSecurityOrOption amt sym ->
     Right $
       annotate $
-        Entry $
-          TransferIn
-            Lot
-              { _amount = coerce (abs amt),
-                _symbol = TL.toStrict sym,
-                _price = 0
-              }
+        TransferIn
+          Lot
+            { _amount = coerce (abs amt),
+              _symbol = TL.toStrict sym,
+              _price = 0
+            }
   -- TransferOfCash -> undefined
   -- TransferToForexAccount -> undefined
   WireIncoming ->
     Right $
       annotate $
-        Entry $
-          Deposit (xact ^. xactAmount)
+        Deposit (xact ^. xactAmount)
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
   where
