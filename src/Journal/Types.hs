@@ -71,68 +71,6 @@ totaled lot n = lot ^. amount . coerced * n
 fees :: Traversal' (Annotated a) (Amount 6)
 fees = details . traverse . failing _Fees _Commission
 
--- | An Action represents "external actions" taken by the holder of the
--- account.
-data Action
-  = Deposit (Amount 2) -- deposit money into the account
-  | Withdraw (Amount 2) -- withdraw money from the account
-  | Buy Lot -- buy securities using money in the account
-  | Sell Lot -- sell securities for a loss or gain
-  | TransferIn Lot -- buy securities using money in the account
-  | TransferOut Lot -- sell securities for a loss or gain
-  | Exercise Lot -- exercise a long options position
-  deriving
-    ( Show,
-      PrettyVal,
-      Eq,
-      Generic
-    )
-
-makePrisms ''Action
-
-buyOrSell :: Traversal' Action Lot
-buyOrSell = failing _Buy _Sell
-
-mapAction :: (Lot -> Lot) -> Action -> Action
-mapAction f = \case
-  Deposit amt -> Deposit amt
-  Withdraw amt -> Withdraw amt
-  Buy lot -> Buy (f lot)
-  Sell lot -> Sell (f lot)
-  TransferIn lot -> TransferIn (f lot)
-  TransferOut lot -> TransferOut (f lot)
-  Exercise lot -> Exercise (f lot)
-
-_ActionLot :: Traversal' Action Lot
-_ActionLot f = \case
-  Deposit amt -> pure $ Deposit amt
-  Withdraw amt -> pure $ Withdraw amt
-  Buy lot -> Buy <$> f lot
-  Sell lot -> Sell <$> f lot
-  TransferIn lot -> TransferIn <$> f lot
-  TransferOut lot -> TransferOut <$> f lot
-  Exercise lot -> Exercise <$> f lot
-
--- | The 'netAmount' indicates the exact effect on account balance this action
--- represents.
-actionNetAmount :: Annotated Action -> Amount 2
-actionNetAmount ann = case ann ^. item of
-  Deposit amt -> amt
-  Withdraw amt -> - amt
-  Buy lot ->
-    - totaled
-      lot
-      (lot ^. price + sum (ann ^.. fees))
-      ^. coerced
-  Sell lot ->
-    totaled
-      lot
-      (lot ^. price - sum (ann ^.. fees))
-      ^. coerced
-  TransferIn lot -> - totaled lot (lot ^. price + sum (ann ^.. fees)) ^. coerced
-  TransferOut lot -> totaled lot (lot ^. price - sum (ann ^.. fees)) ^. coerced
-  Exercise _lot -> 0 -- jww (2021-06-12): NYI
-
 data Disposition = Long | Short
   deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
@@ -176,7 +114,14 @@ instance Splittable (Amount 6) (Position a) where
 -- jww (2021-11-30): It may need to be Event f, with Open (f Position) in
 -- order to support wash sale rule without encoding it here.
 data Event a
-  = Open (Position a)
+  = Deposit (Amount 2) -- deposit money into the account
+  | Withdraw (Amount 2) -- withdraw money from the account
+  | Buy Lot -- buy securities using money in the account
+  | Sell Lot -- sell securities for a loss or gain
+  | TransferIn Lot -- buy securities using money in the account
+  | TransferOut Lot -- sell securities for a loss or gain
+  | Exercise Lot -- exercise a long options position
+  | Open (Position a)
   | Close (Closing a)
   | Assign Lot -- assignment of a short options position
   | Expire Lot -- expiration of a short options position
@@ -193,8 +138,18 @@ data Event a
 
 makePrisms ''Event
 
+buyOrSell :: Traversal' (Event a) Lot
+buyOrSell = failing _Buy _Sell
+
 mapEvent :: (Lot -> Lot) -> Event a -> Event a
 mapEvent f = \case
+  Deposit amt -> Deposit amt
+  Withdraw amt -> Withdraw amt
+  Buy lot -> Buy (f lot)
+  Sell lot -> Sell (f lot)
+  TransferIn lot -> TransferIn (f lot)
+  TransferOut lot -> TransferOut (f lot)
+  Exercise lot -> Exercise (f lot)
   Open pos -> Open (pos & posLot %~ f)
   Close cl -> Close (cl & closingLot %~ f)
   Assign lot -> Assign (f lot)
@@ -206,6 +161,13 @@ mapEvent f = \case
 
 _EventLot :: Traversal' (Event a) Lot
 _EventLot f = \case
+  Deposit amt -> pure $ Deposit amt
+  Withdraw amt -> pure $ Withdraw amt
+  Buy lot -> Buy <$> f lot
+  Sell lot -> Sell <$> f lot
+  TransferIn lot -> TransferIn <$> f lot
+  TransferOut lot -> TransferOut <$> f lot
+  Exercise lot -> Exercise <$> f lot
   Open pos -> Open <$> (pos & posLot %%~ f)
   Close cl -> Close <$> (cl & closingLot %%~ f)
   Assign lot -> Assign <$> f lot
@@ -219,6 +181,21 @@ _EventLot f = \case
 -- represents.
 eventNetAmount :: Annotated (Event a) -> Amount 2
 eventNetAmount ann = case ann ^. item of
+  Deposit amt -> amt
+  Withdraw amt -> - amt
+  Buy lot ->
+    - totaled
+      lot
+      (lot ^. price + sum (ann ^.. fees))
+      ^. coerced
+  Sell lot ->
+    totaled
+      lot
+      (lot ^. price - sum (ann ^.. fees))
+      ^. coerced
+  TransferIn lot -> - totaled lot (lot ^. price + sum (ann ^.. fees)) ^. coerced
+  TransferOut lot -> totaled lot (lot ^. price - sum (ann ^.. fees)) ^. coerced
+  Exercise _lot -> 0 -- jww (2021-06-12): NYI
   Open pos
     | pos ^. posDisp == Long ->
       - totaled
@@ -239,7 +216,7 @@ eventNetAmount ann = case ann ^. item of
   Income amt -> amt
   Credit amt -> amt
 
-data Entry a = Action Action | Event (Event a)
+newtype Entry a = Entry (Event a)
   deriving
     ( Show,
       PrettyVal,
@@ -251,16 +228,14 @@ makePrisms ''Entry
 
 _Lot :: Traversal' (Entry a) Lot
 _Lot f = \case
-  Action act -> Action <$> (act & _ActionLot %%~ f)
-  Event ev -> Event <$> (ev & _EventLot %%~ f)
+  Entry ev -> Entry <$> (ev & _EventLot %%~ f)
 
 netAmount :: Annotated (Entry a) -> Amount 2
 netAmount ann = case ann ^. item of
-  Action act -> actionNetAmount (act <$ ann)
-  Event ev -> eventNetAmount (ev <$ ann)
+  Entry ev -> eventNetAmount (ev <$ ann)
 
 opening :: Traversal' (Annotated (Entry a)) (Position a)
-opening = item . _Event . _Open
+opening = item . _Entry . _Open
 
 closing :: Traversal' (Annotated (Entry a)) (Closing a)
-closing = item . _Event . _Close
+closing = item . _Entry . _Close

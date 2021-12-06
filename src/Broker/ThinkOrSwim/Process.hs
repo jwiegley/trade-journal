@@ -54,7 +54,7 @@ entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
       annotate $
-        Action $
+        Entry $
           Buy
             Lot
               { _amount = coerce tdQuantity,
@@ -64,7 +64,7 @@ entryToAction xact = \case
   Sold _device TOSTrade' {..} ->
     Right $
       annotate $
-        Action $
+        Entry $
           Sell
             Lot
               { _amount = coerce (abs tdQuantity),
@@ -74,12 +74,12 @@ entryToAction xact = \case
   AchCredit ->
     Right $
       annotate $
-        Action $
+        Entry $
           Deposit (xact ^. xactAmount)
   AchDebit ->
     Right $
       annotate $
-        Action $
+        Entry $
           Withdraw (xact ^. xactAmount . to abs)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
@@ -87,7 +87,7 @@ entryToAction xact = \case
   CourtesyCredit ->
     Right $
       annotate $
-        Event $
+        Entry $
           Credit (xact ^. xactAmount)
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
@@ -95,12 +95,12 @@ entryToAction xact = \case
   InterestAdjustment ->
     Right $
       annotate $
-        Event $
+        Entry $
           Interest (xact ^. xactAmount) Nothing
   InterestIncome sym ->
     Right $
       annotate $
-        Event $
+        Entry $
           Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
   -- MarkToMarket -> undefined
   -- MiscellaneousJournalEntry -> undefined
@@ -110,7 +110,7 @@ entryToAction xact = \case
   Rebate ->
     Right $
       annotate $
-        Event $
+        Entry $
           Income (xact ^. xactAmount)
   -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
   -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
@@ -119,7 +119,7 @@ entryToAction xact = \case
   TransferInSecurityOrOption amt sym ->
     Right $
       annotate $
-        Action $
+        Entry $
           TransferIn
             Lot
               { _amount = coerce (abs amt),
@@ -131,7 +131,7 @@ entryToAction xact = \case
   WireIncoming ->
     Right $
       annotate $
-        Action $
+        Entry $
           Deposit (xact ^. xactAmount)
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x

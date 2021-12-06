@@ -163,12 +163,12 @@ makePrisms ''TestExpr
 type TestDSL a = State [TestExpr a]
 
 eval :: (Show a, MonadIO m) => TestExpr a -> StateT (Positions a) m ()
-eval (EBuy b) = entries <>= [Action . Buy <$> b]
-eval (ESell s) = entries <>= [Action . Sell <$> s]
+eval (EBuy b) = entries <>= [Entry . Buy <$> b]
+eval (ESell s) = entries <>= [Entry . Sell <$> s]
 eval (EOpen p@(view item -> pos)) = do
   positions . at (pos ^. posIdent) ?= pos
   -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
-  entries <>= [Event (Open pos) <$ p]
+  entries <>= [Entry (Open pos) <$ p]
 eval (EClose (TestExprClose n s pl w)) = do
   preuse (positions . ix n) >>= \case
     Nothing -> error $ "No open position " ++ show n
@@ -182,7 +182,7 @@ eval (EClose (TestExprClose n s pl w)) = do
           ("closing gain/loss for " ++ ppShow pos ++ " and " ++ ppShow s)
           pl
           pl'
-      entries <>= [Event (Close (Closing n (s ^. item) w)) <$ s]
+      entries <>= [Entry (Close (Closing n (s ^. item) w)) <$ s]
       -- entries' <- use entries
       -- traceM $ "entries' = " ++ ppShow entries'
       let pos' = pos & posLot . amount -~ (s ^. item . amount)

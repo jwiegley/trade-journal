@@ -36,18 +36,7 @@ printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
 
 printEntry :: (a -> Text) -> Entry a -> Text
-printEntry _ (Action act) = printAction act
-printEntry printData (Event ev) = printEvent printData ev
-
-printAction :: Action -> Text
-printAction = \case
-  Deposit amt -> "deposit " <> printAmount 2 amt
-  Withdraw amt -> "withdraw " <> printAmount 2 amt
-  Buy lot -> "buy " <> printLot lot
-  Sell lot -> "sell " <> printLot lot
-  TransferIn lot -> "xferin " <> printLot lot
-  TransferOut lot -> "xferout " <> printLot lot
-  Exercise lot -> "exercise " <> printLot lot
+printEntry printData (Entry ev) = printEvent printData ev
 
 printPosition :: (a -> Text) -> Position a -> Text
 printPosition printData Position {..} =
@@ -74,6 +63,13 @@ printClosing printData Closing {..} =
 
 printEvent :: (a -> Text) -> Event a -> Text
 printEvent printData = \case
+  Deposit amt -> "deposit " <> printAmount 2 amt
+  Withdraw amt -> "withdraw " <> printAmount 2 amt
+  Buy lot -> "buy " <> printLot lot
+  Sell lot -> "sell " <> printLot lot
+  TransferIn lot -> "xferin " <> printLot lot
+  TransferOut lot -> "xferout " <> printLot lot
+  Exercise lot -> "exercise " <> printLot lot
   Open pos -> "open " <> printPosition printData pos
   Close cl -> "close " <> printClosing printData cl
   Assign lot -> "assign " <> printLot lot

@@ -71,7 +71,7 @@ parseActionsAndEventsFromText parseData path input =
 parseAnnotatedActionOrEvent :: Parser a -> Parser (Annotated (Entry a))
 parseAnnotatedActionOrEvent parseData = do
   _time <- Journal.Parse.parseTime
-  _item <- Event <$> parseEvent parseData <|> Action <$> parseAction
+  _item <- Entry <$> parseEvent parseData
   _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
@@ -100,16 +100,6 @@ quotedString = identPQuoted <&> T.pack
             _ <- char '"'
             return $ concat strings
 
-parseAction :: Parser Action
-parseAction =
-  keyword "deposit" *> (Deposit <$> parseAmount)
-    <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
-    <|> keyword "buy" *> (Buy <$> parseLot)
-    <|> keyword "sell" *> (Sell <$> parseLot)
-    <|> keyword "xferin" *> (TransferIn <$> parseLot)
-    <|> keyword "xferout" *> (TransferOut <$> parseLot)
-    <|> keyword "exercise" *> (Exercise <$> parseLot)
-
 parsePosition :: Parser a -> Parser (Position a)
 parsePosition parseData =
   Position
@@ -134,7 +124,14 @@ parseClosing parseData =
 
 parseEvent :: Parser a -> Parser (Event a)
 parseEvent parseData =
-  keyword "open" *> (Open <$> parsePosition parseData)
+  keyword "deposit" *> (Deposit <$> parseAmount)
+    <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
+    <|> keyword "buy" *> (Buy <$> parseLot)
+    <|> keyword "sell" *> (Sell <$> parseLot)
+    <|> keyword "xferin" *> (TransferIn <$> parseLot)
+    <|> keyword "xferout" *> (TransferOut <$> parseLot)
+    <|> keyword "exercise" *> (Exercise <$> parseLot)
+    <|> keyword "open" *> (Open <$> parsePosition parseData)
     <|> keyword "close" *> (Close <$> parseClosing parseData)
     <|> keyword "assign" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)

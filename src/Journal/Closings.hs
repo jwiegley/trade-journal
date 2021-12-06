@@ -94,7 +94,7 @@ closings mode =
   where
     go entry = do
       gst <- get
-      case entry ^? item . _Action . buyOrSell . symbol of
+      case entry ^? item . _Entry . buyOrSell . symbol of
         Just sym -> do
           let (results, gst') =
                 flip runState gst $
@@ -119,7 +119,7 @@ handle ::
   State
     (LocalState a)
     ([Annotated (Entry a)], Remainder (Annotated (Entry a)))
-handle ann@(has (item . _Action . buyOrSell) -> True) = do
+handle ann@(has (item . _Entry . buyOrSell) -> True) = do
   mode <- use calc
   -- jww (2021-12-04): the buy/sell should be able to specify FIFO or LIFO,
   -- and the user should be able to set it as a default. In the case of LIFE,
@@ -131,7 +131,7 @@ handle ann@(has (item . _Action . buyOrSell) -> True) = do
     >>= \case
       open@(preview (opening . posDisp) -> Just disp) : _
         | disp
-            == if has (item . _Action . _Sell) ann
+            == if has (item . _Entry . _Sell) ann
               then Long
               else Short -> do
           events . at (open ^?! opening . posIdent) .= Nothing
@@ -147,15 +147,15 @@ openPosition ::
 openPosition open = do
   nextId += 1
   ident <- use nextId
-  let lot = open ^?! item . _Action . buyOrSell
+  let lot = open ^?! item . _Entry . buyOrSell
       event =
-        _Event
+        _Entry
           # _Open
           # Position
             { _posIdent = ident,
               _posLot = lot,
               _posDisp =
-                if has (item . _Action . _Buy) open
+                if has (item . _Entry . _Buy) open
                   then Long
                   else Short,
               _posData = mempty
@@ -175,10 +175,10 @@ closePosition open close =
   let o = open ^?! opening
    in alignForClose
         (o ^. posLot)
-        (close ^?! item . _Action . buyOrSell)
+        (close ^?! item . _Entry . buyOrSell)
         ( \_su du ->
             pure
-              [ _Event
+              [ _Entry
                   # _Close
                   # Closing
                     { _closingIdent = o ^. posIdent,
@@ -192,7 +192,7 @@ closePosition open close =
             events . at (open ^?! opening . posIdent)
               ?= (open & opening . posLot .~ sk)
         )
-        (\dk -> pure $ close & item . _Action . buyOrSell .~ dk)
+        (\dk -> pure $ close & item . _Entry . buyOrSell .~ dk)
 
 alignForClose ::
   (Splittable n a, Splittable n b, Applicative m) =>
