@@ -140,7 +140,6 @@ data Position a = Position
   { _posIdent :: Int,
     _posLot :: Lot,
     _posDisp :: Disposition,
-    _posBasis :: Amount 6,
     _posData :: a
   }
   deriving

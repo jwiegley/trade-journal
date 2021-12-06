@@ -57,7 +57,6 @@ printPosition printData Position {..} =
     <> " "
     <> printDisposition _posDisp
     <> " "
-    <> printAmount 2 _posBasis
     <> printData _posData
   where
     printDisposition Long = "long"

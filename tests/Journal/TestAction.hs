@@ -141,11 +141,21 @@ getEntries act = view entries <$> execStateT act newPositions
 instance PrettyVal () where
   prettyVal () = String "()"
 
+data TestExprClose a = TestExprClose
+  { _eClosePosition :: Int,
+    _eCloseLot :: Annotated Lot,
+    _eClosePL :: Amount 6,
+    _eCloseData :: a
+  }
+  deriving (Show, Eq, Generic, PrettyVal, Typeable)
+
+makeLenses ''TestExprClose
+
 data TestExpr a
   = EBuy (Annotated Lot)
   | ESell (Annotated Lot)
   | EOpen (Annotated (Position a))
-  | EClose Int (Annotated Lot) (Amount 6) a
+  | EClose (TestExprClose a)
   deriving (Show, Eq, Generic, PrettyVal, Typeable)
 
 makePrisms ''TestExpr
@@ -159,22 +169,20 @@ eval (EOpen p@(view item -> pos)) = do
   positions . at (pos ^. posIdent) ?= pos
   -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
   entries <>= [Event (Open pos) <$ p]
-eval (EClose n s pl w) = do
+eval (EClose (TestExprClose n s pl w)) = do
   preuse (positions . ix n) >>= \case
     Nothing -> error $ "No open position " ++ show n
     Just pos -> do
       -- traceM $ "read " ++ show n ++ " => " ++ ppShow pos
       let pl' = case pos ^. posDisp of
-            Long -> (s ^. item . price) - (pos ^. posBasis)
-            Short -> (pos ^. posBasis) - (s ^. item . price)
-      liftIO $ assertEqual' "closing gain/less" pl pl'
-      entries
-        <>= [ Event
-                ( Close
-                    (Closing n (s ^. item) w)
-                )
-                <$ s
-            ]
+            Long -> (s ^. item . price) - (pos ^. posLot . price)
+            Short -> (pos ^. posLot . price) - (s ^. item . price)
+      liftIO $
+        assertEqual'
+          ("closing gain/loss for " ++ ppShow pos ++ " and " ++ ppShow s)
+          pl
+          pl'
+      entries <>= [Event (Close (Closing n (s ^. item) w)) <$ s]
       -- entries' <- use entries
       -- traceM $ "entries' = " ++ ppShow entries'
       let pos' = pos & posLot . amount -~ (s ^. item . amount)
@@ -208,7 +216,6 @@ open i disp b =
               { _posIdent = i,
                 _posLot = b ^. item,
                 _posDisp = disp,
-                _posBasis = b ^. item . price,
                 _posData = mempty
               }
               <$ b
@@ -220,7 +227,7 @@ close ::
   Annotated Lot ->
   Amount 6 ->
   TestDSL a ()
-close n b pl = id <>= [EClose n b pl mempty]
+close n b pl = id <>= [EClose (TestExprClose n b pl mempty)]
 
 {--------------------------------------------------------------------------}
 
@@ -233,13 +240,15 @@ checkJournal ::
   TestDSL a () ->
   TestDSL a () ->
   m ()
-checkJournal f journal act actLeft = do
-  journal' <- getEntries (evalDSL journal)
-  entries' <- getEntries (evalDSL act)
-  entriesLeft' <- Closings.positions <$> getEntries (evalDSL actLeft)
-  f (closings FIFO journal')
-    @?== ( entries',
-           case entriesLeft' ^? ix "FOO" of
-             Just _ -> entriesLeft'
-             Nothing -> entriesLeft' & at "FOO" ?~ mempty
-         )
+checkJournal f journal act actLeft =
+  do
+    journal' <- getEntries (evalDSL journal)
+    expectedEntries <- getEntries (evalDSL act)
+    expectedEntriesLeft <- Closings.positions <$> getEntries (evalDSL actLeft)
+    let (entries', entriesLeft') = f (closings FIFO journal')
+        entriesLeft'' = case entriesLeft' ^? ix "FOO" of
+          Just m
+            | IM.null m ->
+              entriesLeft' & at "FOO" .~ Nothing
+          _ -> entriesLeft'
+    (entries', entriesLeft'') @?== (expectedEntries, expectedEntriesLeft)

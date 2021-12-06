@@ -15,13 +15,13 @@ dependencies:
   - bytestring
   - cassava
   - containers
+  - fastsum
   - free
   - lens
   - megaparsec
   - mtl
   - pretty-show
   - simple-amount
-  - tardis
   - text
   - time
   - transformers

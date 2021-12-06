@@ -36,7 +36,7 @@ testWashSaleRule =
             open 2 Long b
             --
             buy b
-            washedFrom Future (-10) $
+            washedFrom Future b (-10) $
               open 3 Long b
             --
             sell $ b & item . price -~ 10
@@ -44,7 +44,7 @@ testWashSaleRule =
               close 1 b (-10)
           do
             open 2 Long b
-            washedFrom Future (-10) $
+            washedFrom Future b (-10) $
               open 3 Long b,
       --
       testRule "buy-sell-buy" $ \runTest b ->
@@ -63,13 +63,13 @@ testWashSaleRule =
               close 1 b (-10)
             --
             buy b
-            washedFrom Past (-10) $
+            washedFrom Past b (-10) $
               open 2 Long b
             --
             buy b
             open 3 Long b
           do
-            washedFrom Past (-10) $
+            washedFrom Past b (-10) $
               open 2 Long b
             open 3 Long b,
       --
@@ -92,14 +92,14 @@ testWashSaleRule =
             close 1 b 0
             --
             buy b
-            washedFrom Future (-10) $
+            washedFrom Future b (-10) $
               open 3 Long b
             --
             sell $ b & item . price -~ 10
             wash Past 3 $
               close 2 b (-10)
           do
-            washedFrom Future (-10) $
+            washedFrom Future b (-10) $
               open 3 Long b,
       --
       testRule "buy-buy2-sell-sell" $ \runTest b -> do
@@ -116,13 +116,15 @@ testWashSaleRule =
             open 1 Long b
             --
             buy b2
-            open 2 Long b2
+            washedFrom Future b (-10) $
+              open 2 Long b2
             --
-            sell b
-            close 1 b 0
+            sell s
+            wash Past 2 $
+              close 1 b (-10)
             --
             sell b2
-            close 2 b2 0
+            close 2 b2 (-10 / 2)
           do
             pure (),
       --
@@ -145,19 +147,26 @@ testWashSaleRule =
             open 2 Long b
             --
             buy b
-            open 3 Long b
+            washedFrom Future b (-10) $
+              open 3 Long b
             --
             sell s2
-            close 1 b 0
-            close 2 b 0
+            wash Past 3 $
+              close 1 b (-10)
+            wash Future 4 $
+              close 2 b (-10)
             --
             buy b
-            open 4 Long b
+            washedFrom Past b (-10) $
+              open 4 Long b
           do
-            pure (),
+            washedFrom Future b (-10) $
+              open 3 Long b
+            washedFrom Past b (-10) $
+              open 4 Long b,
       --
       testRule "buy3-sell2-sell-buy" $ \runTest b -> do
-        let b3 = b & item . amount *~ 2
+        let b3 = b & item . amount *~ 3
         let s2 =
               b & item . amount *~ 2
                 & item . price -~ 10
@@ -172,22 +181,25 @@ testWashSaleRule =
             open 1 Long b3
             --
             sell s2
-            close 1 s2 0
+            wash Future 2 $
+              close 1 s2 (-10)
             --
             sell b
             close 1 b 0
             --
             buy b
-            open 2 Long b
+            washedFrom Past s2 (-10) $
+              open 2 Long b
           do
-            pure (),
+            washedFrom Past s2 (-10) $
+              open 2 Long b,
       --
-      testRule "buy-buy-sell-sell" $ \runTest b ->
+      testRule "buy-buy-sell-sell" $ \runTest b -> do
+        let s = b & item . price -~ 10
         runTest
           do
             buy b
             buy b
-            let s = b & item . price -~ 10
             sell s
             sell s
           do
@@ -195,13 +207,9 @@ testWashSaleRule =
             open 1 Long b
             --
             buy b
-            washedFrom Future (-10) $
+            washedFrom Future b (-10) $
               open 2 Long b
             --
-            let s = b & item . price -~ 10
-            -- sell s
-            -- wash Past 2 $
-            --   close 1 s 0
             sell s
             wash Past 2 $
               close 1 b (-10)
@@ -209,7 +217,7 @@ testWashSaleRule =
             sell s
             close 2 s (-20)
           do
-            pure mempty
+            pure ()
     ]
 
 testRule ::
@@ -235,22 +243,29 @@ testRule name f = testProperty name $
 
 washedFrom ::
   Period ->
+  Annotated Lot ->
   Amount 6 ->
   TestDSL [Washing] () ->
   TestDSL [Washing] ()
-washedFrom period loss (flip execState [] -> [o]) =
+washedFrom period lot loss (flip execState [] -> [o]) =
   id
     <>= [ o & _EOpen . item %~ \pos ->
-            pos
-              & posBasis -~ loss
-              & posData
-                <>~ [ WashedFrom
-                        period
-                        loss
-                        (pos ^. posLot & price +~ loss)
-                    ]
+            let proratedLoss =
+                  ( (loss * lot ^. item . amount)
+                      / (pos ^. posLot . amount)
+                  )
+             in pos
+                  & posLot . price -~ proratedLoss
+                  & posData
+                    <>~ [ WashedFrom
+                            { _washedFromPeriod = period,
+                              _washedFromClosingLot =
+                                lot ^. item & price +~ loss,
+                              _washedFromCostBasis = pos ^. posLot . price
+                            }
+                        ]
         ]
-washedFrom _ _ _ = error "Incorrect use of washedFrom"
+washedFrom _ _ _ _ = error "Incorrect use of washedFrom"
 
 wash ::
   Period ->
@@ -261,7 +276,14 @@ wash period n (flip execState [] -> [c]) =
   id
     <>= [ c & _EClose %~ \cl ->
             cl
-              & _2 . item . price +~ (cl ^. _3)
-              & _4 <>~ [Wash period (cl ^. _3) n]
+              & eCloseLot . item . price +~ (cl ^. eClosePL)
+              & eCloseData
+                <>~ [ Wash
+                        { _washPeriod = period,
+                          _washPositionIdent = n,
+                          _washCostBasis =
+                            cl ^. eCloseLot . item . price
+                        }
+                    ]
         ]
 wash _ _ _ = error "Incorrect use of wash"

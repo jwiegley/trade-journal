@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: cc4be5c15b080ca741949c16102017c9a3a204d4a0ab4b169c91dbe218848adb
+-- hash: 59e04237428289f8016224d845a68d0185ea14581945d9a3bd53aa64bdc1a321
 
 name:           trade-journal
 version:        0.0.2
@@ -42,6 +42,7 @@ library
     , cassava
     , containers
     , data-default
+    , fastsum
     , free
     , lens
     , megaparsec
@@ -51,7 +52,6 @@ library
     , profunctors
     , simple-amount
     , split
-    , tardis
     , text
     , time
     , transformers
@@ -70,6 +70,7 @@ executable trade-journal
     , bytestring
     , cassava
     , containers
+    , fastsum
     , free
     , lens
     , megaparsec
@@ -77,7 +78,6 @@ executable trade-journal
     , optparse-applicative
     , pretty-show
     , simple-amount
-    , tardis
     , text
     , time
     , trade-journal
@@ -92,6 +92,7 @@ test-suite journal-tests
       Closings
       Examples
       TestAction
+      WashSaleRule
       Paths_trade_journal
   hs-source-dirs:
       tests/Journal
@@ -103,6 +104,7 @@ test-suite journal-tests
     , bytestring
     , cassava
     , containers
+    , fastsum
     , free
     , hedgehog
     , here
@@ -111,7 +113,6 @@ test-suite journal-tests
     , mtl
     , pretty-show
     , simple-amount
-    , tardis
     , tasty
     , tasty-hedgehog
     , tasty-hunit
@@ -138,6 +139,7 @@ test-suite thinkorswim-tests
     , bytestring
     , cassava
     , containers
+    , fastsum
     , free
     , hedgehog
     , here
@@ -146,7 +148,6 @@ test-suite thinkorswim-tests
     , mtl
     , pretty-show
     , simple-amount
-    , tardis
     , tasty
     , tasty-hedgehog
     , tasty-hunit

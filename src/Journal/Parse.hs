@@ -116,7 +116,6 @@ parsePosition parseData =
     <$> L.decimal <* whiteSpace
     <*> parseLot
     <*> parseDisposition
-    <*> parseAmount
     <*> parseData
   where
     parseDisposition :: Parser Disposition

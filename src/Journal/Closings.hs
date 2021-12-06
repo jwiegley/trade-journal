@@ -158,7 +158,6 @@ openPosition open = do
                 if has (item . _Action . _Buy) open
                   then Long
                   else Short,
-              _posBasis = lot ^. price,
               _posData = mempty
             }
           <$ open

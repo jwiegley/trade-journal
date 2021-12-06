@@ -20,7 +20,7 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
-import Debug.Trace
+-- import Debug.Trace
 import GHC.Generics
 import Journal.Closings (positionsFromEntry)
 import Journal.Parse
@@ -40,9 +40,17 @@ makePrisms ''Period
 data Washing
   = Exempt
   | WashTo Text (Maybe (Amount 6, Amount 6))
-  | Wash Period (Amount 6) Int
   | WashApply Text (Amount 6) -- per share wash applied
-  | WashedFrom Period (Amount 6) Lot
+  | Wash
+      { _washPeriod :: Period,
+        _washPositionIdent :: Int,
+        _washCostBasis :: Amount 6
+      }
+  | WashedFrom
+      { _washedFromPeriod :: Period,
+        _washedFromClosingLot :: Lot,
+        _washedFromCostBasis :: Amount 6
+      }
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makePrisms ''Washing
@@ -72,20 +80,21 @@ washSaleRule =
     go xs = maybe xs go do
       -- The wash sale rule proceeds by looking for losing sales that haven't
       -- been washed. If there are none, we are done.
-      let (z1, poss) = eligibleClose xs
+      let (z0, poss) = eligibleClose xs
+      z1 <- z0
       x <- z1 ^? focus
       c <- x ^? _2 . closing
-      traceM $ "::: go.x =\n" ++ ppShow x
-      traceM $ "::: go.poss =\n" ++ ppShow poss
-      traceM $ "::: go.z1 prefix =\n" ++ ppShow (z1 ^. prefix)
-      traceM $ "::: go.z1 focus =\n" ++ ppShow (z1 ^? focus)
-      traceM $ "::: go.z1 suffix =\n" ++ ppShow (z1 ^. suffix)
+      -- traceM $ "::: go.x =\n" ++ ppShow x
+      -- traceM $ "::: go.poss =\n" ++ ppShow poss
+      -- traceM $ "::: go.z1 prefix =\n" ++ ppShow (z1 ^. prefix)
+      -- traceM $ "::: go.z1 focus =\n" ++ ppShow (z1 ^? focus)
+      -- traceM $ "::: go.z1 suffix =\n" ++ ppShow (z1 ^. suffix)
 
       -- Once an eligible losing sale is found, we look for an eligible
       -- opening within 30 days before or after that sale. If there isn't one,
       -- or if the following action results in no change to the set of washed
       -- openings, we are done.
-      (z2, xx') <-
+      (z2, x') <-
         flip evalState poss $
           applyToPrefixOrSuffixM
             ( eligibleOpen
@@ -95,16 +104,16 @@ washSaleRule =
             )
             (handleOpen x)
             z1
-      traceM $ "::: go.xx' =\n" ++ ppShow xx'
+      -- traceM $ "::: go.x' =\n" ++ ppShow x'
 
-      let z3 = z2 & focii .~ xx'
+      let z3 = z2 & focus .~ x'
       guard $ z1 /= z3
       pure $ unzippered z3
 
     losses :: Position a -> Closing a -> Amount 6
     losses pos c =
       let p = c ^. closingLot . price
-          b = pos ^. posBasis
+          b = pos ^. posLot . price
        in case pos ^. posDisp of
             Long -> p - b
             Short -> b - p
@@ -112,9 +121,11 @@ washSaleRule =
     eligibleClose ::
       (Monoid a, Eq a, Show a) =>
       [(Bool, Annotated (Entry a))] ->
-      ( Zippered
-          ( Bool,
-            Annotated (Entry a)
+      ( Maybe
+          ( Zippered
+              ( Bool,
+                Annotated (Entry a)
+              )
           ),
         Map Text (IntMap (Annotated (Entry a)))
       )
@@ -122,8 +133,8 @@ washSaleRule =
       flip zipperedM xs $ \(w, x) -> do
         poss <- get
         put $ positionsFromEntry poss x
-        traceM $ "::: eligibleClose.poss =\n" ++ ppShow poss
-        traceM $ "::: eligibleClose.x =\n" ++ ppShow x
+        -- traceM $ "::: eligibleClose.poss =\n" ++ ppShow poss
+        -- traceM $ "::: eligibleClose.x =\n" ++ ppShow x
         pure $
           w && Just True == do
             c <- x ^? closing
@@ -145,16 +156,17 @@ washSaleRule =
       State (Map Text (IntMap (Annotated (Entry a)))) Bool
     eligibleOpen sym ident anchor inPast (w, y) = do
       poss <- get
-      unless inPast $ do
-        traceM $ "::: eligibleOpen.poss =\n" ++ ppShow poss
-        traceM $ "::: eligibleOpen.y =\n" ++ ppShow y
-        put $ positionsFromEntry poss y
+      -- traceM $ "::: eligibleOpen.inPast =\n" ++ ppShow inPast
+      -- traceM $ "::: eligibleOpen.poss =\n" ++ ppShow poss
+      -- traceM $ "::: eligibleOpen.y =\n" ++ ppShow y
+      -- unless inPast $
+      --   put $ positionsFromEntry poss y
       pure $
         w && Just True == do
           o <- y ^? opening
           guard $ o ^. posLot . symbol == sym
           guard $ o ^. posIdent /= ident
-          guard $ isJust (poss ^? ix sym . ix (o ^. posIdent))
+          guard $ not inPast || isJust (poss ^? ix sym . ix (o ^. posIdent))
           guard $ abs (anchor `distance` (y ^. time)) <= 30
           pure True
 
@@ -164,14 +176,14 @@ washSaleRule =
       Zippered (Bool, Annotated (Entry [Washing])) ->
       Maybe
         ( Zippered (Bool, Annotated (Entry [Washing])),
-          [(Bool, Annotated (Entry [Washing]))]
+          (Bool, Annotated (Entry [Washing]))
         )
     handleOpen x inPast part = do
       c <- x ^? _2 . closing
-      traceM $ "::: handleOpen.c =\n" ++ ppShow c
+      -- traceM $ "::: handleOpen.c =\n" ++ ppShow c
       y <- part ^? focus
       o <- y ^? _2 . opening
-      traceM $ "::: handleOpen.o =\n" ++ ppShow o
+      -- traceM $ "::: handleOpen.o =\n" ++ ppShow o
 
       -- jww (2021-12-03): The basis adjustment must be washed into the whole
       -- opening position, not a part; so don't use `alignment` here.
@@ -179,35 +191,37 @@ washSaleRule =
             (losses o c * c ^. closingLot . amount) -- the total loss
               / (o ^. posLot . amount)
           o' =
-            o & posBasis -~ loss -- losses increase cost basis
+            o & posLot . price -~ loss -- losses increase cost basis
               & posData
                 <>~ [ WashedFrom
-                        ( if inPast
-                            then Future
-                            else Past
-                        )
-                        loss
-                        (c ^. closingLot)
+                        { _washedFromPeriod =
+                            if inPast
+                              then Future
+                              else Past,
+                          _washedFromClosingLot = c ^. closingLot,
+                          _washedFromCostBasis = o ^. posLot . price
+                        }
                     ]
           c' =
             c & closingData
               <>~ [ Wash
-                      ( if inPast
-                          then Past
-                          else Future
-                      )
-                      loss
-                      (o' ^. posIdent)
+                      { _washPeriod =
+                          if inPast
+                            then Past
+                            else Future,
+                        _washPositionIdent = o' ^. posIdent,
+                        _washCostBasis = o ^. posLot . price
+                      }
                   ]
       pure
-        ( part & focii .~ [y & _1 .~ False & _2 . opening .~ o'],
-          [x & _1 .~ False & _2 . closing .~ c']
+        ( part & focus .~ (y & _1 .~ False & _2 . opening .~ o'),
+          x & _1 .~ False & _2 . closing .~ c'
         )
 
 printWashing :: Washing -> Either TL.Text TL.Text
 printWashing = \case
-  WashedFrom Past x _ -> Right $ "washed from past " <> printAmount 2 x
-  WashedFrom Future x _ -> Right $ "washed from future " <> printAmount 2 x
+  WashedFrom Past _ x -> Right $ "washed from past " <> printAmount 2 x
+  WashedFrom Future _ x -> Right $ "washed from future " <> printAmount 2 x
   WashTo x (Just (q, p)) ->
     Left $
       "wash "
