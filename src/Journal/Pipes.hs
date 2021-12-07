@@ -1,33 +1,37 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Journal.Pipes where
 
 import Control.Monad.Except
+import Data.Sum
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
-import qualified Journal.Closings as Closings
 import Journal.Print
+import Journal.SumLens
 import Journal.Types
 
-processActions ::
-  (Monoid a, Eq a) =>
-  Closings.Calculation ->
-  ([Annotated (Entry a)] -> [Annotated (Entry a)]) ->
-  (a -> TL.Text) ->
-  [Annotated (Entry a)] ->
+processEntries ::
+  (HasTraversal' HasLot s, Apply Printable s) =>
+  ( [Annotated (Sum r v)] ->
+    [Annotated (Sum s v)]
+  ) ->
+  [Annotated (Sum r v)] ->
   [Text]
-processActions mode handleData printData =
-  printActions printData . handleData . fst . Closings.closings mode
+processEntries handleData = map TL.toStrict . printEntries . handleData
 
 parseProcessPrint ::
-  (Monoid a, Eq a, MonadFail m, MonadIO m) =>
-  Closings.Calculation ->
-  ([Annotated (Entry a)] -> [Annotated (Entry a)]) ->
-  (a -> TL.Text) ->
-  [Annotated (Entry a)] ->
+  ( HasTraversal' HasLot s,
+    Apply Printable s,
+    MonadFail m,
+    MonadIO m
+  ) =>
+  ( [Annotated (Sum r v)] ->
+    [Annotated (Sum s v)]
+  ) ->
+  [Annotated (Sum r v)] ->
   ([Text] -> m ()) ->
   m ()
-parseProcessPrint mode handleData printData entries printer =
-  printer (processActions mode handleData printData entries)
+parseProcessPrint handleData entries printer =
+  printer (processEntries handleData entries)

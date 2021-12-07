@@ -14,8 +14,9 @@ dependencies:
   - base >= 4.5 && < 5.0
   - bytestring
   - cassava
+  - constraints
   - containers
-  - fastsum
+  - fastsum >= 0.2
   - free
   - lens
   - megaparsec
@@ -35,6 +36,7 @@ library:
     - Journal.Pipes
     - Journal.Print
     - Journal.Split
+    - Journal.SumLens
     - Journal.Types
     - Journal.Utils
     - Journal.Zippered

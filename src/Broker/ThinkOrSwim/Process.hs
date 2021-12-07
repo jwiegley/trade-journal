@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Broker.ThinkOrSwim.Process (thinkOrSwimActions) where
+module Broker.ThinkOrSwim.Process (thinkOrSwimEntries) where
 
 import Amount
 import Broker.ThinkOrSwim.Parser
@@ -49,7 +49,7 @@ entryParse xact =
 entryToAction ::
   TOSTransaction ->
   TOSEntry ->
-  Either String (Annotated (Entry a))
+  Either String (Annotated Entry)
 entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
@@ -146,18 +146,18 @@ entryToAction xact = \case
 xactAction ::
   TOSTransaction ->
   Amount 2 ->
-  Either String (Annotated (Entry a))
+  Either String (Annotated Entry)
 xactAction xact bal = do
   ent <- left show $ entryParse xact
   x <- entryToAction xact ent
-  assert (netAmount x == xact ^. xactAmount) $
+  assert (sum (x ^.. netAmount) == xact ^. xactAmount) $
     assert (bal == xact ^. xactBalance) $
       pure x
 
-thinkOrSwimActions ::
+thinkOrSwimEntries ::
   ThinkOrSwim ->
-  [Annotated (Entry a)]
-thinkOrSwimActions tos =
+  [Annotated Entry]
+thinkOrSwimEntries tos =
   concatMap
     ( \case
         Left err -> trace err []

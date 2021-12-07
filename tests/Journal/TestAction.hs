@@ -2,13 +2,19 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds -Wno-orphans #-}
 
@@ -25,6 +31,7 @@ import qualified Data.IntMap as IM
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Ratio
+import Data.Sum
 import Data.Text (Text)
 import Data.Time
 import Data.Typeable
@@ -36,6 +43,7 @@ import qualified Hedgehog.Range as Range
 import Journal.Closings hiding (positions)
 import qualified Journal.Closings as Closings
 import Journal.Pipes ()
+import Journal.SumLens
 import Journal.Types
 import Test.HUnit.Lang (FailureReason (..))
 import Test.Tasty.HUnit
@@ -125,51 +133,53 @@ instance (PrettyVal a, PrettyVal b) => PrettyVal (Map a b) where
 instance PrettyVal a => PrettyVal (IntMap a) where
   prettyVal = Con "IntMap.fromList" . map prettyVal . IM.assocs
 
-data Positions a = Positions
-  { _positions :: IntMap (Position a),
-    _entries :: [Annotated (Entry a)]
+data Positions r = Positions
+  { _positions :: IntMap Position,
+    _entries :: [Annotated (Sum r ())]
   }
 
-newPositions :: Positions a
+newPositions :: Positions r
 newPositions = Positions mempty mempty
 
 makeLenses ''Positions
 
-getEntries :: MonadIO m => StateT (Positions a) m r -> m [Annotated (Entry a)]
+getEntries :: MonadIO m => StateT (Positions r) m a -> m [Annotated (Sum r ())]
 getEntries act = view entries <$> execStateT act newPositions
 
 instance PrettyVal () where
   prettyVal () = String "()"
 
-data TestExprClose a = TestExprClose
+data TestExprClose = TestExprClose
   { _eClosePosition :: Int,
     _eCloseLot :: Annotated Lot,
-    _eClosePL :: Amount 6,
-    _eCloseData :: a
+    _eClosePL :: Amount 6
   }
   deriving (Show, Eq, Generic, PrettyVal, Typeable)
 
 makeLenses ''TestExprClose
 
-data TestExpr a
-  = EBuy (Annotated Lot)
-  | ESell (Annotated Lot)
-  | EOpen (Annotated (Position a))
-  | EClose (TestExprClose a)
-  deriving (Show, Eq, Generic, PrettyVal, Typeable)
+data TestExpr r
+  = Const Entry :< r => EBuy (Annotated Lot)
+  | Const Entry :< r => ESell (Annotated Lot)
+  | Const PositionEvent :< r => EOpen (Annotated Position)
+  | Const PositionEvent :< r => EClose TestExprClose
+
+deriving instance Show (TestExpr r)
+
+-- Eq, Generic, PrettyVal)
 
 makePrisms ''TestExpr
 
-type TestDSL a = State [TestExpr a]
+type TestDSL r = State [TestExpr r]
 
-eval :: (Show a, MonadIO m) => TestExpr a -> StateT (Positions a) m ()
-eval (EBuy b) = entries <>= [Buy <$> b]
-eval (ESell s) = entries <>= [Sell <$> s]
+eval :: MonadIO m => TestExpr r -> StateT (Positions r) m ()
+eval (EBuy b) = entries <>= [(projectedC . _Buy #) <$> b]
+eval (ESell s) = entries <>= [(projectedC . _Sell #) <$> s]
 eval (EOpen p@(view item -> pos)) = do
   positions . at (pos ^. posIdent) ?= pos
   -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
-  entries <>= [Open pos <$ p]
-eval (EClose (TestExprClose n s pl w)) = do
+  entries <>= [projectedC . _Open # pos <$ p]
+eval (EClose (TestExprClose n s pl)) = do
   preuse (positions . ix n) >>= \case
     Nothing -> error $ "No open position " ++ show n
     Just pos -> do
@@ -182,7 +192,7 @@ eval (EClose (TestExprClose n s pl w)) = do
           ("closing gain/loss for " ++ ppShow pos ++ " and " ++ ppShow s)
           pl
           pl'
-      entries <>= [Close (Closing n (s ^. item) w) <$ s]
+      entries <>= [projectedC . _Close # Closing n (s ^. item) <$ s]
       -- entries' <- use entries
       -- traceM $ "entries' = " ++ ppShow entries'
       let pos' = pos & posLot . amount -~ (s ^. item . amount)
@@ -194,55 +204,77 @@ eval (EClose (TestExprClose n s pl w)) = do
             then positions . at n .= Nothing
             else positions . at n ?= pos'
 
-evalDSL :: (Show a, MonadIO m) => TestDSL a () -> StateT (Positions a) m ()
+evalDSL :: MonadIO m => TestDSL r () -> StateT (Positions r) m ()
 evalDSL = mapM_ TestAction.eval . flip execState []
 
-buy :: Annotated Lot -> TestDSL a ()
+buy :: Const Entry :< r => Annotated Lot -> TestDSL r ()
 buy b = id <>= [EBuy b]
 
-sell :: Annotated Lot -> TestDSL a ()
+sell :: Const Entry :< r => Annotated Lot -> TestDSL r ()
 sell s = id <>= [ESell s]
 
 open ::
-  Monoid a =>
+  Const PositionEvent :< r =>
   Int ->
   Disposition ->
   Annotated Lot ->
-  TestDSL a ()
+  TestDSL r ()
 open i disp b =
   id
     <>= [ EOpen $
             Position
               { _posIdent = i,
                 _posLot = b ^. item,
-                _posDisp = disp,
-                _posData = mempty
+                _posDisp = disp
               }
               <$ b
         ]
 
 close ::
-  Monoid a =>
+  Const PositionEvent :< r =>
   Int ->
   Annotated Lot ->
   Amount 6 ->
-  TestDSL a ()
-close n b pl = id <>= [EClose (TestExprClose n b pl mempty)]
+  TestDSL r ()
+close n b pl = id <>= [EClose (TestExprClose n b pl)]
 
 {--------------------------------------------------------------------------}
 
+class PrettyVal1 f where
+  liftPrettyVal :: (a -> Value) -> f a -> Value
+
+instance PrettyVal e => PrettyVal1 (Const e) where
+  liftPrettyVal _ (Const x) = prettyVal x
+
+instance Apply PrettyVal1 fs => PrettyVal1 (Sum fs) where
+  liftPrettyVal f = apply @PrettyVal1 (liftPrettyVal f)
+
+instance (Apply PrettyVal1 t, PrettyVal v) => PrettyVal (Sum t v) where
+  prettyVal = liftPrettyVal prettyVal
+
 checkJournal ::
-  (Monoid a, Eq a, Show a, PrettyVal a, MonadIO m) =>
-  ( ([Annotated (Entry a)], Map Text (IntMap (Annotated (Entry a)))) ->
-    ([Annotated (Entry a)], Map Text (IntMap (Annotated (Entry a))))
+  forall s m.
+  ( Const Entry :< s,
+    Const PositionEvent :< s,
+    Apply Show1 s,
+    Apply Eq1 s,
+    Apply PrettyVal1 s,
+    MonadIO m
+  ) =>
+  ( ( [Annotated (Sum '[Const PositionEvent, Const Entry] ())],
+      Map Text (IntMap (Annotated (Sum '[Const PositionEvent, Const Entry] ())))
+    ) ->
+    ( [Annotated (Sum s ())],
+      Map Text (IntMap (Annotated (Sum s ())))
+    )
   ) ->
-  TestDSL a () ->
-  TestDSL a () ->
-  TestDSL a () ->
+  TestDSL '[Const Entry] () ->
+  TestDSL s () ->
+  TestDSL s () ->
   m ()
 checkJournal f journal act actLeft =
   do
-    journal' <- getEntries (evalDSL journal)
+    (journal' :: [Annotated (Sum r ())]) <- getEntries (evalDSL journal)
     expectedEntries <- getEntries (evalDSL act)
     expectedEntriesLeft <- Closings.positions <$> getEntries (evalDSL actLeft)
     let (entries', entriesLeft') = f (closings FIFO journal')

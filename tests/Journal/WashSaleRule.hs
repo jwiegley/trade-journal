@@ -8,9 +8,11 @@ import Amount
 import Control.Arrow
 import Control.Lens
 import Control.Monad.State
+import Data.Sum
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import Journal.Closings
+import Journal.SumLens
 import Journal.Types
 import Taxes.USA.WashSaleRule
 import Test.Tasty
@@ -224,9 +226,9 @@ testWashSaleRule =
 
 testRule ::
   String ->
-  ( ( TestDSL [Washing] () ->
-      TestDSL [Washing] () ->
-      TestDSL [Washing] () ->
+  ( ( TestDSL '[Const Entry] () ->
+      TestDSL '[Const Washing, Const PositionEvent, Const Entry] () ->
+      TestDSL '[Const Washing, Const PositionEvent, Const Entry] () ->
       PropertyT IO ()
     ) ->
     Annotated Lot ->
@@ -246,45 +248,45 @@ testRule name f = testProperty name $
 wash ::
   Period ->
   Int ->
-  TestDSL [Washing] () ->
-  TestDSL [Washing] ()
-wash period n (flip execState [] -> [c]) =
-  id
-    <>= [ c & _EClose %~ \cl ->
-            cl
-              & eCloseData
-                <>~ [ Wash
-                        { _washPeriod = period,
-                          _washPositionIdent = n,
-                          _washCostBasis =
-                            cl ^. eCloseLot . item . price
-                              - cl ^. eClosePL
-                        }
-                    ]
-        ]
+  TestDSL '[Const PositionEvent, Const Entry] () ->
+  TestDSL '[Const Washing, Const PositionEvent, Const Entry] ()
+wash period n (flip execState [] -> [c]) = undefined
+-- id
+--   <>= [ c & projectedC . _EClose %~ \cl ->
+--           cl
+--             & eCloseData
+--               <>~ [ Wash
+--                       { _washPeriod = period,
+--                         _washPositionIdent = n,
+--                         _washCostBasis =
+--                           cl ^. eCloseLot . item . price
+--                             - cl ^. eClosePL
+--                       }
+--                   ]
+--       ]
 wash _ _ _ = error "Incorrect use of wash"
 
 washedFrom ::
   Period ->
   Annotated Lot ->
   Amount 6 ->
-  TestDSL [Washing] () ->
-  TestDSL [Washing] ()
-washedFrom period lot loss (flip execState [] -> [o]) =
-  id
-    <>= [ o & _EOpen . item %~ \pos ->
-            let proratedLoss =
-                  ( (loss * lot ^. item . amount)
-                      / (pos ^. posLot . amount)
-                  )
-             in pos
-                  & posLot . price -~ proratedLoss
-                  & posData
-                    <>~ [ WashedFrom
-                            { _washedFromPeriod = period,
-                              _washedFromClosingLot = lot ^. item,
-                              _washedFromCostBasis = pos ^. posLot . price
-                            }
-                        ]
-        ]
+  TestDSL '[Const PositionEvent, Const Entry] () ->
+  TestDSL '[Const Washing, Const PositionEvent, Const Entry] ()
+washedFrom period lot loss (flip execState [] -> [o]) = undefined
+-- id
+--   <>= [ o & _EOpen . item %~ \pos ->
+--           let proratedLoss =
+--                 ( (loss * lot ^. item . amount)
+--                     / (pos ^. posLot . amount)
+--                 )
+--            in pos
+--                 & posLot . price -~ proratedLoss
+--                 & posData
+--                   <>~ [ WashedFrom
+--                           { _washedFromPeriod = period,
+--                             _washedFromClosingLot = lot ^. item,
+--                             _washedFromCostBasis = pos ^. posLot . price
+--                           }
+--                       ]
+--       ]
 washedFrom _ _ _ _ = error "Incorrect use of washedFrom"

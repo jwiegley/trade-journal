@@ -1,5 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Journal.Utils where
 
@@ -12,6 +14,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 import Data.Coerce
 import Data.Foldable
+import Data.Sum
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time
@@ -145,3 +148,7 @@ splitOn s f =
     . conjoined traverse (indexing traverse) f
     . T.splitOn s
 {-# INLINE splitOn #-}
+
+liftTraversal :: (Const e :< r) => Traversal' e a -> Traversal' (Sum r v) a
+liftTraversal tr f (project -> Just (Const e)) = inject . Const <$> tr f e
+liftTraversal _ _ s = pure s

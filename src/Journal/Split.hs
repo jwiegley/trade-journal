@@ -12,6 +12,7 @@ module Journal.Split where
 import Control.Arrow (first)
 import Control.Exception (assert)
 import Control.Lens
+import Control.Monad
 import Data.Default
 import Data.List (foldl')
 import Data.Maybe (isNothing)
@@ -134,6 +135,15 @@ alignment ::
   b ->
   (Maybe (a, b), Remainder (Either a b))
 alignment a b = runIdentity $ alignedA a b (curry pure) pure pure
+
+untilDone :: Monad m => (a -> m ([b], Remainder a)) -> a -> m [b]
+untilDone f = go
+  where
+    go =
+      f >=> \(results, remaining) ->
+        case remaining of
+          Finished -> pure results
+          Remainder r -> (results ++) <$> go r
 
 data Applied v a b = Applied
   { _value :: v,

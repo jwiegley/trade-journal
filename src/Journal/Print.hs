@@ -1,9 +1,12 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Journal.Print where
 
@@ -13,53 +16,43 @@ import Data.Char
 import Data.Either
 import Data.List (intersperse, sort)
 import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Sum
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
+import Journal.SumLens
 import Journal.Types
 
-printActions :: (a -> Text) -> [Annotated (Entry a)] -> [T.Text]
-printActions printData = map $ \x ->
-  TL.toStrict $
-    ( case x ^? time of
-        Just t -> printTime t <> " "
-        Nothing -> ""
-    )
-      <> printEntry printData (x ^. item)
-      <> case printAnnotated x (x ^? item . _Lot) of
-        "" -> ""
-        anns -> " " <> anns
+class Printable f where
+  printItem :: f v -> Text
+
+instance Apply Printable fs => Printable (Sum fs) where
+  printItem s = s ^. applied @Printable printItem
+
+printEntries ::
+  (HasTraversal' HasLot r, Apply Printable r) =>
+  [Annotated (Sum r v)] ->
+  [Text]
+printEntries = map $ \x ->
+  ( case x ^? time of
+      Just t -> printTime t <> " "
+      Nothing -> ""
+  )
+    <> printItem (x ^. item)
+    <> case printAnnotated x (x ^? item . traversing @HasLot _Lot) of
+      "" -> ""
+      anns -> " " <> anns
+
+instance Printable (Const Entry) where
+  printItem = printEntry . getConst
 
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
 
-printPosition :: (a -> Text) -> Position a -> Text
-printPosition printData Position {..} =
-  TL.pack (show _posIdent)
-    <> " "
-    <> printLot _posLot
-    <> " "
-    <> printDisposition _posDisp
-    <> " "
-    <> printData _posData
-  where
-    printDisposition Long = "long"
-    printDisposition Short = "short"
-
-printClosing :: (a -> Text) -> Closing a -> Text
-printClosing printData Closing {..} =
-  TL.concat $
-    intersperse
-      " "
-      [ TL.pack (show _closingIdent),
-        printLot _closingLot,
-        printData _closingData
-      ]
-
-printEntry :: (a -> Text) -> Entry a -> Text
-printEntry printData = \case
+printEntry :: Entry -> Text
+printEntry = \case
   Deposit amt -> "deposit " <> printAmount 2 amt
   Withdraw amt -> "withdraw " <> printAmount 2 amt
   Buy lot -> "buy " <> printLot lot
@@ -67,8 +60,8 @@ printEntry printData = \case
   TransferIn lot -> "xferin " <> printLot lot
   TransferOut lot -> "xferout " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot
-  Open pos -> "open " <> printPosition printData pos
-  Close cl -> "close " <> printClosing printData cl
+  -- Open pos -> "open " <> printPosition pos
+  -- Close cl -> "close " <> printClosing cl
   Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
   Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 59e04237428289f8016224d845a68d0185ea14581945d9a3bd53aa64bdc1a321
+-- hash: b89930203f5888a0bdd5c6347c4057e52268e81bfaf72c99f2b47d4eba5be9ed
 
 name:           trade-journal
 version:        0.0.2
@@ -22,6 +22,7 @@ library
       Journal.Pipes
       Journal.Print
       Journal.Split
+      Journal.SumLens
       Journal.Types
       Journal.Utils
       Journal.Zippered
@@ -40,6 +41,7 @@ library
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , constraints
     , containers
     , data-default
     , fastsum
@@ -69,6 +71,7 @@ executable trade-journal
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , constraints
     , containers
     , fastsum
     , free
@@ -103,6 +106,7 @@ test-suite journal-tests
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , constraints
     , containers
     , fastsum
     , free
@@ -138,6 +142,7 @@ test-suite thinkorswim-tests
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , constraints
     , containers
     , fastsum
     , free

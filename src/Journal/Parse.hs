@@ -43,24 +43,22 @@ lexeme p = p <* whiteSpace
 keyword :: Text -> Parser Text
 keyword = lexeme . string
 
-parseActionsAndEvents ::
+parseEntries ::
   (MonadFail m, MonadIO m) =>
-  Parser a ->
   FilePath ->
-  m [Annotated (Entry a)]
-parseActionsAndEvents parseData path = do
+  m [Annotated Entry]
+parseEntries path = do
   input <- liftIO $ TL.readFile path
-  parseActionsAndEventsFromText parseData path input
+  parseEntriesFromText path input
 
-parseActionsAndEventsFromText ::
+parseEntriesFromText ::
   MonadFail m =>
-  Parser a ->
   FilePath ->
   Text ->
-  m [Annotated (Entry a)]
-parseActionsAndEventsFromText parseData path input =
+  m [Annotated Entry]
+parseEntriesFromText path input =
   case parse
-    ( many (whiteSpace *> parseAnnotatedActionOrEvent parseData)
+    ( many (whiteSpace *> parseAnnotatedEntry)
         <* eof
     )
     path
@@ -68,16 +66,16 @@ parseActionsAndEventsFromText parseData path input =
     Left e -> fail $ errorBundlePretty e
     Right res -> pure res
 
-parseAnnotatedActionOrEvent :: Parser a -> Parser (Annotated (Entry a))
-parseAnnotatedActionOrEvent parseData = do
+parseAnnotatedEntry :: Parser (Annotated Entry)
+parseAnnotatedEntry = do
   _time <- Journal.Parse.parseTime
-  _item <- parseEntry parseData
+  _item <- parseEntry
   _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
     Annotated {..}
       & details . traverse . failing _Fees _Commission
-        //~ (_item ^?! _Lot . amount)
+        //~ (_item ^?! _EntryLot . amount)
 
 quotedString :: Parser T.Text
 quotedString = identPQuoted <&> T.pack
@@ -100,30 +98,8 @@ quotedString = identPQuoted <&> T.pack
             _ <- char '"'
             return $ concat strings
 
-parsePosition :: Parser a -> Parser (Position a)
-parsePosition parseData =
-  Position
-    <$> L.decimal <* whiteSpace
-    <*> parseLot
-    <*> parseDisposition
-    <*> parseData
-  where
-    parseDisposition :: Parser Disposition
-    parseDisposition =
-      Long <$ keyword "long"
-        <|> Short <$ keyword "short"
-
--- jww (2021-12-03): A closing should display what it's closing the open
--- position to, for example: FOO 100 @ <basis> -> 50.
-parseClosing :: Parser a -> Parser (Closing a)
-parseClosing parseData =
-  Closing
-    <$> (L.decimal <* whiteSpace)
-    <*> parseLot
-    <*> parseData
-
-parseEntry :: Parser a -> Parser (Entry a)
-parseEntry parseData =
+parseEntry :: Parser Entry
+parseEntry =
   keyword "deposit" *> (Deposit <$> parseAmount)
     <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
     <|> keyword "buy" *> (Buy <$> parseLot)
@@ -131,8 +107,8 @@ parseEntry parseData =
     <|> keyword "xferin" *> (TransferIn <$> parseLot)
     <|> keyword "xferout" *> (TransferOut <$> parseLot)
     <|> keyword "exercise" *> (Exercise <$> parseLot)
-    <|> keyword "open" *> (Open <$> parsePosition parseData)
-    <|> keyword "close" *> (Close <$> parseClosing parseData)
+    -- <|> keyword "open" *> (Open <$> parsePosition parseData)
+    -- <|> keyword "close" *> (Close <$> parseClosing parseData)
     <|> keyword "assign" *> (Assign <$> parseLot)
     <|> keyword "expire" *> (Expire <$> parseLot)
     <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)

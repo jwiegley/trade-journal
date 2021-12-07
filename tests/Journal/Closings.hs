@@ -1,10 +1,11 @@
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
 
 module Closings where
 
 import Control.Lens hiding (each)
 import Hedgehog hiding (Action)
+import Journal.Closings
 import Journal.Types
 import Test.Tasty
 import Test.Tasty.Hedgehog
@@ -17,7 +18,7 @@ testClosings =
     [ testProperty "buy-buy-buy" $
         property $ do
           b <- forAll $ genAnnotated genLot
-          checkJournal @()
+          checkJournal
             id
             do
               buy b
@@ -38,7 +39,7 @@ testClosings =
       testProperty "buy-buy-buy-sell-sell-sell" $
         property $ do
           b <- forAll $ genAnnotated genLot
-          checkJournal @()
+          checkJournal
             id
             do
               buy b
@@ -67,7 +68,7 @@ testClosings =
         property $ do
           b <- forAll $ genAnnotated genLot
           let b2 = b & item . amount *~ 2
-          checkJournal @()
+          checkJournal
             id
             do
               buy b
@@ -91,7 +92,7 @@ testClosings =
         property $ do
           b <- forAll $ genAnnotated genLot
           let b3 = b & item . amount *~ 3
-          checkJournal @()
+          checkJournal
             id
             do
               buy b
@@ -116,7 +117,7 @@ testClosings =
         property $ do
           b <- forAll $ genAnnotated genLot
           let b4 = b & item . amount *~ 4
-          checkJournal @()
+          checkJournal
             id
             do
               buy b
@@ -142,7 +143,7 @@ testClosings =
         property $ do
           b <- forAll $ genAnnotated genLot
           let b2 = b & item . amount *~ 2
-          checkJournal @()
+          checkJournal
             id
             do
               buy b2
@@ -159,7 +160,7 @@ testClosings =
         property $ do
           b <- forAll $ genAnnotated genLot
           let b2 = b & item . amount *~ 2
-          checkJournal @()
+          checkJournal
             id
             do
               buy b2
@@ -178,7 +179,7 @@ testClosings =
       testProperty "sell-sell-sell" $
         property $ do
           s <- forAll $ genAnnotated genLot
-          checkJournal @()
+          checkJournal
             id
             do
               sell s

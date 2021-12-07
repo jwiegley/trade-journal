@@ -19,8 +19,13 @@ in haskellPackages.developPackage rec {
   name = "haskell-${compiler}-trade-journal";
   root = ./.;
 
-  source-overrides = {};
+  source-overrides = {
+    fastsum = "0.2.0";
+  };
   overrides = self: super: with pkgs.haskell.lib; {
+    fastsum = import ../fastsum {
+      inherit pkgs; returnShellEnv = false;
+    };
     simple-amount = import ../simple-amount {
       inherit pkgs; returnShellEnv = false;
     };
@@ -35,6 +40,12 @@ in haskellPackages.developPackage rec {
       haskellPackages.ghcid
       haskellPackages.ormolu
       haskellPackages.haskell-language-server
+    ];
+
+    libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [
+      (import ../fastsum {
+        inherit pkgs; returnShellEnv = false;
+      })
     ];
 
     passthru = {

@@ -2,10 +2,16 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Journal.Types where
@@ -13,12 +19,14 @@ module Journal.Types where
 import Amount
 import Control.Applicative
 import Control.Lens
+import Data.Sum
 import Data.Text (Text)
 import Data.Time
 import Data.Time.Format.ISO8601
 import GHC.Generics hiding (to)
 import GHC.TypeLits
 import Journal.Split
+import Journal.SumLens
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
@@ -71,62 +79,26 @@ totaled lot n = lot ^. amount . coerced * n
 fees :: Traversal' (Annotated a) (Amount 6)
 fees = details . traverse . failing _Fees _Commission
 
-data Disposition = Long | Short
-  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
-
-data Position a = Position
-  { _posIdent :: Int,
-    _posLot :: Lot,
-    _posDisp :: Disposition,
-    _posData :: a
-  }
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      PrettyVal
-    )
-
-data Closing a = Closing
-  { _closingIdent :: Int,
-    _closingLot :: Lot,
-    _closingData :: a
-  }
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      PrettyVal
-    )
-
-makeLenses ''Position
-makeLenses ''Closing
-
-instance Splittable (Amount 6) (Position a) where
-  howmuch = posLot . amount
-
 -- | An Event represents "internal events" that occur within an account,
 -- either directly due to the actions above, or indirectly because of other
 -- factors.
---
--- jww (2021-11-30): It may need to be Event f, with Open (f Position) in
--- order to support wash sale rule without encoding it here.
-data Entry a
+data Entry
   = Deposit (Amount 2) -- deposit money into the account
   | Withdraw (Amount 2) -- withdraw money from the account
+  --
   | Buy Lot -- buy securities using money in the account
   | Sell Lot -- sell securities for a loss or gain
+  --
   | TransferIn Lot -- buy securities using money in the account
   | TransferOut Lot -- sell securities for a loss or gain
+  --
   | Exercise Lot -- exercise a long options position
-  | Open (Position a)
-  | Close (Closing a)
   | Assign Lot -- assignment of a short options position
   | Expire Lot -- expiration of a short options position
+  --
   | Dividend (Amount 2) Lot -- dividend paid on a long position
   | Interest (Amount 2) (Maybe Text) -- interest earned
+  --
   | Income (Amount 2) -- taxable income earned
   | Credit (Amount 2) -- account credit received
   deriving
@@ -138,29 +110,17 @@ data Entry a
 
 makePrisms ''Entry
 
-buyOrSell :: Traversal' (Entry a) Lot
+buyOrSell :: Traversal' Entry Lot
 buyOrSell = failing _Buy _Sell
 
-mapEntry :: (Lot -> Lot) -> Entry a -> Entry a
-mapEntry f = \case
-  Deposit amt -> Deposit amt
-  Withdraw amt -> Withdraw amt
-  Buy lot -> Buy (f lot)
-  Sell lot -> Sell (f lot)
-  TransferIn lot -> TransferIn (f lot)
-  TransferOut lot -> TransferOut (f lot)
-  Exercise lot -> Exercise (f lot)
-  Open pos -> Open (pos & posLot %~ f)
-  Close cl -> Close (cl & closingLot %~ f)
-  Assign lot -> Assign (f lot)
-  Expire lot -> Expire (f lot)
-  Dividend amt lot -> Dividend amt (f lot)
-  Interest amt sym -> Interest amt sym
-  Income amt -> Income amt
-  Credit amt -> Credit amt
+class HasLot f where
+  _Lot :: Traversal' (f v) Lot
 
-_Lot :: Traversal' (Entry a) Lot
-_Lot f = \case
+instance HasTraversal' HasLot fs => HasLot (Sum fs) where
+  _Lot = traversing @HasLot _Lot
+
+_EntryLot :: Traversal' Entry Lot
+_EntryLot f = \case
   Deposit amt -> pure $ Deposit amt
   Withdraw amt -> pure $ Withdraw amt
   Buy lot -> Buy <$> f lot
@@ -168,8 +128,6 @@ _Lot f = \case
   TransferIn lot -> TransferIn <$> f lot
   TransferOut lot -> TransferOut <$> f lot
   Exercise lot -> Exercise <$> f lot
-  Open pos -> Open <$> (pos & posLot %%~ f)
-  Close cl -> Close <$> (cl & closingLot %%~ f)
   Assign lot -> Assign <$> f lot
   Expire lot -> Expire <$> f lot
   Dividend amt lot -> Dividend amt <$> f lot
@@ -177,47 +135,41 @@ _Lot f = \case
   Income amt -> pure $ Income amt
   Credit amt -> pure $ Credit amt
 
+instance HasLot (Const Entry) where
+  _Lot f (Const s) = fmap Const $ s & _EntryLot %%~ f
+
 -- | The 'netAmount' indicates the exact effect on account balance this action
 -- represents.
-netAmount :: Annotated (Entry a) -> Amount 2
-netAmount ann = case ann ^. item of
-  Deposit amt -> amt
-  Withdraw amt -> - amt
+netAmount :: Fold (Annotated Entry) (Amount 2)
+netAmount f ann = case ann ^. item of
+  Deposit amt -> (<$ ann) . Deposit <$> f amt
+  Withdraw amt -> (<$ ann) . Deposit <$> f (- amt)
   Buy lot ->
-    - totaled
-      lot
-      (lot ^. price + sum (ann ^.. fees))
-      ^. coerced
+    (<$ ann) . Deposit
+      <$> f
+        ( - totaled
+            lot
+            (lot ^. price + sum (ann ^.. fees))
+            ^. coerced
+        )
   Sell lot ->
-    totaled
-      lot
-      (lot ^. price - sum (ann ^.. fees))
-      ^. coerced
-  TransferIn lot -> - totaled lot (lot ^. price + sum (ann ^.. fees)) ^. coerced
-  TransferOut lot -> totaled lot (lot ^. price - sum (ann ^.. fees)) ^. coerced
-  Exercise _lot -> 0 -- jww (2021-06-12): NYI
-  Open pos
-    | pos ^. posDisp == Long ->
-      - totaled
-        (pos ^. posLot)
-        (pos ^. posLot . price + sum (ann ^.. fees))
-        ^. coerced
-  Open pos
-    | pos ^. posDisp == Short ->
-      totaled
-        (pos ^. posLot)
-        (pos ^. posLot . price - sum (ann ^.. fees))
-        ^. coerced
-  Close cl -> undefined
-  Assign _lot -> 0 -- jww (2021-06-12): NYI
-  Expire _lot -> 0
-  Dividend amt _lot -> amt
-  Interest amt _sym -> amt
-  Income amt -> amt
-  Credit amt -> amt
-
-opening :: Traversal' (Annotated (Entry a)) (Position a)
-opening = item . _Open
-
-closing :: Traversal' (Annotated (Entry a)) (Closing a)
-closing = item . _Close
+    (<$ ann) . Deposit
+      <$> f
+        ( totaled
+            lot
+            (lot ^. price - sum (ann ^.. fees))
+            ^. coerced
+        )
+  TransferIn lot ->
+    (<$ ann) . Deposit
+      <$> f (- totaled lot (lot ^. price + sum (ann ^.. fees)) ^. coerced)
+  TransferOut lot ->
+    (<$ ann) . Deposit
+      <$> f (totaled lot (lot ^. price - sum (ann ^.. fees)) ^. coerced)
+  Exercise _lot -> (<$ ann) . Deposit <$> f 0 -- jww (2021-06-12): NYI
+  Assign _lot -> (<$ ann) . Deposit <$> f 0 -- jww (2021-06-12): NYI
+  Expire _lot -> (<$ ann) . Deposit <$> f 0
+  Dividend amt _lot -> (<$ ann) . Deposit <$> f amt
+  Interest amt _sym -> (<$ ann) . Deposit <$> f amt
+  Income amt -> (<$ ann) . Deposit <$> f amt
+  Credit amt -> (<$ ann) . Deposit <$> f amt
