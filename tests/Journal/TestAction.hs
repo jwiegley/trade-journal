@@ -45,6 +45,7 @@ import qualified Journal.Closings as Closings
 import Journal.Pipes ()
 import Journal.SumLens
 import Journal.Types
+import Taxes.USA.WashSaleRule
 import Test.HUnit.Lang (FailureReason (..))
 import Test.Tasty.HUnit
 import Text.Show.Pretty hiding (Time)
@@ -159,43 +160,40 @@ data TestExprClose = TestExprClose
 makeLenses ''TestExprClose
 
 data TestExpr r
-  = Const Entry :< r => EBuy (Annotated Lot)
-  | Const Entry :< r => ESell (Annotated Lot)
-  | Const PositionEvent :< r => EOpen (Annotated Position)
-  | Const PositionEvent :< r => EClose TestExprClose
+  = Const Entry :< r => AnEntry (Annotated Entry)
+  | Const PositionEvent :< r => APositionEvent (Annotated PositionEvent)
+  | Const Washing :< r => AWashing (Annotated Washing)
 
 deriving instance Show (TestExpr r)
-
--- Eq, Generic, PrettyVal)
 
 makePrisms ''TestExpr
 
 type TestDSL r = State [TestExpr r]
 
 eval :: MonadIO m => TestExpr r -> StateT (Positions r) m ()
-eval (EBuy b) = entries <>= [(projectedC . _Buy #) <$> b]
-eval (ESell s) = entries <>= [(projectedC . _Sell #) <$> s]
-eval (EOpen p@(view item -> pos)) = do
+eval (AnEntry b) = entries <>= [(projectedC #) <$> b]
+eval (AWashing w) = entries <>= [(projectedC #) <$> w]
+eval (APositionEvent p@(view item -> Open pos)) = do
   positions . at (pos ^. posIdent) ?= pos
   -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
-  entries <>= [projectedC . _Open # pos <$ p]
-eval (EClose (TestExprClose n s pl)) = do
+  entries <>= [(projectedC #) <$> p]
+eval (APositionEvent c@(view item -> Close (Closing n s))) = do
   preuse (positions . ix n) >>= \case
     Nothing -> error $ "No open position " ++ show n
     Just pos -> do
       -- traceM $ "read " ++ show n ++ " => " ++ ppShow pos
-      let pl' = case pos ^. posDisp of
-            Long -> (s ^. item . price) - (pos ^. posLot . price)
-            Short -> (pos ^. posLot . price) - (s ^. item . price)
-      liftIO $
-        assertEqual'
-          ("closing gain/loss for " ++ ppShow pos ++ " and " ++ ppShow s)
-          pl
-          pl'
-      entries <>= [projectedC . _Close # Closing n (s ^. item) <$ s]
+      -- let pl' = case pos ^. posDisp of
+      --       Long -> (s ^. item . price) - (pos ^. posLot . price)
+      --       Short -> (pos ^. posLot . price) - (s ^. item . price)
+      -- liftIO $
+      --   assertEqual'
+      --     ("closing gain/loss for " ++ ppShow pos ++ " and " ++ ppShow s)
+      --     pl
+      --     pl'
+      entries <>= [(projectedC #) <$> c]
       -- entries' <- use entries
       -- traceM $ "entries' = " ++ ppShow entries'
-      let pos' = pos & posLot . amount -~ (s ^. item . amount)
+      let pos' = pos & posLot . amount -~ (s ^. amount)
           amt = pos' ^?! posLot . amount
       if amt < 0
         then error $ "Not enough shares in open position " ++ show n
@@ -203,15 +201,16 @@ eval (EClose (TestExprClose n s pl)) = do
           if amt == 0
             then positions . at n .= Nothing
             else positions . at n ?= pos'
+eval (APositionEvent _) = error "impossible"
 
 evalDSL :: MonadIO m => TestDSL r () -> StateT (Positions r) m ()
 evalDSL = mapM_ TestAction.eval . flip execState []
 
 buy :: Const Entry :< r => Annotated Lot -> TestDSL r ()
-buy b = id <>= [EBuy b]
+buy b = id <>= [AnEntry (Buy <$> b)]
 
 sell :: Const Entry :< r => Annotated Lot -> TestDSL r ()
-sell s = id <>= [ESell s]
+sell s = id <>= [AnEntry (Sell <$> s)]
 
 open ::
   Const PositionEvent :< r =>
@@ -221,22 +220,23 @@ open ::
   TestDSL r ()
 open i disp b =
   id
-    <>= [ EOpen $
-            Position
-              { _posIdent = i,
-                _posLot = b ^. item,
-                _posDisp = disp
-              }
-              <$ b
+    <>= [ APositionEvent
+            ( Open
+                Position
+                  { _posIdent = i,
+                    _posLot = b ^. item,
+                    _posDisp = disp
+                  }
+                <$ b
+            )
         ]
 
 close ::
   Const PositionEvent :< r =>
   Int ->
   Annotated Lot ->
-  Amount 6 ->
   TestDSL r ()
-close n b pl = id <>= [EClose (TestExprClose n b pl)]
+close n b = id <>= [APositionEvent (Close (Closing n (b ^. item)) <$ b)]
 
 {--------------------------------------------------------------------------}
 

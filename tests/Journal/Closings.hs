@@ -56,11 +56,11 @@ testClosings =
               buy b
               open 3 Long b
               sell b
-              close 1 b 0
+              close 1 b
               sell b
-              close 2 b 0
+              close 2 b
               sell b
-              close 3 b 0
+              close 3 b
             do
               pure (),
       --
@@ -83,8 +83,8 @@ testClosings =
               buy b
               open 3 Long b
               sell b2
-              close 1 b 0
-              close 2 b 0
+              close 1 b
+              close 2 b
             do
               open 3 Long b,
       --
@@ -107,9 +107,9 @@ testClosings =
               buy b
               open 3 Long b
               sell b3
-              close 1 b 0
-              close 2 b 0
-              close 3 b 0
+              close 1 b
+              close 2 b
+              close 3 b
             do
               pure (),
       --
@@ -132,9 +132,9 @@ testClosings =
               buy b
               open 3 Long b
               sell b4
-              close 1 b 0
-              close 2 b 0
-              close 3 b 0
+              close 1 b
+              close 2 b
+              close 3 b
               open 4 Short b
             do
               open 4 Short b,
@@ -152,7 +152,7 @@ testClosings =
               buy b2
               open 1 Long b2
               sell b
-              close 1 b 0
+              close 1 b
             do
               open 1 Long b,
       --
@@ -170,9 +170,9 @@ testClosings =
               buy b2
               open 1 Long b2
               sell b
-              close 1 b 0
+              close 1 b
               sell b
-              close 1 b 0
+              close 1 b
             do
               pure (),
       --

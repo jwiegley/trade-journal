@@ -8,11 +8,9 @@ import Amount
 import Control.Arrow
 import Control.Lens
 import Control.Monad.State
-import Data.Sum
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import Journal.Closings
-import Journal.SumLens
 import Journal.Types
 import Taxes.USA.WashSaleRule
 import Test.Tasty
@@ -43,8 +41,8 @@ testWashSaleRule =
               open 3 Long b
             --
             sell s
-            wash Past 3 $
-              close 1 s (-10)
+            wash Past 3 (-10) $
+              close 1 s
           do
             open 2 Long b
             washedFrom Future s (-10) $
@@ -63,8 +61,8 @@ testWashSaleRule =
             open 1 Long b
             --
             sell s
-            wash Future 2 $
-              close 1 s (-10)
+            wash Future 2 (-10) $
+              close 1 s
             --
             buy b
             washedFrom Past s (-10) $
@@ -94,15 +92,15 @@ testWashSaleRule =
             open 2 Long b
             --
             sell b
-            close 1 b 0
+            close 1 b
             --
             buy b
             washedFrom Future s (-10) $
               open 3 Long b
             --
             sell s
-            wash Past 3 $
-              close 2 s (-10)
+            wash Past 3 (-10) $
+              close 2 s
           do
             washedFrom Future s (-10) $
               open 3 Long b,
@@ -125,11 +123,11 @@ testWashSaleRule =
               open 2 Long b2
             --
             sell s
-            wash Past 2 $
-              close 1 s (-10)
+            wash Past 2 (-10) $
+              close 1 s
             --
             sell b2
-            close 2 b2 (-10 / 2)
+            close 2 b2
           do
             pure (),
       --
@@ -155,10 +153,10 @@ testWashSaleRule =
               open 3 Long b
             --
             sell s2
-            wash Past 3 $
-              close 1 s (-10)
-            wash Future 4 $
-              close 2 s (-10)
+            wash Past 3 (-10) $
+              close 1 s
+            wash Future 4 (-10) $
+              close 2 s
             --
             buy b
             washedFrom Past s (-10) $
@@ -185,11 +183,11 @@ testWashSaleRule =
             open 1 Long b3
             --
             sell s2
-            wash Future 2 $
-              close 1 s2 (-10)
+            wash Future 2 (-10) $
+              close 1 s2
             --
             sell b
-            close 1 b 0
+            close 1 b
             --
             buy b
             washedFrom Past s2 (-10) $
@@ -215,11 +213,13 @@ testWashSaleRule =
               open 2 Long b
             --
             sell s
-            wash Past 2 $
-              close 1 s (-10)
+            wash Past 2 (-10) $
+              close 1 s
             --
             sell s
-            close 2 s (-20)
+            close 2 s
+          -- jww (2021-12-07): Implement a balance checker:
+          -- balance AMOUNT
           do
             pure ()
     ]
@@ -248,23 +248,27 @@ testRule name f = testProperty name $
 wash ::
   Period ->
   Int ->
+  Amount 6 ->
   TestDSL '[Const PositionEvent, Const Entry] () ->
   TestDSL '[Const Washing, Const PositionEvent, Const Entry] ()
-wash period n (flip execState [] -> [c]) = undefined
--- id
---   <>= [ c & projectedC . _EClose %~ \cl ->
---           cl
---             & eCloseData
---               <>~ [ Wash
---                       { _washPeriod = period,
---                         _washPositionIdent = n,
---                         _washCostBasis =
---                           cl ^. eCloseLot . item . price
---                             - cl ^. eClosePL
---                       }
---                   ]
---       ]
-wash _ _ _ = error "Incorrect use of wash"
+wash
+  period
+  n
+  pl
+  (flip execState [] -> [APositionEvent c@(view item -> Close cl)]) =
+    id
+      <>= [ AWashing
+              ( Wash
+                  { _washPeriod = period,
+                    _washPositionIdent = n,
+                    _washCostBasis =
+                      cl ^. closingLot . price - pl,
+                    _washClosing = cl
+                  }
+                  <$ c
+              )
+          ]
+wash _ _ _ _ = error "Incorrect use of wash"
 
 washedFrom ::
   Period ->
@@ -272,21 +276,24 @@ washedFrom ::
   Amount 6 ->
   TestDSL '[Const PositionEvent, Const Entry] () ->
   TestDSL '[Const Washing, Const PositionEvent, Const Entry] ()
-washedFrom period lot loss (flip execState [] -> [o]) = undefined
--- id
---   <>= [ o & _EOpen . item %~ \pos ->
---           let proratedLoss =
---                 ( (loss * lot ^. item . amount)
---                     / (pos ^. posLot . amount)
---                 )
---            in pos
---                 & posLot . price -~ proratedLoss
---                 & posData
---                   <>~ [ WashedFrom
---                           { _washedFromPeriod = period,
---                             _washedFromClosingLot = lot ^. item,
---                             _washedFromCostBasis = pos ^. posLot . price
---                           }
---                       ]
---       ]
+washedFrom
+  period
+  lot
+  loss
+  (flip execState [] -> [APositionEvent o@(view item -> Open pos)]) =
+    id
+      <>= [ AWashing
+              ( let proratedLoss =
+                      ( (loss * lot ^. item . amount)
+                          / (pos ^. posLot . amount)
+                      )
+                 in WashedFrom
+                      { _washedFromPeriod = period,
+                        _washedFromClosingLot = lot ^. item,
+                        _washedFromCostBasis = pos ^. posLot . price,
+                        _washedPosition = pos & posLot . price -~ proratedLoss
+                      }
+                      <$ o
+              )
+          ]
 washedFrom _ _ _ _ = error "Incorrect use of washedFrom"
