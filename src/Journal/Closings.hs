@@ -12,7 +12,9 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Journal.Closings where
@@ -89,6 +91,18 @@ data PositionEvent
     )
 
 makePrisms ''PositionEvent
+
+class HasPositionEvent f where
+  _Event :: Traversal' (f v) PositionEvent
+
+instance HasTraversal' HasPositionEvent fs => HasPositionEvent (Sum fs) where
+  _Event = traversing @HasPositionEvent _Event
+
+instance HasPositionEvent (Const Entry) where
+  _Event _ = pure
+
+instance HasPositionEvent (Const PositionEvent) where
+  _Event f (Const s) = Const <$> f s
 
 _EventLot :: Traversal' PositionEvent Lot
 _EventLot f = \case
@@ -268,33 +282,38 @@ alignForClose l r f g h =
         _ -> Finished
 
 positions ::
-  (Const PositionEvent :< r, Apply Eq1 r, Eq v, Apply Show1 r, Show v) =>
+  ( HasTraversal' HasPositionEvent r,
+    Apply Eq1 r,
+    Eq v,
+    Apply Show1 r,
+    Show v
+  ) =>
   [Annotated (Sum r v)] ->
   Map Text (IntMap (Annotated (Sum r v)))
 positions = foldl' positionsFromEntry mempty
 
 positionsFromEntry ::
-  (Const PositionEvent :< r, Apply Eq1 r, Eq v, Apply Show1 r, Show v) =>
+  ( HasTraversal' HasPositionEvent r,
+    Apply Eq1 r,
+    Eq v,
+    Apply Show1 r,
+    Show v
+  ) =>
   Map Text (IntMap (Annotated (Sum r v))) ->
   Annotated (Sum r v) ->
   Map Text (IntMap (Annotated (Sum r v)))
 positionsFromEntry m = go
   where
-    go o@((^? item . projectedC . _Open) -> Just pos) =
+    go o@((^? item . _Event . _Open) -> Just pos) =
       m
         & at (pos ^. posLot . symbol)
           . non mempty
           . at (pos ^. posIdent)
         ?~ o
-    go ((^? item . projectedC . _Close) -> Just cl) =
+    go ((^? item . _Event . _Close) -> Just cl) =
       flip execState m do
         let loc ::
-              ( Const PositionEvent :< r,
-                Apply Eq1 r,
-                Eq v,
-                Apply Show1 r,
-                Show v
-              ) =>
+              (Apply Eq1 r, Eq v) =>
               Traversal'
                 (Map Text (IntMap (Annotated (Sum r v))))
                 (Maybe (Annotated (Sum r v)))
@@ -311,10 +330,19 @@ positionsFromEntry m = go
                 ++ ppShow m
           Just o ->
             alignedA
-              (o ^?! item . projectedC . _Open . posLot)
+              (o ^?! item . _Event . _Open . posLot)
               (cl ^. closingLot)
               (\_ou _cu -> loc .= Nothing)
-              (\ok -> loc ?= (o & item . projectedC . _Open . posLot .~ ok))
+              ( \ok ->
+                  loc
+                    ?= ( o
+                           & item
+                             . _Event
+                             . _Open
+                             . posLot
+                           .~ ok
+                       )
+              )
               (\_ck -> error "Invalid closing")
     go _ = m
 

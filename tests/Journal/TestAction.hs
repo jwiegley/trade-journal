@@ -255,6 +255,7 @@ instance (Apply PrettyVal1 t, PrettyVal v) => PrettyVal (Sum t v) where
 checkJournal ::
   forall s m.
   ( Const Entry :< s,
+    HasTraversal' HasPositionEvent s,
     Const PositionEvent :< s,
     Apply Show1 s,
     Apply Eq1 s,

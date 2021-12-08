@@ -20,7 +20,7 @@ import Control.Monad.State
 import Data.Functor.Classes
 import Data.IntMap (IntMap)
 import Data.Map (Map)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Sum
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
@@ -63,6 +63,16 @@ data Washing
 
 makePrisms ''Washing
 
+instance HasPositionEvent (Const Washing) where
+  _Event f (Const s) =
+    Const <$> case s of
+      Exempt -> pure Exempt
+      WashTo t m -> pure $ WashTo t m
+      WashApply t amt -> pure $ WashApply t amt
+      Wash p i a c -> Wash p i a <$> (f (Close c) <&> (^?! _Close))
+      WashedFrom p l a p' ->
+        WashedFrom p l a <$> (f (Open p') <&> (^?! _Open))
+
 _WashingLot :: Traversal' Washing Lot
 _WashingLot f = \case
   Exempt -> pure Exempt
@@ -75,10 +85,12 @@ instance HasLot (Const Washing) where
   _Lot f (Const s) = fmap Const $ s & _WashingLot %%~ f
 
 type Washable r v =
-  ( Const PositionEvent :< r,
+  ( HasTraversal' HasPositionEvent r,
+    Const PositionEvent :< r,
     Apply Eq1 (Const Washing ': r),
     Apply Eq1 r,
     Eq v,
+    Apply Show1 (Const Washing ': r),
     Apply Show1 r,
     Show v
   )
@@ -93,7 +105,7 @@ washSaleRule ::
   [Annotated (Sum r v)] ->
   [Annotated (Sum (Const Washing ': r) v)]
 washSaleRule =
-  sideline (isJust . (^? item . projectedC . _Exempt)) go
+  sideline (isNothing . (^? item . projectedC . _Exempt)) go
     . map (fmap weaken)
   where
     go ::
@@ -104,14 +116,12 @@ washSaleRule =
       -- The wash sale rule proceeds by looking for losing sales that haven't
       -- been washed. If there are none, we are done.
       let (z0, poss) = eligibleClose xs
+      -- traceM $ "::: go.z0 =\n" ++ ppShow z0
+      -- traceM $ "::: go.poss =\n" ++ ppShow poss
       z1 <- z0
+      -- traceM $ "::: go.z1 focus =\n" ++ ppShow (z1 ^? focus)
       x <- z1 ^? focus
       c <- x ^? _2 . item . underneathC . _Close
-      -- traceM $ "::: go.x =\n" ++ ppShow x
-      -- traceM $ "::: go.poss =\n" ++ ppShow poss
-      -- traceM $ "::: go.z1 prefix =\n" ++ ppShow (z1 ^. prefix)
-      -- traceM $ "::: go.z1 focus =\n" ++ ppShow (z1 ^? focus)
-      -- traceM $ "::: go.z1 suffix =\n" ++ ppShow (z1 ^. suffix)
 
       -- Once an eligible losing sale is found, we look for an eligible
       -- opening within 30 days before or after that sale. If there isn't one,
@@ -155,7 +165,7 @@ washSaleRule =
     eligibleClose xs = flip runState mempty $
       flip zipperedM xs $ \(w, x) -> do
         poss <- get
-        forM_ (x ^? item . decomposed . _Left) \e ->
+        forM_ (x ^? item . decomposed . _Left) $ \e ->
           put $ positionsFromEntry poss (e <$ x)
         -- traceM $ "::: eligibleClose.poss =\n" ++ ppShow poss
         -- traceM $ "::: eligibleClose.x =\n" ++ ppShow x
@@ -184,7 +194,6 @@ washSaleRule =
       poss <- get
       -- traceM $ "::: eligibleOpen.inPast =\n" ++ ppShow inPast
       -- traceM $ "::: eligibleOpen.poss =\n" ++ ppShow poss
-      -- traceM $ "::: eligibleOpen.y =\n" ++ ppShow y
       -- unless inPast $
       --   put $ positionsFromEntry poss y
       pure $
@@ -240,8 +249,12 @@ washSaleRule =
                 _washClosing = c
               }
       pure
-        ( part & focus .~ (y & _1 .~ False & _2 . item . projectedC .~ o'),
-          x & _1 .~ False & _2 . item . projectedC .~ c'
+        ( part & focus
+            .~ ( y & _1 .~ False
+                   & _2 . item .~ (projectedC # o')
+               ),
+          x & _1 .~ False
+            & _2 . item .~ (projectedC # c')
         )
 
 instance Printable (Const Washing) where
