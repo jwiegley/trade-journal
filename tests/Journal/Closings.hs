@@ -88,6 +88,39 @@ testClosings =
             do
               open 3 Long b,
       --
+      testProperty "buy-buy-buy-sell2-buy" $
+        property $ do
+          b <- forAll $ genAnnotated genLot
+          let s = b & item . price -~ 10
+              s2 = s & item . amount *~ 2
+          checkJournal
+            id
+            do
+              buy b
+              buy b
+              buy b
+              sell s2
+              buy b
+            do
+              buy b
+              open 1 Long b
+              --
+              buy b
+              open 2 Long b
+              --
+              buy b
+              open 3 Long b
+              --
+              sell s2
+              close 1 s
+              close 2 s
+              --
+              buy b
+              open 4 Long b
+            do
+              open 3 Long b
+              open 4 Long b,
+      --
       testProperty "buy-buy-buy-sell3" $
         property $ do
           b <- forAll $ genAnnotated genLot

@@ -170,30 +170,21 @@ makePrisms ''TestExpr
 
 type TestDSL r = State [TestExpr r]
 
-eval :: MonadIO m => TestExpr r -> StateT (Positions r) m ()
-eval (AnEntry b) = entries <>= [(projectedC #) <$> b]
-eval (AWashing w) = entries <>= [(projectedC #) <$> w]
-eval (APositionEvent p@(view item -> Open pos)) = do
-  positions . at (pos ^. posIdent) ?= pos
+handlePositionEvent ::
+  (MonadIO m, HasPositionEvent f) =>
+  f a ->
+  StateT (Positions r) m ()
+handlePositionEvent ((^? _Event . _Open) -> Just pos) = do
   -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
-  entries <>= [(projectedC #) <$> p]
-eval (APositionEvent c@(view item -> Close (Closing n s))) = do
-  preuse (positions . ix n) >>= \case
+  positions . at (pos ^. posIdent) ?= pos
+handlePositionEvent ((^? _Event . _Close) -> Just cl) = do
+  let n = cl ^. closingIdent
+  -- traceM $ "read " ++ show n
+  preuse (positions . ix (cl ^. closingIdent)) >>= \case
     Nothing -> error $ "No open position " ++ show n
     Just pos -> do
-      -- traceM $ "read " ++ show n ++ " => " ++ ppShow pos
-      -- let pl' = case pos ^. posDisp of
-      --       Long -> (s ^. item . price) - (pos ^. posLot . price)
-      --       Short -> (pos ^. posLot . price) - (s ^. item . price)
-      -- liftIO $
-      --   assertEqual'
-      --     ("closing gain/loss for " ++ ppShow pos ++ " and " ++ ppShow s)
-      --     pl
-      --     pl'
-      entries <>= [(projectedC #) <$> c]
-      -- entries' <- use entries
-      -- traceM $ "entries' = " ++ ppShow entries'
-      let pos' = pos & posLot . amount -~ (s ^. amount)
+      -- traceM $ "... " ++ show pos
+      let pos' = pos & posLot . amount -~ (cl ^. closingLot . amount)
           amt = pos' ^?! posLot . amount
       if amt < 0
         then error $ "Not enough shares in open position " ++ show n
@@ -201,7 +192,18 @@ eval (APositionEvent c@(view item -> Close (Closing n s))) = do
           if amt == 0
             then positions . at n .= Nothing
             else positions . at n ?= pos'
-eval (APositionEvent _) = error "impossible"
+handlePositionEvent _ = pure ()
+
+eval :: MonadIO m => TestExpr r -> StateT (Positions r) m ()
+eval (AnEntry b) = do
+  entries <>= [(projectedC #) <$> b]
+  handlePositionEvent (Const (b ^. item))
+eval (AWashing w) = do
+  entries <>= [(projectedC #) <$> w]
+  handlePositionEvent (Const (w ^. item))
+eval (APositionEvent p) = do
+  entries <>= [(projectedC #) <$> p]
+  handlePositionEvent (Const (p ^. item))
 
 evalDSL :: MonadIO m => TestDSL r () -> StateT (Positions r) m ()
 evalDSL = mapM_ TestAction.eval . flip execState []

@@ -86,6 +86,7 @@ instance HasLot (Const Washing) where
 
 type Washable r v =
   ( HasTraversal' HasPositionEvent r,
+    HasTraversal' HasPositionEvent (Const Washing ': r),
     Const PositionEvent :< r,
     Apply Eq1 (Const Washing ': r),
     Apply Eq1 r,
@@ -121,7 +122,7 @@ washSaleRule =
       z1 <- z0
       -- traceM $ "::: go.z1 focus =\n" ++ ppShow (z1 ^? focus)
       x <- z1 ^? focus
-      c <- x ^? _2 . item . underneathC . _Close
+      c <- x ^? _2 . item . _Event . _Close
 
       -- Once an eligible losing sale is found, we look for an eligible
       -- opening within 30 days before or after that sale. If there isn't one,
@@ -165,19 +166,19 @@ washSaleRule =
     eligibleClose xs = flip runState mempty $
       flip zipperedM xs $ \(w, x) -> do
         poss <- get
-        forM_ (x ^? item . decomposed . _Left) $ \e ->
-          put $ positionsFromEntry poss (e <$ x)
+        forM_ (x ^? item . _Event) $ \e ->
+          put $ positionsFromEntry poss (inject (Const e) <$ x)
         -- traceM $ "::: eligibleClose.poss =\n" ++ ppShow poss
         -- traceM $ "::: eligibleClose.x =\n" ++ ppShow x
         pure $
           w && Just True == do
-            c <- x ^? item . underneathC . _Close
+            c <- x ^? item . _Event . _Close
             pos <-
               poss
                 ^? ix (c ^. closingLot . symbol)
                   . ix (c ^. closingIdent)
                   . item
-                  . projectedC
+                  . _Event
                   . _Open
             guard $ losses pos c < 0
             pure True
@@ -194,11 +195,10 @@ washSaleRule =
       poss <- get
       -- traceM $ "::: eligibleOpen.inPast =\n" ++ ppShow inPast
       -- traceM $ "::: eligibleOpen.poss =\n" ++ ppShow poss
-      -- unless inPast $
-      --   put $ positionsFromEntry poss y
+      -- traceM $ "::: eligibleOpen.y =\n" ++ ppShow y
       pure $
         w && Just True == do
-          o <- y ^? item . underneathC . _Open
+          o <- y ^? item . _Event . _Open
           guard $ o ^. posLot . symbol == sym
           guard $ o ^. posIdent /= ident
           guard $ not inPast || isJust (poss ^? ix sym . ix (o ^. posIdent))
@@ -215,10 +215,10 @@ washSaleRule =
           (Bool, Annotated (Sum (Const Washing ': r) v))
         )
     handleOpen x inPast part = do
-      c <- x ^? _2 . item . underneathC . _Close
+      c <- x ^? _2 . item . _Event . _Close
       -- traceM $ "::: handleOpen.c =\n" ++ ppShow c
       y <- part ^? focus
-      o <- y ^? _2 . item . underneathC . _Open
+      o <- y ^? _2 . item . _Event . _Open
       -- traceM $ "::: handleOpen.o =\n" ++ ppShow o
 
       -- jww (2021-12-03): The basis adjustment must be washed into the whole

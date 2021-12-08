@@ -333,16 +333,7 @@ positionsFromEntry m = go
               (o ^?! item . _Event . _Open . posLot)
               (cl ^. closingLot)
               (\_ou _cu -> loc .= Nothing)
-              ( \ok ->
-                  loc
-                    ?= ( o
-                           & item
-                             . _Event
-                             . _Open
-                             . posLot
-                           .~ ok
-                       )
-              )
+              (\ok -> loc ?= (o & item . _Event . _Open . posLot .~ ok))
               (\_ck -> error "Invalid closing")
     go _ = m
 
