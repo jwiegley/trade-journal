@@ -16,7 +16,7 @@ dependencies:
   - cassava
   - constraints
   - containers
-  - fastsum >= 0.2
+  - fastsum # >= 0.2
   - free
   - lens
   - megaparsec

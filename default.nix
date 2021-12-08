@@ -20,12 +20,12 @@ in haskellPackages.developPackage rec {
   root = ./.;
 
   source-overrides = {
-    fastsum = "0.2.0";
+    # fastsum = "0.2.0";
   };
   overrides = self: super: with pkgs.haskell.lib; {
-    fastsum = import ../fastsum {
-      inherit pkgs; returnShellEnv = false;
-    };
+    # fastsum = import ../fastsum {
+    #   inherit pkgs; returnShellEnv = false;
+    # };
     simple-amount = import ../simple-amount {
       inherit pkgs; returnShellEnv = false;
     };
@@ -43,9 +43,9 @@ in haskellPackages.developPackage rec {
     ];
 
     libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [
-      (import ../fastsum {
-        inherit pkgs; returnShellEnv = false;
-      })
+      # (import ../fastsum {
+      #   inherit pkgs; returnShellEnv = false;
+      # })
     ];
 
     passthru = {
