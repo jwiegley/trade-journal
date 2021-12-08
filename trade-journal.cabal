@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b89930203f5888a0bdd5c6347c4057e52268e81bfaf72c99f2b47d4eba5be9ed
+-- hash: b8850369f8596a9fa8b1f77c94a27bb0d4d7f5a6ed84bf55f9c8676c89ff72f0
 
 name:           trade-journal
 version:        0.0.2
@@ -32,6 +32,9 @@ library
       Broker.ThinkOrSwim.Parser
       Broker.ThinkOrSwim.Process
       Broker.ThinkOrSwim.Types
+      Journal.Types.Annotated
+      Journal.Types.Entry
+      Journal.Types.Lot
       Paths_trade_journal
   hs-source-dirs:
       src
