@@ -274,7 +274,7 @@ checkJournal ::
   m ()
 checkJournal f journal act actLeft =
   do
-    (journal' :: [Annotated (Sum r ())]) <- getEntries (evalDSL journal)
+    journal' <- getEntries (evalDSL journal)
     expectedEntries <- getEntries (evalDSL act)
     expectedEntriesLeft <- Closings.positions <$> getEntries (evalDSL actLeft)
     let (entries', entriesLeft') = f (closings FIFO journal')
