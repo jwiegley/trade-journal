@@ -24,7 +24,6 @@ import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Pipes
 import Journal.Print
-import Journal.SumLens
 import Options
 import Taxes.USA.WashSaleRule
 
@@ -57,8 +56,8 @@ main = do
             mapM_ TL.putStrLn (printEntries (thinkOrSwimEntries tos))
       else do
         putStrLn $ "Reading journal " ++ path
-        entries <- parseEntries path
+        entries <- parseEntries @_ @'[Const Trade, Const Entry] path
         parseProcessPrint
           (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
-          (map (fmap (projectedC @'[Const Trade, Const Entry] #)) entries)
+          entries
           (mapM_ T.putStrLn)

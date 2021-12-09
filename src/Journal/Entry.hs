@@ -4,6 +4,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -15,7 +17,11 @@ import Amount
 import Control.Applicative
 import Control.Lens
 import Data.Text (Text)
+import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
+import Journal.Parse
+import Journal.Print
+import Journal.SumLens
 import Journal.Types.Entry
 import Journal.Types.Lot
 import Text.Show.Pretty
@@ -82,3 +88,48 @@ _EntryNetAmount f = \case
 
 instance HasNetAmount (Const Entry) where
   _NetAmount f (Const s) = fmap Const $ s & _EntryNetAmount %%~ f
+
+printEntry :: Entry -> TL.Text
+printEntry = \case
+  Deposit amt -> "deposit " <> printAmount 2 amt
+  Withdraw amt -> "withdraw " <> printAmount 2 amt
+  TransferIn lot -> "xferin " <> printLot lot
+  TransferOut lot -> "xferout " <> printLot lot
+  Exercise lot -> "exercise " <> printLot lot
+  -- Open pos -> "open " <> printPosition pos
+  -- Close cl -> "close " <> printClosing cl
+  Assign lot -> "assign " <> printLot lot
+  Expire lot -> "expire " <> printLot lot
+  Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot
+  Interest amt Nothing -> "interest " <> printAmount 2 amt
+  Interest amt (Just sym) ->
+    "interest " <> printAmount 2 amt <> " from " <> printString sym
+  Income amt -> "income " <> printAmount 2 amt
+  Credit amt -> "credit " <> printAmount 2 amt
+
+instance Printable (Const Entry) where
+  printItem = printEntry . getConst
+
+parseEntry :: Parser Entry
+parseEntry =
+  keyword "deposit" *> (Deposit <$> parseAmount)
+    <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
+    -- <|> keyword "buy" *> (Buy <$> parseLot)
+    -- <|> keyword "sell" *> (Sell <$> parseLot)
+    <|> keyword "xferin" *> (TransferIn <$> parseLot)
+    <|> keyword "xferout" *> (TransferOut <$> parseLot)
+    <|> keyword "exercise" *> (Exercise <$> parseLot)
+    -- <|> keyword "open" *> (Open <$> parsePosition parseData)
+    -- <|> keyword "close" *> (Close <$> parseClosing parseData)
+    <|> keyword "assign" *> (Assign <$> parseLot)
+    <|> keyword "expire" *> (Expire <$> parseLot)
+    <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
+    <|> keyword "interest"
+      *> ( Interest <$> parseAmount
+             <*> optional (keyword "from" *> (TL.toStrict <$> parseSymbol))
+         )
+    <|> keyword "income" *> (Income <$> parseAmount)
+    <|> keyword "credit" *> (Credit <$> parseAmount)
+
+instance Producible Parser (Const Entry) where
+  produce = fmap Const parseEntry

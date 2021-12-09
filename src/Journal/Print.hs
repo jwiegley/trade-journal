@@ -22,7 +22,6 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
-import Journal.Entry
 import Journal.SumLens
 import Journal.Types
 
@@ -46,29 +45,8 @@ printEntries = map $ \x ->
       "" -> ""
       anns -> " " <> anns
 
-instance Printable (Const Entry) where
-  printItem = printEntry . getConst
-
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
-
-printEntry :: Entry -> Text
-printEntry = \case
-  Deposit amt -> "deposit " <> printAmount 2 amt
-  Withdraw amt -> "withdraw " <> printAmount 2 amt
-  TransferIn lot -> "xferin " <> printLot lot
-  TransferOut lot -> "xferout " <> printLot lot
-  Exercise lot -> "exercise " <> printLot lot
-  -- Open pos -> "open " <> printPosition pos
-  -- Close cl -> "close " <> printClosing cl
-  Assign lot -> "assign " <> printLot lot
-  Expire lot -> "expire " <> printLot lot
-  Dividend amt lot -> "dividend " <> printAmount 2 amt <> " " <> printLot lot
-  Interest amt Nothing -> "interest " <> printAmount 2 amt
-  Interest amt (Just sym) ->
-    "interest " <> printAmount 2 amt <> " from " <> printString sym
-  Income amt -> "income " <> printAmount 2 amt
-  Credit amt -> "credit " <> printAmount 2 amt
 
 printLot :: Lot -> Text
 printLot lot =

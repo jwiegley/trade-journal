@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -17,7 +18,9 @@ import Control.Applicative
 import Control.Lens
 import Data.Text.Lazy
 import GHC.Generics hiding (to)
+import Journal.Parse
 import Journal.Print
+import Journal.SumLens
 import Journal.Types.Entry
 import Journal.Types.Lot
 import Text.Show.Pretty
@@ -84,3 +87,22 @@ printTrade Trade {..} =
 
 instance Printable (Const Trade) where
   printItem = printTrade . getConst
+
+parseTrade :: Parser Trade
+parseTrade = do
+  _tradeAction <- (Buy <$ keyword "buy") <|> (Sell <$ keyword "sell")
+  _tradeLot <- parseLot
+  _tradeFees <-
+    ( keyword "fees"
+        *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
+      )
+      <|> pure 0
+  _tradeCommission <-
+    ( keyword "commission"
+        *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
+      )
+      <|> pure 0
+  pure Trade {..}
+
+instance Producible Parser (Const Trade) where
+  produce = fmap Const parseTrade

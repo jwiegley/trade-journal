@@ -20,7 +20,7 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
-import Journal.Entry
+import Journal.Entry hiding (parseEntry)
 import Journal.Entry.Trade
 import Journal.Types
 import Text.Megaparsec

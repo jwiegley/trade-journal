@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Journal.Parse where
@@ -15,6 +16,7 @@ import Control.Lens hiding (each, noneOf)
 import Control.Monad.IO.Class
 import Data.Char
 import Data.Functor
+import Data.Sum
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -22,7 +24,6 @@ import qualified Data.Text.Lazy.IO as TL
 import Data.Time hiding (parseTime)
 import Data.Void
 import GHC.TypeLits
-import Journal.Entry
 import Journal.SumLens
 import Journal.Types
 import Text.Megaparsec
@@ -50,21 +51,21 @@ keyword :: Text -> Parser Text
 keyword = lexeme . string
 
 parseEntries ::
-  (MonadFail m, MonadIO m) =>
+  (MonadFail m, MonadIO m, Populate Parser r) =>
   FilePath ->
-  m [Annotated Entry]
+  m [Annotated (Sum r v)]
 parseEntries path = do
   input <- liftIO $ TL.readFile path
   parseEntriesFromText path input
 
 parseEntriesFromText ::
-  MonadFail m =>
+  (MonadFail m, Populate Parser r) =>
   FilePath ->
   Text ->
-  m [Annotated Entry]
+  m [Annotated (Sum r v)]
 parseEntriesFromText path input =
   case parse
-    ( many (whiteSpace *> parseAnnotated parseEntry)
+    ( many (whiteSpace *> parseAnnotated populate)
         <* eof
     )
     path
@@ -72,15 +73,13 @@ parseEntriesFromText path input =
     Left e -> fail $ errorBundlePretty e
     Right res -> pure res
 
-parseAnnotated :: HasLot (Const a) => Parser a -> Parser (Annotated a)
+parseAnnotated :: Parser a -> Parser (Annotated a)
 parseAnnotated parser = do
   _time <- Journal.Parse.parseTime
   _item <- parser
   _details <- many parseAnnotation
-  let _account = ""
-  -- if there are fees, there should be an amount
-  pure $
-    Annotated {..}
+  let _account = "NYI"
+  pure Annotated {..}
 
 -- & details . traverse . failing _Fees _Commission
 --   //~ (Const _item ^?! _Lot . amount)
@@ -105,30 +104,6 @@ quotedString = identPQuoted <&> T.pack
             strings <- many inner
             _ <- char '"'
             return $ concat strings
-
-instance Producible Parser (Const Entry) where
-  produce = fmap Const parseEntry
-
-parseEntry :: Parser Entry
-parseEntry =
-  keyword "deposit" *> (Deposit <$> parseAmount)
-    <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
-    -- <|> keyword "buy" *> (Buy <$> parseLot)
-    -- <|> keyword "sell" *> (Sell <$> parseLot)
-    <|> keyword "xferin" *> (TransferIn <$> parseLot)
-    <|> keyword "xferout" *> (TransferOut <$> parseLot)
-    <|> keyword "exercise" *> (Exercise <$> parseLot)
-    -- <|> keyword "open" *> (Open <$> parsePosition parseData)
-    -- <|> keyword "close" *> (Close <$> parseClosing parseData)
-    <|> keyword "assign" *> (Assign <$> parseLot)
-    <|> keyword "expire" *> (Expire <$> parseLot)
-    <|> keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
-    <|> keyword "interest"
-      *> ( Interest <$> parseAmount
-             <*> optional (keyword "from" *> (TL.toStrict <$> parseSymbol))
-         )
-    <|> keyword "income" *> (Income <$> parseAmount)
-    <|> keyword "credit" *> (Credit <$> parseAmount)
 
 parseLot :: Parser Lot
 parseLot = do

@@ -17,7 +17,6 @@ import Journal.Entry
 import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Pipes
-import Journal.SumLens
 import Taxes.USA.WashSaleRule
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -204,10 +203,10 @@ zoomHistory = ii @--> oo
 x @--> y = do
   (_, msgs) <-
     runWriterT $ do
-      entries <- parseEntriesFromText "" x
+      entries <- parseEntriesFromText @_ @'[Const Trade, Const Entry] "" x
       parseProcessPrint
         (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
-        (map (fmap (projectedC @'[Const Trade, Const Entry] #)) entries)
+        entries
         tell
   let y' = TL.intercalate "\n" (map TL.fromStrict msgs)
   trimLines y' @?= trimLines y
