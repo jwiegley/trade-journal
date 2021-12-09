@@ -12,7 +12,9 @@
 
 module Journal.SumLens where
 
+import Control.Applicative
 import Control.Lens
+import Control.Monad
 import Data.Constraint
 import Data.Sum
 
@@ -122,3 +124,21 @@ weaker = stronger @(Const Int) -- debilitate (Proxy :: Proxy (ElemIndex f r)) (c
 -- weaker :: t :< r => (Sum r v -> a) -> Sum (e ': r) v -> Maybe a
 -- weaker f = either (Just . f) (const Nothing) . decompose
 -}
+
+class Producible m f where
+  produce :: m (f v)
+
+class Populate m (fs :: [* -> *]) where
+  populate :: m (Sum fs b)
+
+instance (Producible m t, MonadPlus m) => Populate m '[t] where
+  populate = fmap inject (produce @m @t)
+
+instance
+  {-# OVERLAPPING #-}
+  (Populate m (u ': r), Producible m t, MonadPlus m) =>
+  Populate m (t ': u ': r)
+  where
+  populate =
+    fmap inject (produce @m @t)
+      <|> fmap weaken (populate @m @(u ': r))

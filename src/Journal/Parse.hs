@@ -1,8 +1,12 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Journal.Parse where
 
@@ -18,6 +22,7 @@ import qualified Data.Text.Lazy.IO as TL
 import Data.Time hiding (parseTime)
 import Data.Void
 import GHC.TypeLits
+import Journal.SumLens
 import Journal.Types
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -97,6 +102,9 @@ quotedString = identPQuoted <&> T.pack
             strings <- many inner
             _ <- char '"'
             return $ concat strings
+
+instance Producible Parser (Const Entry) where
+  produce = fmap Const parseEntry
 
 parseEntry :: Parser Entry
 parseEntry =
