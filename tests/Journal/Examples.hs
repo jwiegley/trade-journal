@@ -13,10 +13,11 @@ import Data.String.Here.Interpolated
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Journal.Closings as Closings
+import Journal.Entry
+import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Pipes
 import Journal.SumLens
-import Journal.Types
 import Taxes.USA.WashSaleRule
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -206,7 +207,7 @@ x @--> y = do
       entries <- parseEntriesFromText "" x
       parseProcessPrint
         (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
-        (map (fmap (projectedC @'[Const Entry] #)) entries)
+        (map (fmap (projectedC @'[Const Trade, Const Entry] #)) entries)
         tell
   let y' = TL.intercalate "\n" (map TL.fromStrict msgs)
   trimLines y' @?= trimLines y

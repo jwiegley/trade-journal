@@ -11,6 +11,8 @@ import Control.Monad.State
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import Journal.Closings
+import Journal.Entry
+import Journal.Entry.Trade
 import Journal.Types
 import Taxes.USA.WashSaleRule
 import Test.Tasty
@@ -226,9 +228,21 @@ testWashSaleRule =
 
 testRule ::
   String ->
-  ( ( TestDSL '[Const Entry] () ->
-      TestDSL '[Const Washing, Const PositionEvent, Const Entry] () ->
-      TestDSL '[Const Washing, Const PositionEvent, Const Entry] () ->
+  ( ( TestDSL '[Const Trade, Const Entry] () ->
+      TestDSL
+        '[ Const Washing,
+           Const PositionEvent,
+           Const Trade,
+           Const Entry
+         ]
+        () ->
+      TestDSL
+        '[ Const Washing,
+           Const PositionEvent,
+           Const Trade,
+           Const Entry
+         ]
+        () ->
       PropertyT IO ()
     ) ->
     Annotated Lot ->
@@ -249,8 +263,8 @@ wash ::
   Period ->
   Int ->
   Amount 6 ->
-  TestDSL '[Const PositionEvent, Const Entry] () ->
-  TestDSL '[Const Washing, Const PositionEvent, Const Entry] ()
+  TestDSL '[Const PositionEvent, Const Trade, Const Entry] () ->
+  TestDSL '[Const Washing, Const PositionEvent, Const Trade, Const Entry] ()
 wash
   period
   n
@@ -274,8 +288,8 @@ washedFrom ::
   Period ->
   Annotated Lot ->
   Amount 6 ->
-  TestDSL '[Const PositionEvent, Const Entry] () ->
-  TestDSL '[Const Washing, Const PositionEvent, Const Entry] ()
+  TestDSL '[Const PositionEvent, Const Trade, Const Entry] () ->
+  TestDSL '[Const Washing, Const PositionEvent, Const Trade, Const Entry] ()
 washedFrom
   period
   lot

@@ -42,6 +42,8 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Journal.Closings hiding (positions)
 import qualified Journal.Closings as Closings
+import Journal.Entry
+import Journal.Entry.Trade
 import Journal.Pipes ()
 import Journal.SumLens
 import Journal.Types
@@ -162,6 +164,7 @@ makeLenses ''TestExprClose
 
 data TestExpr r
   = Const Entry :< r => AnEntry (Annotated Entry)
+  | Const Trade :< r => ATrade (Annotated Trade)
   | Const PositionEvent :< r => APositionEvent (Annotated PositionEvent)
   | Const Washing :< r => AWashing (Annotated Washing)
 
@@ -199,6 +202,9 @@ eval :: MonadIO m => TestExpr r -> StateT (Positions r) m ()
 eval (AnEntry b) = do
   entries <>= [(projectedC #) <$> b]
   handlePositionEvent (Const (b ^. item))
+eval (ATrade b) = do
+  entries <>= [(projectedC #) <$> b]
+  handlePositionEvent (Const (b ^. item))
 eval (AWashing w) = do
   entries <>= [(projectedC #) <$> w]
   handlePositionEvent (Const (w ^. item))
@@ -209,32 +215,30 @@ eval (APositionEvent p) = do
 evalDSL :: MonadIO m => TestDSL r () -> StateT (Positions r) m ()
 evalDSL = mapM_ TestAction.eval . flip execState []
 
-buy :: Const Entry :< r => Annotated Lot -> TestDSL r ()
+buy :: Const Trade :< r => Annotated Lot -> TestDSL r ()
 buy b =
   id
-    <>= [ AnEntry
+    <>= [ ATrade
             ( Trade
-                TradeEntry
-                  { _tradeAction = Buy,
-                    _tradeLot = b ^. item,
-                    _tradeFees = 0,
-                    _tradeCommission = 0
-                  }
+                { _tradeAction = Buy,
+                  _tradeLot = b ^. item,
+                  _tradeFees = 0,
+                  _tradeCommission = 0
+                }
                 <$ b
             )
         ]
 
-sell :: Const Entry :< r => Annotated Lot -> TestDSL r ()
+sell :: Const Trade :< r => Annotated Lot -> TestDSL r ()
 sell s =
   id
-    <>= [ AnEntry
+    <>= [ ATrade
             ( Trade
-                TradeEntry
-                  { _tradeAction = Sell,
-                    _tradeLot = s ^. item,
-                    _tradeFees = 0,
-                    _tradeCommission = 0
-                  }
+                { _tradeAction = Sell,
+                  _tradeLot = s ^. item,
+                  _tradeFees = 0,
+                  _tradeCommission = 0
+                }
                 <$ s
             )
         ]
@@ -281,7 +285,7 @@ instance (Apply PrettyVal1 t, PrettyVal v) => PrettyVal (Sum t v) where
 
 checkJournal ::
   forall s m.
-  ( Const Entry :< s,
+  ( '[Const Trade, Const Entry] :<: s,
     HasTraversal' HasPositionEvent s,
     Const PositionEvent :< s,
     Apply Show1 s,
@@ -289,14 +293,26 @@ checkJournal ::
     Apply PrettyVal1 s,
     MonadIO m
   ) =>
-  ( ( [Annotated (Sum '[Const PositionEvent, Const Entry] ())],
-      Map Text (IntMap (Annotated (Sum '[Const PositionEvent, Const Entry] ())))
+  ( ( [Annotated (Sum '[Const PositionEvent, Const Trade, Const Entry] ())],
+      Map
+        Text
+        ( IntMap
+            ( Annotated
+                ( Sum
+                    '[ Const PositionEvent,
+                       Const Trade,
+                       Const Entry
+                     ]
+                    ()
+                )
+            )
+        )
     ) ->
     ( [Annotated (Sum s ())],
       Map Text (IntMap (Annotated (Sum s ())))
     )
   ) ->
-  TestDSL '[Const Entry] () ->
+  TestDSL '[Const Trade, Const Entry] () ->
   TestDSL s () ->
   TestDSL s () ->
   m ()

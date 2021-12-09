@@ -32,6 +32,8 @@ library:
   source-dirs: src
   exposed-modules:
     - Journal.Closings
+    - Journal.Entry
+    - Journal.Entry.Trade
     - Journal.Parse
     - Journal.Pipes
     - Journal.Print
@@ -40,8 +42,8 @@ library:
     - Journal.Types
     - Journal.Utils
     - Journal.Zippered
-    - Broker.ThinkOrSwim
     - Taxes.USA.WashSaleRule
+    - Broker.ThinkOrSwim
   dependencies:
     - data-default
     - pretty

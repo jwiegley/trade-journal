@@ -19,11 +19,12 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy.IO as TL
 import GHC.Generics hiding (to)
 import qualified Journal.Closings as Closings
+import Journal.Entry
+import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Pipes
 import Journal.Print
 import Journal.SumLens
-import Journal.Types
 import Options
 import Taxes.USA.WashSaleRule
 
@@ -53,16 +54,11 @@ main = do
         case etos of
           Left err -> error $ "Error " ++ show err
           Right tos ->
-            mapM_ TL.putStrLn $
-              printEntries
-                ( map
-                    (fmap (projectedC @'[Const Entry] #))
-                    (thinkOrSwimEntries tos)
-                )
+            mapM_ TL.putStrLn (printEntries (thinkOrSwimEntries tos))
       else do
         putStrLn $ "Reading journal " ++ path
         entries <- parseEntries path
         parseProcessPrint
           (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
-          (map (fmap (projectedC @'[Const Entry] #)) entries)
+          (map (fmap (projectedC @'[Const Trade, Const Entry] #)) entries)
           (mapM_ T.putStrLn)

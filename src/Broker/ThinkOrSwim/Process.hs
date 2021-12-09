@@ -14,14 +14,19 @@ import Control.Lens hiding (each)
 import Data.Coerce
 import Data.Foldable
 import Data.List (intercalate)
+import Data.Sum
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
+import Journal.Entry
+import Journal.Entry.Trade
 import Journal.Types
 import Text.Megaparsec
 import Text.Printf
+
+type TOSEvent = Sum '[Const Trade, Const Entry] ()
 
 entryTime :: TOSTransaction -> UTCTime
 entryTime record =
@@ -49,58 +54,76 @@ entryParse xact =
 entryToAction ::
   TOSTransaction ->
   TOSEntry ->
-  Either String (Annotated Entry)
+  Either String (Annotated TOSEvent)
 entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
       annotate $
-        Trade
-          TradeEntry
-            { _tradeLot =
-                Lot
-                  { _amount = coerce tdQuantity,
-                    _symbol = TL.toStrict tdSymbol,
-                    _price = coerce tdPrice
-                  }
-            }
+        inject $
+          Const $
+            Trade
+              { _tradeAction = Buy,
+                _tradeLot =
+                  Lot
+                    { _amount = coerce tdQuantity,
+                      _symbol = TL.toStrict tdSymbol,
+                      _price = coerce tdPrice
+                    },
+                _tradeFees = - (xact ^. xactMiscFees . coerced),
+                _tradeCommission = - (xact ^. xactCommissionsAndFees . coerced)
+              }
   Sold _device TOSTrade' {..} ->
     Right $
       annotate $
-        Trade
-          TradeEntry
-            { _tradeLot =
-                Lot
-                  { _amount = coerce (abs tdQuantity),
-                    _symbol = TL.toStrict tdSymbol,
-                    _price = coerce tdPrice
-                  }
-            }
+        inject $
+          Const $
+            Trade
+              { _tradeAction = Sell,
+                _tradeLot =
+                  Lot
+                    { _amount = coerce (abs tdQuantity),
+                      _symbol = TL.toStrict tdSymbol,
+                      _price = coerce tdPrice
+                    },
+                _tradeFees = - (xact ^. xactMiscFees . coerced),
+                _tradeCommission = - (xact ^. xactCommissionsAndFees . coerced)
+              }
   AchCredit ->
     Right $
       annotate $
-        Deposit (xact ^. xactAmount)
+        inject $
+          Const $
+            Deposit (xact ^. xactAmount)
   AchDebit ->
     Right $
       annotate $
-        Withdraw (xact ^. xactAmount . to abs)
+        inject $
+          Const $
+            Withdraw (xact ^. xactAmount . to abs)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
   CourtesyCredit ->
     Right $
       annotate $
-        Credit (xact ^. xactAmount)
+        inject $
+          Const $
+            Credit (xact ^. xactAmount)
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined
   InterestAdjustment ->
     Right $
       annotate $
-        Interest (xact ^. xactAmount) Nothing
+        inject $
+          Const $
+            Interest (xact ^. xactAmount) Nothing
   InterestIncome sym ->
     Right $
       annotate $
-        Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
+        inject $
+          Const $
+            Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
   -- MarkToMarket -> undefined
   -- MiscellaneousJournalEntry -> undefined
   -- OffCycleInterest _symbol -> undefined
@@ -109,7 +132,9 @@ entryToAction xact = \case
   Rebate ->
     Right $
       annotate $
-        Income (xact ^. xactAmount)
+        inject $
+          Const $
+            Income (xact ^. xactAmount)
   -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
   -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
   -- TransferBetweenAccounts -> undefined
@@ -117,18 +142,22 @@ entryToAction xact = \case
   TransferInSecurityOrOption amt sym ->
     Right $
       annotate $
-        TransferIn
-          Lot
-            { _amount = coerce (abs amt),
-              _symbol = TL.toStrict sym,
-              _price = 0
-            }
+        inject $
+          Const $
+            TransferIn
+              Lot
+                { _amount = coerce (abs amt),
+                  _symbol = TL.toStrict sym,
+                  _price = 0
+                }
   -- TransferOfCash -> undefined
   -- TransferToForexAccount -> undefined
   WireIncoming ->
     Right $
       annotate $
-        Deposit (xact ^. xactAmount)
+        inject $
+          Const $
+            Deposit (xact ^. xactAmount)
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
   where
@@ -136,6 +165,7 @@ entryToAction xact = \case
       Annotated
         { _item = x,
           _time = entryTime xact,
+          _account = "NYI",
           _details = lotDetails
         }
     lotDetails =
@@ -143,27 +173,20 @@ entryToAction xact = \case
         Note (TL.toStrict (xact ^. xactDescription))
       ]
 
--- ++ [ Fees (- (xact ^. xactMiscFees . coerced))
---      | xact ^. xactMiscFees /= 0
---    ]
--- ++ [ Commission (- (xact ^. xactCommissionsAndFees . coerced))
---      | xact ^. xactCommissionsAndFees /= 0
---    ]
-
 xactAction ::
   TOSTransaction ->
   Amount 2 ->
-  Either String (Annotated Entry)
+  Either String (Annotated TOSEvent)
 xactAction xact bal = do
   ent <- left show $ entryParse xact
   x <- entryToAction xact ent
-  assert (sum (x ^.. item . _EntryNetAmount) == xact ^. xactAmount) $
+  assert (sum (x ^.. item . _NetAmount) == xact ^. xactAmount) $
     assert (bal == xact ^. xactBalance) $
       pure x
 
 thinkOrSwimEntries ::
   ThinkOrSwim ->
-  [Annotated Entry]
+  [Annotated TOSEvent]
 thinkOrSwimEntries tos =
   concatMap
     ( \case

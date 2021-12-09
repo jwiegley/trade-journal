@@ -34,6 +34,8 @@ import Data.Sum
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
+import Journal.Entry
+import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Print
 import Journal.Split
@@ -101,6 +103,9 @@ instance HasTraversal' HasPositionEvent fs => HasPositionEvent (Sum fs) where
 instance HasPositionEvent (Const Entry) where
   _Event _ = pure
 
+instance HasPositionEvent (Const Trade) where
+  _Event _ = pure
+
 instance HasPositionEvent (Const PositionEvent) where
   _Event f (Const s) = Const <$> f s
 
@@ -160,7 +165,7 @@ localState instrument f s =
       & events . at instrument ?~ (m ^. events)
 
 closings ::
-  Const Entry :< r =>
+  Const Trade :< r =>
   Calculation ->
   [Annotated (Sum r v)] ->
   ( [Annotated (Sum (Const PositionEvent ': r) v)],
@@ -171,7 +176,7 @@ closings mode =
   where
     go entry = do
       gst <- get
-      case entry ^? item . projectedC . _Trade . tradeLot . symbol of
+      case entry ^? item . projectedC . tradeLot . symbol of
         Just sym -> do
           let (results, gst') =
                 flip runState gst $
@@ -182,14 +187,14 @@ closings mode =
         Nothing -> pure [fmap weaken entry]
 
 handle ::
-  Const Entry :< r =>
+  Const Trade :< r =>
   Annotated (Sum r v) ->
   State
     (LocalState (Const PositionEvent ': r) v)
     ( [Annotated (Sum (Const PositionEvent ': r) v)],
       Remainder (Annotated (Sum r v))
     )
-handle ann@(preview (item . projectedC . _Trade) -> Just trade) = do
+handle ann@(preview (item . projectedC) -> Just trade) = do
   mode <- use calc
   -- jww (2021-12-04): the buy/sell should be able to specify FIFO or LIFO,
   -- and the user should be able to set it as a default. In the case of LIFE,
@@ -211,7 +216,7 @@ handle _ = pure ([], Finished)
 
 -- | Open a new position.
 openPosition ::
-  Const Entry :< r =>
+  Const Trade :< r =>
   Annotated (Sum r v) ->
   State
     (LocalState (Const PositionEvent ': r) v)
@@ -219,7 +224,7 @@ openPosition ::
 openPosition open = do
   nextId += 1
   ident <- use nextId
-  let trade = open ^?! item . projectedC . _Trade
+  let trade = open ^?! item . projectedC
       event =
         projectedC . _Open
           # Position
@@ -237,7 +242,7 @@ openPosition open = do
 -- | Close an existing position. If the amount to close is more than what is
 --   open, the remainder is considered a separate opening event.
 closePosition ::
-  Const Entry :< r =>
+  Const Trade :< r =>
   Annotated (Sum (Const PositionEvent ': r) v) ->
   Annotated (Sum r v) ->
   State
@@ -249,7 +254,7 @@ closePosition open close =
   let o = open ^?! item . projectedC . _Open
    in alignForClose
         (o ^. posLot)
-        (close ^?! item . projectedC . _Trade . tradeLot)
+        (close ^?! item . projectedC . tradeLot)
         ( \_su du ->
             pure
               [ projectedC . _Close
@@ -264,7 +269,7 @@ closePosition open close =
             events . at (open ^?! item . projectedC . _Open . posIdent)
               ?= (open & item . projectedC . _Open . posLot .~ sk)
         )
-        (\dk -> pure $ close & item . projectedC . _Trade . tradeLot .~ dk)
+        (\dk -> pure $ close & item . projectedC . tradeLot .~ dk)
 
 alignForClose ::
   (Splittable n a, Splittable n b, Applicative m) =>

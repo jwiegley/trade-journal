@@ -22,6 +22,7 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
+import Journal.Entry
 import Journal.SumLens
 import Journal.Types
 
@@ -55,7 +56,6 @@ printEntry :: Entry -> Text
 printEntry = \case
   Deposit amt -> "deposit " <> printAmount 2 amt
   Withdraw amt -> "withdraw " <> printAmount 2 amt
-  Trade _trade -> "trade NYI"
   TransferIn lot -> "xferin " <> printLot lot
   TransferOut lot -> "xferout " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot

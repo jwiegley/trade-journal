@@ -22,6 +22,7 @@ import qualified Data.Text.Lazy.IO as TL
 import Data.Time hiding (parseTime)
 import Data.Void
 import GHC.TypeLits
+import Journal.Entry
 import Journal.SumLens
 import Journal.Types
 import Text.Megaparsec

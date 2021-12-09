@@ -41,7 +41,7 @@ parseSection = do
     manyTill
       anySingle
       (try (newline <* many (char ' ') <* newline))
-  if length text == 0 || length (lines text) < 2
+  if null text || length (lines text) < 2
     then [] <$ whiteSpace
     else do
       -- traceM $ "parseSection: " ++ text
