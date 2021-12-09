@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: a5defe708c1ee55d5fa0eb34966ce60113dd98c7b7e845ccf75110ee7ee1fb05
+-- hash: 18cf735eba6e2e94dc3a4601ab518486dcc900a1c386f757752375d715fc2f94
 
 name:           trade-journal
 version:        0.0.2
@@ -31,6 +31,8 @@ library
       Journal.Zippered
       Taxes.USA.WashSaleRule
       Broker.ThinkOrSwim
+      Ledger
+      Ledger.Render
   other-modules:
       Broker.ThinkOrSwim.Parser
       Broker.ThinkOrSwim.Process

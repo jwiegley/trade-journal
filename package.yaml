@@ -45,6 +45,8 @@ library:
     - Journal.Zippered
     - Taxes.USA.WashSaleRule
     - Broker.ThinkOrSwim
+    - Ledger
+    - Ledger.Render
   dependencies:
     - data-default
     - pretty
