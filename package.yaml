@@ -45,6 +45,7 @@ library:
     - Journal.Types
     - Journal.Utils
     - Ledger
+    - Ledger.Entry
     - Ledger.Render
     - Taxes.USA.WashSaleRule
   dependencies:

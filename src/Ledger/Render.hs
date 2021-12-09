@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MonadComprehensions #-}
@@ -22,11 +21,12 @@ import Data.Maybe (maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Format.ISO8601
+import GHC.TypeLits
 import Ledger
 import Text.Printf
 import Prelude hiding (Double, Float)
 
-renderPostingAmount :: PostingAmount k CommodityLot -> [Text]
+renderPostingAmount :: KnownNat n => PostingAmount n -> [Text]
 renderPostingAmount MetadataOnly = error "unexpected MetadataOnly"
 renderPostingAmount NullAmount = [""]
 renderPostingAmount (DollarAmount amt) = ["$" <> T.pack (thousands amt)]
@@ -46,10 +46,7 @@ renderPostingAmount (CommodityAmount l@CommodityLot {..}) =
             (perShareCost l)
         )
         (maybe "" (T.pack . printf " [%s]" . iso8601Show) _purchaseDate)
-        ( case _note of
-            Nothing -> ""
-            Just txt -> (T.pack . printf " (%s)") txt
-        )
+        (maybe "" (T.pack . printf " (%s)") _note)
         (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
     ]
   where
@@ -79,9 +76,10 @@ renderAccount name = \case
   CapitalWashLossDeferred -> "Expenses:Capital:Wash:Deferred"
   RoundingError -> "Expenses:" <> name <> ":Rounding"
   OpeningBalances -> "Equity:" <> name <> ":Opening Balances"
+  Other txt -> txt
   Unknown -> "Unknown"
 
-renderPosting :: Text -> Posting k CommodityLot -> [Text]
+renderPosting :: KnownNat n => Text -> Posting n -> [Text]
 renderPosting name Posting {..} =
   [ T.pack $
       printf
@@ -101,7 +99,7 @@ renderMetadata = Prelude.map go . M.assocs
   where
     go (k, v) = "    ; " <> k <> ": " <> v
 
-renderTransaction :: Show k => Text -> Transaction k o CommodityLot -> [Text]
+renderTransaction :: KnownNat n => Text -> Transaction o n -> [Text]
 renderTransaction name xact =
   [ T.concat $
       [T.pack (iso8601Show (xact ^. actualDate))]

@@ -17,13 +17,18 @@ import Amount
 import Control.Applicative
 import Control.Lens
 import Data.Int
+import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
+import Data.Time
 import GHC.Generics hiding (to)
 import Journal.Parse
 import Journal.Print
-import Data.Sum.Lens
+import Journal.Types.Annotated
+import qualified Journal.Types.Annotated as Ann
 import Journal.Types.Entry
+import Ledger
+import Ledger.Entry ()
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Show.Pretty
@@ -38,7 +43,7 @@ type NeuronId = Int64
 
 data ICP
   = TransferIn
-      { _transferToAccount :: AccountId,
+      { _transferFrom :: Text,
         _transferAmount :: Amount 8
       }
   | TransferOut
@@ -175,3 +180,51 @@ parseICP = do
 
 instance Producible Parser (Const ICP) where
   produce = fmap Const parseICP
+
+_ICPLedgerRepr :: Fold (Annotated ICP) (Transaction (Annotated ICP) 8)
+_ICPLedgerRepr f ann =
+  fmap (error "Never reached") . f $ case ann ^. item of
+    TransferIn acct amt ->
+      Transaction
+        { _actualDate = ann ^. time . to utctDay,
+          _effectiveDate = Nothing,
+          _code = "XFER",
+          _payee = "Transfer into account",
+          _postings =
+            [ Posting
+                { _account = Other ("Assets:ICP:" <> ann ^. Ann.account),
+                  _isVirtual = False,
+                  _isBalancing = True,
+                  _amount =
+                    CommodityAmount
+                      CommodityLot
+                        { _instrument = Crypto,
+                          _quantity = amt,
+                          _symbol = "ICP",
+                          _cost = Nothing,
+                          _purchaseDate = Nothing,
+                          _note = Nothing,
+                          _price = Nothing
+                        },
+                  _postMetadata = mempty
+                },
+              Posting
+                { _account = Other acct,
+                  _isVirtual = False,
+                  _isBalancing = True,
+                  _amount = NullAmount,
+                  _postMetadata = mempty
+                }
+            ],
+          _xactMetadata = mempty,
+          _provenance = ann
+        }
+    TransferOut _acct _amt -> undefined
+    Stake _n _amt -> undefined
+    Refresh _n _amt -> undefined
+    AccrueMaturity _n _amt -> undefined
+    MergeMaturity _n _amt -> undefined
+    Spawn _n1 _n2 -> undefined
+    Disburse _n _amt -> undefined
+    Split _n1 _n2 -> undefined
+    Merge _n1 _n2 -> undefined

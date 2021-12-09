@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1795af3bf06a96c723ecaf35d0b05a0cccb490734256f1ae20d1c76a1a6b8684
+-- hash: af9738ddb738ccf69843686a22c8ad6a4ad54585ddfaf796dc92380f42c81d1b
 
 name:           trade-journal
 version:        0.0.2
@@ -31,6 +31,7 @@ library
       Journal.Types
       Journal.Utils
       Ledger
+      Ledger.Entry
       Ledger.Render
       Taxes.USA.WashSaleRule
   other-modules:

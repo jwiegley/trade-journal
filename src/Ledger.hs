@@ -4,7 +4,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MonadComprehensions #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -15,7 +14,6 @@ module Ledger where
 
 import Amount
 import Control.Lens
-import Data.Default
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Text (Text)
@@ -29,24 +27,25 @@ data Instrument
   | FutureOption
   | Bond
   | MoneyMarket
+  | Crypto
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Instrument
 
-data CommodityLot k = CommodityLot
+data CommodityLot n = CommodityLot
   { _instrument :: Instrument,
-    _quantity :: Amount 4,
+    _quantity :: Amount n,
     _symbol :: Text,
-    _cost :: Maybe (Amount 4),
+    _cost :: Maybe (Amount n),
     _purchaseDate :: Maybe Day,
     _note :: Maybe Text,
-    _price :: Maybe (Amount 4)
+    _price :: Maybe (Amount n)
   }
   deriving (Eq, Ord, Show)
 
 makeLenses ''CommodityLot
 
-newCommodityLot :: Default k => CommodityLot k
+newCommodityLot :: CommodityLot n
 newCommodityLot =
   CommodityLot
     { _instrument = Equity,
@@ -58,10 +57,10 @@ newCommodityLot =
       _price = Nothing
     }
 
-data PostingAmount k (lot :: * -> *)
+data PostingAmount n
   = NullAmount
   | DollarAmount (Amount 2)
-  | CommodityAmount (lot k)
+  | CommodityAmount (CommodityLot n)
   | MetadataOnly
   deriving (Eq, Ord, Show)
 
@@ -89,23 +88,24 @@ data Account
   | CapitalWashLossDeferred
   | RoundingError
   | OpeningBalances
+  | Other Text
   | Unknown
   deriving (Eq, Ord, Show)
 
 makePrisms ''Account
 
-data Posting k (lot :: * -> *) = Posting
+data Posting n = Posting
   { _account :: Account,
     _isVirtual :: Bool,
     _isBalancing :: Bool,
-    _amount :: PostingAmount k lot,
+    _amount :: PostingAmount n,
     _postMetadata :: Map Text Text
   }
   deriving (Eq, Ord, Show)
 
 makeLenses ''Posting
 
-newPosting :: Account -> Bool -> PostingAmount k lot -> Posting k lot
+newPosting :: Account -> Bool -> PostingAmount n -> Posting n
 newPosting a b m =
   Posting
     { _account = a,
@@ -115,12 +115,12 @@ newPosting a b m =
       _postMetadata = M.empty
     }
 
-data Transaction k o (lot :: * -> *) = Transaction
+data Transaction o n = Transaction
   { _actualDate :: Day,
     _effectiveDate :: Maybe Day,
     _code :: Text,
     _payee :: Text,
-    _postings :: [Posting k lot],
+    _postings :: [Posting n],
     _xactMetadata :: Map Text Text,
     _provenance :: o
   }
@@ -128,7 +128,7 @@ data Transaction k o (lot :: * -> *) = Transaction
 
 makeLenses ''Transaction
 
-optionLots :: Traversal' (Transaction k o CommodityLot) (CommodityLot k)
+optionLots :: Traversal' (Transaction o n) (CommodityLot n)
 optionLots =
   postings
     . traverse
@@ -136,7 +136,7 @@ optionLots =
     . _CommodityAmount
     . filtered (has (instrument . _Option))
 
-equityLots :: Traversal' (Transaction k o CommodityLot) (CommodityLot k)
+equityLots :: Traversal' (Transaction o n) (CommodityLot n)
 equityLots =
   postings
     . traverse
