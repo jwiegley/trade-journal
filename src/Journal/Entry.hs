@@ -21,7 +21,7 @@ import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
 import Journal.Parse
 import Journal.Print
-import Journal.SumLens
+import Data.Sum.Lens
 import Journal.Types.Entry
 import Journal.Types.Lot
 import Text.Show.Pretty

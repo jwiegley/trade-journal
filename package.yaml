@@ -31,6 +31,9 @@ dependencies:
 library:
   source-dirs: src
   exposed-modules:
+    - Broker.ThinkOrSwim
+    - Data.Sum.Lens
+    - Data.Zippered
     - Journal.Closings
     - Journal.Crypto.ICP
     - Journal.Entry
@@ -39,14 +42,11 @@ library:
     - Journal.Pipes
     - Journal.Print
     - Journal.Split
-    - Journal.SumLens
     - Journal.Types
     - Journal.Utils
-    - Journal.Zippered
-    - Taxes.USA.WashSaleRule
-    - Broker.ThinkOrSwim
     - Ledger
     - Ledger.Render
+    - Taxes.USA.WashSaleRule
   dependencies:
     - data-default
     - pretty

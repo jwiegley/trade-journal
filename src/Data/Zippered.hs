@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Journal.Zippered where
+module Data.Zippered where
 
 import Control.Applicative
 import Control.Lens

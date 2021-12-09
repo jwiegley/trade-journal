@@ -9,7 +9,7 @@ import Data.Sum
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Journal.Print
-import Journal.SumLens
+import Data.Sum.Lens
 import Journal.Types
 
 processEntries ::

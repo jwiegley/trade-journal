@@ -39,7 +39,7 @@ import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Print
 import Journal.Split
-import Journal.SumLens
+import Data.Sum.Lens
 import Journal.Types
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Show.Pretty hiding (Time)

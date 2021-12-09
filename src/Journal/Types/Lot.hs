@@ -17,7 +17,7 @@ import Data.Text (Text)
 import GHC.Generics hiding (to)
 import GHC.TypeLits
 import Journal.Split
-import Journal.SumLens
+import Data.Sum.Lens
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 

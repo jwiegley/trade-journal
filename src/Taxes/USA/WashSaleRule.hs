@@ -30,10 +30,10 @@ import GHC.Generics
 import Journal.Closings
 import Journal.Parse
 import Journal.Print
-import Journal.SumLens
+import Data.Sum.Lens
 import Journal.Types
 import Journal.Utils (distance, sideline)
-import Journal.Zippered
+import Data.Zippered
 import Text.Megaparsec hiding (State)
 import Text.Megaparsec.Char
 import Text.Show.Pretty hiding (Time)

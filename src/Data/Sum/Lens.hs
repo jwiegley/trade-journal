@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Journal.SumLens where
+module Data.Sum.Lens where
 
 import Control.Applicative
 import Control.Lens

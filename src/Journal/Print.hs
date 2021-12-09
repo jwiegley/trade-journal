@@ -22,7 +22,7 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
-import Journal.SumLens
+import Data.Sum.Lens
 import Journal.Types
 
 class Printable f where

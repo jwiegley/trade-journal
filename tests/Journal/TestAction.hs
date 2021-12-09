@@ -45,7 +45,7 @@ import qualified Journal.Closings as Closings
 import Journal.Entry
 import Journal.Entry.Trade
 import Journal.Pipes ()
-import Journal.SumLens
+import Data.Sum.Lens
 import Journal.Types
 import Taxes.USA.WashSaleRule
 import Test.HUnit.Lang (FailureReason (..))

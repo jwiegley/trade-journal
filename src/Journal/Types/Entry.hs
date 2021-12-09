@@ -8,7 +8,7 @@ module Journal.Types.Entry where
 import Amount
 import Control.Lens
 import Data.Sum
-import Journal.SumLens
+import Data.Sum.Lens
 
 -- | The 'netAmount' indicates the exact effect on account balance this action
 --   represents.
