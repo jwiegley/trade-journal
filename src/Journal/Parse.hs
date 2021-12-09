@@ -58,7 +58,7 @@ parseEntriesFromText ::
   m [Annotated Entry]
 parseEntriesFromText path input =
   case parse
-    ( many (whiteSpace *> parseAnnotatedEntry)
+    ( many (whiteSpace *> parseAnnotated parseEntry)
         <* eof
     )
     path
@@ -66,16 +66,16 @@ parseEntriesFromText path input =
     Left e -> fail $ errorBundlePretty e
     Right res -> pure res
 
-parseAnnotatedEntry :: Parser (Annotated Entry)
-parseAnnotatedEntry = do
+parseAnnotated :: HasLot (Const a) => Parser a -> Parser (Annotated a)
+parseAnnotated parser = do
   _time <- Journal.Parse.parseTime
-  _item <- parseEntry
+  _item <- parser
   _details <- many parseAnnotation
   -- if there are fees, there should be an amount
   pure $
     Annotated {..}
       & details . traverse . failing _Fees _Commission
-        //~ (_item ^?! _EntryLot . amount)
+        //~ (Const _item ^?! _Lot . amount)
 
 quotedString :: Parser T.Text
 quotedString = identPQuoted <&> T.pack
