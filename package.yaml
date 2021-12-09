@@ -32,6 +32,7 @@ library:
   source-dirs: src
   exposed-modules:
     - Journal.Closings
+    - Journal.Crypto.ICP
     - Journal.Entry
     - Journal.Entry.Trade
     - Journal.Parse

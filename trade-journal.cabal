@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 7caa7b323dbe45104406cd29c8364fb3e21fd8d11838b27372b4a794bb03d30f
+-- hash: a5defe708c1ee55d5fa0eb34966ce60113dd98c7b7e845ccf75110ee7ee1fb05
 
 name:           trade-journal
 version:        0.0.2
@@ -18,6 +18,7 @@ build-type:     Simple
 library
   exposed-modules:
       Journal.Closings
+      Journal.Crypto.ICP
       Journal.Entry
       Journal.Entry.Trade
       Journal.Parse
