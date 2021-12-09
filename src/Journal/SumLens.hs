@@ -82,6 +82,21 @@ instance
     Right e -> inject <$> k f e
     Left es -> weaken <$> traversing @c k f es
 
+class HasFold (c :: (* -> *) -> Constraint) (fs :: [* -> *]) where
+  plied :: (forall g. c g => Fold (g a) b) -> Fold (Sum fs a) b
+
+instance c t => HasFold c '[t] where
+  plied k f s = fmap inject (k f (decomposeLast s))
+
+instance
+  {-# OVERLAPPING #-}
+  (HasFold c (u ': r), c t) =>
+  HasFold c (t ': u ': r)
+  where
+  plied k f s = case decompose s of
+    Right e -> inject <$> k f e
+    Left es -> weaken <$> plied @c k f es
+
 {-
 -- instance (Apply Eq1 r, Eq e) => Apply Eq1 (Const e : r) where
 --   apply f s = case decompose s of

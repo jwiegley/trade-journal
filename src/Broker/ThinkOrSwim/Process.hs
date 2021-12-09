@@ -54,20 +54,26 @@ entryToAction xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
       annotate $
-        Buy
-          Lot
-            { _amount = coerce tdQuantity,
-              _symbol = TL.toStrict tdSymbol,
-              _price = coerce tdPrice
+        Trade
+          TradeEntry
+            { _tradeLot =
+                Lot
+                  { _amount = coerce tdQuantity,
+                    _symbol = TL.toStrict tdSymbol,
+                    _price = coerce tdPrice
+                  }
             }
   Sold _device TOSTrade' {..} ->
     Right $
       annotate $
-        Sell
-          Lot
-            { _amount = coerce (abs tdQuantity),
-              _symbol = TL.toStrict tdSymbol,
-              _price = coerce tdPrice
+        Trade
+          TradeEntry
+            { _tradeLot =
+                Lot
+                  { _amount = coerce (abs tdQuantity),
+                    _symbol = TL.toStrict tdSymbol,
+                    _price = coerce tdPrice
+                  }
             }
   AchCredit ->
     Right $
@@ -133,15 +139,16 @@ entryToAction xact = \case
           _details = lotDetails
         }
     lotDetails =
-      [ Order (TL.toStrict (xact ^. xactRefNo)),
+      [ Meta "Order" (TL.toStrict (xact ^. xactRefNo)),
         Note (TL.toStrict (xact ^. xactDescription))
       ]
-        ++ [ Fees (- (xact ^. xactMiscFees . coerced))
-             | xact ^. xactMiscFees /= 0
-           ]
-        ++ [ Commission (- (xact ^. xactCommissionsAndFees . coerced))
-             | xact ^. xactCommissionsAndFees /= 0
-           ]
+
+-- ++ [ Fees (- (xact ^. xactMiscFees . coerced))
+--      | xact ^. xactMiscFees /= 0
+--    ]
+-- ++ [ Commission (- (xact ^. xactCommissionsAndFees . coerced))
+--      | xact ^. xactCommissionsAndFees /= 0
+--    ]
 
 xactAction ::
   TOSTransaction ->
@@ -150,7 +157,7 @@ xactAction ::
 xactAction xact bal = do
   ent <- left show $ entryParse xact
   x <- entryToAction xact ent
-  assert (sum (x ^.. netAmount) == xact ^. xactAmount) $
+  assert (sum (x ^.. item . _EntryNetAmount) == xact ^. xactAmount) $
     assert (bal == xact ^. xactBalance) $
       pure x
 

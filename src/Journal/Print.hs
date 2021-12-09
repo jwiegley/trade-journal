@@ -55,8 +55,7 @@ printEntry :: Entry -> Text
 printEntry = \case
   Deposit amt -> "deposit " <> printAmount 2 amt
   Withdraw amt -> "withdraw " <> printAmount 2 amt
-  Buy lot -> "buy " <> printLot lot
-  Sell lot -> "sell " <> printLot lot
+  Trade _trade -> "trade NYI"
   TransferIn lot -> "xferin " <> printLot lot
   TransferOut lot -> "xferout " <> printLot lot
   Exercise lot -> "exercise " <> printLot lot
@@ -86,7 +85,7 @@ totalAmount mlot n x =
   printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
 
 printAnnotated :: Annotated a -> Maybe Lot -> Text
-printAnnotated ann mlot =
+printAnnotated ann _mlot =
   TL.concat
     ( intersperse
         " "
@@ -99,12 +98,6 @@ printAnnotated ann mlot =
     annotations = mapMaybe printAnnotation (sort (ann ^. details))
     (inlineAnns, separateAnns) = partitionEithers annotations
     printAnnotation = \case
-      Fees x -> Just $ Left $ "fees " <> totalAmount mlot 2 x
-      Commission x -> Just $ Left $ "commission " <> totalAmount mlot 2 x
-      Account x -> Just $ Left $ "account " <> printText x
-      Ident x -> Just $ Left $ "id " <> TL.pack (show x)
-      Order x -> Just $ Left $ "order " <> printText x
-      Strategy x -> Just $ Left $ "strategy " <> printText x
       Note x -> Just $ Left $ "note " <> printString x
       Meta k v -> Just $ Right $ "meta " <> printText k <> " " <> printText v
     printText t

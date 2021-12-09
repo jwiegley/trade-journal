@@ -118,6 +118,7 @@ genAnnotated gen = do
   _time <- genUTCTime
   _item <- gen
   let _details = []
+  let _account = ""
   pure Annotated {..}
 
 genLot :: MonadGen m => m Lot
@@ -209,10 +210,34 @@ evalDSL :: MonadIO m => TestDSL r () -> StateT (Positions r) m ()
 evalDSL = mapM_ TestAction.eval . flip execState []
 
 buy :: Const Entry :< r => Annotated Lot -> TestDSL r ()
-buy b = id <>= [AnEntry (Buy <$> b)]
+buy b =
+  id
+    <>= [ AnEntry
+            ( Trade
+                TradeEntry
+                  { _tradeAction = Buy,
+                    _tradeLot = b ^. item,
+                    _tradeFees = 0,
+                    _tradeCommission = 0
+                  }
+                <$ b
+            )
+        ]
 
 sell :: Const Entry :< r => Annotated Lot -> TestDSL r ()
-sell s = id <>= [AnEntry (Sell <$> s)]
+sell s =
+  id
+    <>= [ AnEntry
+            ( Trade
+                TradeEntry
+                  { _tradeAction = Sell,
+                    _tradeLot = s ^. item,
+                    _tradeFees = 0,
+                    _tradeCommission = 0
+                  }
+                <$ s
+            )
+        ]
 
 open ::
   Const PositionEvent :< r =>

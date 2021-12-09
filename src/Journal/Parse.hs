@@ -76,11 +76,13 @@ parseAnnotated parser = do
   _time <- Journal.Parse.parseTime
   _item <- parser
   _details <- many parseAnnotation
+  let _account = ""
   -- if there are fees, there should be an amount
   pure $
     Annotated {..}
-      & details . traverse . failing _Fees _Commission
-        //~ (Const _item ^?! _Lot . amount)
+
+-- & details . traverse . failing _Fees _Commission
+--   //~ (Const _item ^?! _Lot . amount)
 
 quotedString :: Parser T.Text
 quotedString = identPQuoted <&> T.pack
@@ -110,8 +112,8 @@ parseEntry :: Parser Entry
 parseEntry =
   keyword "deposit" *> (Deposit <$> parseAmount)
     <|> keyword "withdraw" *> (Withdraw <$> parseAmount)
-    <|> keyword "buy" *> (Buy <$> parseLot)
-    <|> keyword "sell" *> (Sell <$> parseLot)
+    -- <|> keyword "buy" *> (Buy <$> parseLot)
+    -- <|> keyword "sell" *> (Sell <$> parseLot)
     <|> keyword "xferin" *> (TransferIn <$> parseLot)
     <|> keyword "xferout" *> (TransferOut <$> parseLot)
     <|> keyword "exercise" *> (Exercise <$> parseLot)
@@ -136,13 +138,13 @@ parseLot = do
 
 parseAnnotation :: Parser Annotation
 parseAnnotation = do
-  keyword "fees" *> (Fees <$> parseAmount)
-    <|> keyword "commission" *> (Commission <$> parseAmount)
-    <|> keyword "account" *> (Account <$> parseText)
-    <|> keyword "id" *> (Ident <$> L.decimal)
-    <|> keyword "order" *> (Order <$> parseText)
-    <|> keyword "strategy" *> (Strategy <$> parseText)
-    <|> keyword "note" *> (Note <$> quotedString)
+  -- keyword "fees" *> (Fees <$> parseAmount)
+  --   <|> keyword "commission" *> (Commission <$> parseAmount)
+  --   <|> keyword "account" *> (Account <$> parseText)
+  --   <|> keyword "id" *> (Ident <$> L.decimal)
+  --   <|> keyword "order" *> (Order <$> parseText)
+  -- <|> keyword "strategy" *> (Strategy <$> parseText)
+  keyword "note" *> (Note <$> quotedString)
     <|> keyword "meta" *> (Meta <$> parseText <*> parseText)
 
 parseText :: Parser T.Text

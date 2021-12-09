@@ -171,7 +171,7 @@ closings mode =
   where
     go entry = do
       gst <- get
-      case entry ^? item . projectedC . buyOrSell . symbol of
+      case entry ^? item . projectedC . _Trade . tradeLot . symbol of
         Just sym -> do
           let (results, gst') =
                 flip runState gst $
@@ -189,7 +189,7 @@ handle ::
     ( [Annotated (Sum (Const PositionEvent ': r) v)],
       Remainder (Annotated (Sum r v))
     )
-handle ann@(has (item . projectedC . buyOrSell) -> True) = do
+handle ann@(preview (item . projectedC . _Trade) -> Just trade) = do
   mode <- use calc
   -- jww (2021-12-04): the buy/sell should be able to specify FIFO or LIFO,
   -- and the user should be able to set it as a default. In the case of LIFE,
@@ -201,9 +201,9 @@ handle ann@(has (item . projectedC . buyOrSell) -> True) = do
     >>= \case
       open@(preview (item . projectedC . _Open . posDisp) -> Just disp) : _
         | disp
-            == if has (item . projectedC . _Sell) ann
-              then Long
-              else Short -> do
+            == case trade ^?! tradeAction of
+              Sell -> Long
+              Buy -> Short -> do
           events . at (open ^?! item . projectedC . _Open . posIdent) .= Nothing
           closePosition open ann
       _ -> (,Finished) <$> openPosition ann
@@ -219,16 +219,16 @@ openPosition ::
 openPosition open = do
   nextId += 1
   ident <- use nextId
-  let lot = open ^?! item . projectedC . buyOrSell
+  let trade = open ^?! item . projectedC . _Trade
       event =
         projectedC . _Open
           # Position
             { _posIdent = ident,
-              _posLot = lot,
+              _posLot = trade ^. tradeLot,
               _posDisp =
-                if has (item . projectedC . _Buy) open
-                  then Long
-                  else Short
+                case trade ^?! tradeAction of
+                  Buy -> Long
+                  Sell -> Short
             }
           <$ open
   events . at ident ?= event
@@ -249,7 +249,7 @@ closePosition open close =
   let o = open ^?! item . projectedC . _Open
    in alignForClose
         (o ^. posLot)
-        (close ^?! item . projectedC . buyOrSell)
+        (close ^?! item . projectedC . _Trade . tradeLot)
         ( \_su du ->
             pure
               [ projectedC . _Close
@@ -264,7 +264,7 @@ closePosition open close =
             events . at (open ^?! item . projectedC . _Open . posIdent)
               ?= (open & item . projectedC . _Open . posLot .~ sk)
         )
-        (\dk -> pure $ close & item . projectedC . buyOrSell .~ dk)
+        (\dk -> pure $ close & item . projectedC . _Trade . tradeLot .~ dk)
 
 alignForClose ::
   (Splittable n a, Splittable n b, Applicative m) =>
