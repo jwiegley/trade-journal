@@ -32,9 +32,6 @@ import Prelude hiding (Double, Float)
 transactionFee :: Amount 6
 transactionFee = 0.0001
 
-data Action = Buy | Sell
-  deriving (Show, PrettyVal, Eq, Ord, Generic)
-
 type AccountId = Text
 
 type NeuronId = Int64
