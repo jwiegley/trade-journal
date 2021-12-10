@@ -22,18 +22,18 @@ import Data.IntMap (IntMap)
 import Data.Map (Map)
 import Data.Maybe (isJust, isNothing)
 import Data.Sum
+import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
+import Data.Zippered
 -- import Debug.Trace
 import GHC.Generics
 import Journal.Closings
 import Journal.Parse
 import Journal.Print
-import Data.Sum.Lens
 import Journal.Types
 import Journal.Utils (distance, sideline)
-import Data.Zippered
 import Text.Megaparsec hiding (State)
 import Text.Megaparsec.Char
 import Text.Show.Pretty hiding (Time)
@@ -114,8 +114,8 @@ washSaleRule =
       [(Bool, Annotated (Sum (Const Washing ': r) v))] ->
       [(Bool, Annotated (Sum (Const Washing ': r) v))]
     go xs = maybe xs go do
-      -- The wash sale rule proceeds by looking for losing sales that haven't
-      -- been washed. If there are none, we are done.
+      -- The wash sale rule looks for losing sales that haven't yet been
+      -- washed. If there are none, we are done.
       let (z0, poss) = eligibleClose xs
       -- traceM $ "::: go.z0 =\n" ++ ppShow z0
       -- traceM $ "::: go.poss =\n" ++ ppShow poss
@@ -124,10 +124,8 @@ washSaleRule =
       x <- z1 ^? focus
       c <- x ^? _2 . item . _Event . _Close
 
-      -- Once an eligible losing sale is found, we look for an eligible
-      -- opening within 30 days before or after that sale. If there isn't one,
-      -- or if the following action results in no change to the set of washed
-      -- openings, we are done.
+      -- Next we look for an eligible opening 30 days before or after that
+      -- sale. If there isn't one, we are done.
       (z2, x') <-
         flip evalState poss $
           applyToPrefixOrSuffixM
