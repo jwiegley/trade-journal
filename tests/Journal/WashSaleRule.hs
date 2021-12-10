@@ -11,10 +11,7 @@ import Control.Monad.State
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import Journal.Closings
-import Journal.Entry.Deposit
-import Journal.Entry.Income
-import Journal.Entry.Options
-import Journal.Entry.Trade
+import Journal.Entry
 import Journal.Types
 import Taxes.USA.WashSaleRule
 import Test.Tasty

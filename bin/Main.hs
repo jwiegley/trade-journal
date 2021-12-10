@@ -7,8 +7,8 @@
 module Main where
 
 import Amount
-import Broker.ThinkOrSwim
-import Control.Lens
+import Broker.ThinkOrSwim hiding (_account)
+import Control.Lens hiding (Context)
 import Control.Monad.Except
 import Data.List (isSuffixOf)
 import Data.Map (Map)
@@ -17,13 +17,11 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy.IO as TL
 import GHC.Generics hiding (to)
 import qualified Journal.Closings as Closings
-import Journal.Entry.Deposit
-import Journal.Entry.Income
-import Journal.Entry.Options
-import Journal.Entry.Trade
+import Journal.Entry
 import Journal.Parse
 import Journal.Pipes
 import Journal.Print
+import Journal.Types
 import qualified Options
 import Taxes.USA.WashSaleRule
 
@@ -51,7 +49,17 @@ main = do
         case etos of
           Left err -> error $ "Error " ++ show err
           Right tos ->
-            mapM_ TL.putStrLn (printEntries (thinkOrSwimEntries tos))
+            mapM_
+              TL.putStrLn
+              ( printEntries
+                  ( thinkOrSwimEntries
+                      Context
+                        { _account = "",
+                          _currency = ""
+                        }
+                      tos
+                  )
+              )
       else do
         putStrLn $ "Reading journal " ++ path
         entries <-

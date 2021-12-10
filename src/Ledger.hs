@@ -28,6 +28,7 @@ data Instrument
   | Bond
   | MoneyMarket
   | Crypto
+  | Miscellaneous
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 makePrisms ''Instrument

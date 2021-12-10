@@ -34,10 +34,7 @@ import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
-import Journal.Entry.Deposit
-import Journal.Entry.Income
-import Journal.Entry.Options
-import Journal.Entry.Trade
+import Journal.Entry
 import Journal.Parse
 import Journal.Print
 import Journal.Split

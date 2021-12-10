@@ -22,7 +22,7 @@ module TestAction where
 
 import Amount
 import Control.Exception
-import Control.Lens hiding (each)
+import Control.Lens hiding (Context)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
@@ -42,10 +42,7 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Journal.Closings hiding (positions)
 import qualified Journal.Closings as Closings
-import Journal.Entry.Deposit
-import Journal.Entry.Income
-import Journal.Entry.Options
-import Journal.Entry.Trade
+import Journal.Entry
 import Journal.Pipes ()
 import Journal.Types
 import Taxes.USA.WashSaleRule
@@ -121,7 +118,11 @@ genAnnotated gen = do
   _time <- genUTCTime
   _item <- gen
   let _details = []
-  let _account = ""
+  let _context =
+        Context
+          { _currency = "",
+            _account = ""
+          }
   pure Annotated {..}
 
 genLot :: MonadGen m => m Lot

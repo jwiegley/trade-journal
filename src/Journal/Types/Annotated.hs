@@ -7,7 +7,7 @@
 
 module Journal.Types.Annotated where
 
-import Control.Lens
+import Control.Lens hiding (Context)
 import Data.Text (Text)
 import Data.Time
 import Data.Time.Format.ISO8601
@@ -25,10 +25,18 @@ makePrisms ''Annotation
 instance PrettyVal UTCTime where
   prettyVal = String . iso8601Show
 
+data Context = Context
+  { _account :: Text,
+    _currency :: Text
+  }
+  deriving (Show, PrettyVal, Eq, Generic)
+
+makeLenses ''Context
+
 data Annotated a = Annotated
   { _item :: a,
     _time :: UTCTime,
-    _account :: Text,
+    _context :: Context,
     -- | All annotations that relate to lot shares are expressed "per share".
     _details :: [Annotation]
   }

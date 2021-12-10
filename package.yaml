@@ -36,10 +36,7 @@ library:
     - Data.Zippered
     - Journal.Closings
     - Journal.Crypto.ICP
-    - Journal.Entry.Deposit
-    - Journal.Entry.Income
-    - Journal.Entry.Options
-    - Journal.Entry.Trade
+    - Journal.Entry
     - Journal.Parse
     - Journal.Pipes
     - Journal.Print

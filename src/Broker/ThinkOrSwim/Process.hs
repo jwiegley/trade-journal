@@ -10,7 +10,7 @@ import Broker.ThinkOrSwim.Parser
 import Broker.ThinkOrSwim.Types
 import Control.Arrow (left)
 import Control.Exception
-import Control.Lens hiding (each)
+import Control.Lens hiding (Context)
 import Data.Coerce
 import Data.Foldable
 import Data.List (intercalate)
@@ -20,10 +20,7 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
-import Journal.Entry.Deposit
-import Journal.Entry.Income
-import Journal.Entry.Options
-import Journal.Entry.Trade
+import Journal.Entry
 import Journal.Types
 import Text.Megaparsec
 import Text.Printf
@@ -55,10 +52,11 @@ entryParse xact =
     (xact ^. xactDescription)
 
 entryToAction ::
+  Context ->
   TOSTransaction ->
   TOSEntry ->
   Either String (Annotated TOSEvent)
-entryToAction xact = \case
+entryToAction ctx xact = \case
   Bought _device TOSTrade' {..} ->
     Right $
       annotate $
@@ -96,13 +94,13 @@ entryToAction xact = \case
       annotate $
         inject $
           Const $
-            Deposit (xact ^. xactAmount)
+            Deposit (xact ^. xactAmount) ""
   AchDebit ->
     Right $
       annotate $
         inject $
           Const $
-            Deposit (xact ^. xactAmount)
+            Deposit (xact ^. xactAmount) ""
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
@@ -153,6 +151,7 @@ entryToAction xact = \case
                   _symbol = TL.toStrict sym,
                   _price = 0
                 }
+              ""
   -- TransferOfCash -> undefined
   -- TransferToForexAccount -> undefined
   WireIncoming ->
@@ -160,7 +159,7 @@ entryToAction xact = \case
       annotate $
         inject $
           Const $
-            Deposit (xact ^. xactAmount)
+            Deposit (xact ^. xactAmount) ""
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
   where
@@ -168,7 +167,7 @@ entryToAction xact = \case
       Annotated
         { _item = x,
           _time = entryTime xact,
-          _account = "NYI",
+          _context = ctx,
           _details = lotDetails
         }
     lotDetails =
@@ -177,20 +176,22 @@ entryToAction xact = \case
       ]
 
 xactAction ::
+  Context ->
   TOSTransaction ->
   Amount 2 ->
   Either String (Annotated TOSEvent)
-xactAction xact bal = do
+xactAction ctx xact bal = do
   ent <- left show $ entryParse xact
-  x <- entryToAction xact ent
+  x <- entryToAction ctx xact ent
   assert (sum (x ^.. item . _NetAmount) == xact ^. xactAmount) $
     assert (bal == xact ^. xactBalance) $
       pure x
 
 thinkOrSwimEntries ::
+  Context ->
   ThinkOrSwim ->
   [Annotated TOSEvent]
-thinkOrSwimEntries tos =
+thinkOrSwimEntries ctx tos =
   concatMap
     ( \case
         Left err -> trace err []
@@ -200,6 +201,6 @@ thinkOrSwimEntries tos =
       (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts)) $
         \xact (bal, rest) ->
           let nxt = bal + xact ^. xactAmount
-           in case xactAction xact nxt of
+           in case xactAction ctx xact nxt of
                 x@(Left _) -> (bal, x : rest)
                 x -> (nxt, x : rest)

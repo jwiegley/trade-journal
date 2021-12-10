@@ -20,16 +20,13 @@ import Data.Int
 import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
-import Data.Time
 import GHC.Generics hiding (to)
 import Journal.Parse
 import Journal.Print
 import Journal.Types.Annotated
-import qualified Journal.Types.Annotated as Ann
 import Journal.Types.Entry
 import Ledger
 import Ledger.Entry ()
-import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
@@ -42,15 +39,7 @@ type AccountId = Text
 type NeuronId = Int64
 
 data ICP
-  = TransferIn
-      { _transferFrom :: Text,
-        _transferAmount :: Amount 8
-      }
-  | TransferOut
-      { _transferToAccount :: AccountId,
-        _transferAmount :: Amount 8
-      }
-  | Stake
+  = Stake
       { _stakeNeuron :: NeuronId,
         _stakeAmount :: Amount 8
       }
@@ -93,8 +82,6 @@ makePrisms ''ICP
 icpFees :: Fold ICP (Amount 6)
 icpFees f =
   fmap (error "Never reached") . f . \case
-    TransferIn {} -> - 0
-    TransferOut {} -> - transactionFee
     Stake {} -> transactionFee
     Refresh {} -> transactionFee
     AccrueMaturity {} -> 0
@@ -107,8 +94,6 @@ icpFees f =
 _ICPNetAmount :: Fold ICP (Amount 2)
 _ICPNetAmount f =
   fmap (error "Never reached") . f . view coerced . \case
-    TransferIn _ amt -> amt
-    TransferOut _ amt -> - amt
     Stake _ amt -> - amt
     Refresh _ amt -> - amt
     AccrueMaturity {} -> 0
@@ -123,10 +108,6 @@ instance HasNetAmount (Const ICP) where
 
 printICP :: ICP -> TL.Text
 printICP = \case
-  TransferIn acct amt ->
-    "xfer in " <> TL.fromStrict acct <> " " <> printAmount 8 amt
-  TransferOut acct amt ->
-    "xfer out " <> TL.fromStrict acct <> " " <> printAmount 8 amt
   Stake n amt ->
     "stake " <> tshow n <> " " <> printAmount 8 amt
   Refresh n amt ->
@@ -151,18 +132,8 @@ instance Printable (Const ICP) where
 
 parseICP :: Parser ICP
 parseICP = do
-  keyword "xfer in"
-    *> ( TransferIn
-           <$> (TL.toStrict . TL.pack <$> some alphaNumChar)
-           <*> parseAmount
-       )
-    <|> keyword "xfer out"
-      *> ( TransferOut
-             <$> (TL.toStrict . TL.pack <$> some alphaNumChar)
-             <*> parseAmount
-         )
-    <|> keyword "stake"
-      *> (Stake <$> (L.decimal <* whiteSpace) <*> parseAmount)
+  keyword "stake"
+    *> (Stake <$> (L.decimal <* whiteSpace) <*> parseAmount)
     <|> keyword "refresh"
       *> (Refresh <$> (L.decimal <* whiteSpace) <*> parseAmount)
     <|> keyword "accrue maturity"
@@ -184,42 +155,6 @@ instance Producible Parser (Const ICP) where
 _ICPLedgerRepr :: Fold (Annotated ICP) (Transaction (Annotated ICP) 8)
 _ICPLedgerRepr f ann =
   fmap (error "Never reached") . f $ case ann ^. item of
-    TransferIn acct amt ->
-      Transaction
-        { _actualDate = ann ^. time . to utctDay,
-          _effectiveDate = Nothing,
-          _code = "XFER",
-          _payee = "Transfer into account",
-          _postings =
-            [ Posting
-                { _account = Other ("Assets:ICP:" <> ann ^. Ann.account),
-                  _isVirtual = False,
-                  _isBalancing = True,
-                  _amount =
-                    CommodityAmount
-                      CommodityLot
-                        { _instrument = Crypto,
-                          _quantity = amt,
-                          _symbol = "ICP",
-                          _cost = Nothing,
-                          _purchaseDate = Nothing,
-                          _note = Nothing,
-                          _price = Nothing
-                        },
-                  _postMetadata = mempty
-                },
-              Posting
-                { _account = Other acct,
-                  _isVirtual = False,
-                  _isBalancing = True,
-                  _amount = NullAmount,
-                  _postMetadata = mempty
-                }
-            ],
-          _xactMetadata = mempty,
-          _provenance = ann
-        }
-    TransferOut _acct _amt -> undefined
     Stake _n _amt -> undefined
     Refresh _n _amt -> undefined
     AccrueMaturity _n _amt -> undefined

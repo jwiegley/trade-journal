@@ -13,10 +13,7 @@ import Data.String.Here.Interpolated
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Journal.Closings as Closings
-import Journal.Entry.Deposit
-import Journal.Entry.Income
-import Journal.Entry.Options
-import Journal.Entry.Trade
+import Journal.Entry
 import Journal.Parse
 import Journal.Pipes
 import Taxes.USA.WashSaleRule
