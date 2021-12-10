@@ -36,7 +36,9 @@ library:
     - Data.Zippered
     - Journal.Closings
     - Journal.Crypto.ICP
-    - Journal.Entry
+    - Journal.Entry.Deposit
+    - Journal.Entry.Income
+    - Journal.Entry.Options
     - Journal.Entry.Trade
     - Journal.Parse
     - Journal.Pipes
@@ -82,7 +84,8 @@ tests:
 
 executables:
   trade-journal:
-    main: bin/Main.hs
+    main: Main.hs
+    source-dirs: bin
     other-modules:
       - Options
     dependencies:

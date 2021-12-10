@@ -32,20 +32,21 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Ratio
 import Data.Sum
+import Data.Sum.Lens
 import Data.Text (Text)
 import Data.Time
 import Data.Typeable
--- import Debug.Trace
 import GHC.Generics hiding (to)
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Journal.Closings hiding (positions)
 import qualified Journal.Closings as Closings
-import Journal.Entry
+import Journal.Entry.Deposit
+import Journal.Entry.Income
+import Journal.Entry.Options
 import Journal.Entry.Trade
 import Journal.Pipes ()
-import Data.Sum.Lens
 import Journal.Types
 import Taxes.USA.WashSaleRule
 import Test.HUnit.Lang (FailureReason (..))
@@ -163,7 +164,9 @@ data TestExprClose = TestExprClose
 makeLenses ''TestExprClose
 
 data TestExpr r
-  = Const Entry :< r => AnEntry (Annotated Entry)
+  = Const Deposit :< r => ADeposit (Annotated Deposit)
+  | Const Income :< r => AnIncome (Annotated Income)
+  | Const Options :< r => AnOptions (Annotated Options)
   | Const Trade :< r => ATrade (Annotated Trade)
   | Const PositionEvent :< r => APositionEvent (Annotated PositionEvent)
   | Const Washing :< r => AWashing (Annotated Washing)
@@ -199,7 +202,13 @@ handlePositionEvent ((^? _Event . _Close) -> Just cl) = do
 handlePositionEvent _ = pure ()
 
 eval :: MonadIO m => TestExpr r -> StateT (Positions r) m ()
-eval (AnEntry b) = do
+eval (ADeposit b) = do
+  entries <>= [(projectedC #) <$> b]
+  handlePositionEvent (Const (b ^. item))
+eval (AnIncome b) = do
+  entries <>= [(projectedC #) <$> b]
+  handlePositionEvent (Const (b ^. item))
+eval (AnOptions b) = do
   entries <>= [(projectedC #) <$> b]
   handlePositionEvent (Const (b ^. item))
 eval (ATrade b) = do
@@ -285,7 +294,7 @@ instance (Apply PrettyVal1 t, PrettyVal v) => PrettyVal (Sum t v) where
 
 checkJournal ::
   forall s m.
-  ( '[Const Trade, Const Entry] :<: s,
+  ( '[Const Trade, Const Deposit, Const Income, Const Options] :<: s,
     HasTraversal' HasPositionEvent s,
     Const PositionEvent :< s,
     Apply Show1 s,
@@ -293,7 +302,17 @@ checkJournal ::
     Apply PrettyVal1 s,
     MonadIO m
   ) =>
-  ( ( [Annotated (Sum '[Const PositionEvent, Const Trade, Const Entry] ())],
+  ( ( [ Annotated
+          ( Sum
+              '[ Const PositionEvent,
+                 Const Trade,
+                 Const Deposit,
+                 Const Income,
+                 Const Options
+               ]
+              ()
+          )
+      ],
       Map
         Text
         ( IntMap
@@ -301,7 +320,9 @@ checkJournal ::
                 ( Sum
                     '[ Const PositionEvent,
                        Const Trade,
-                       Const Entry
+                       Const Deposit,
+                       Const Income,
+                       Const Options
                      ]
                     ()
                 )
@@ -312,7 +333,7 @@ checkJournal ::
       Map Text (IntMap (Annotated (Sum s ())))
     )
   ) ->
-  TestDSL '[Const Trade, Const Entry] () ->
+  TestDSL '[Const Trade, Const Deposit, Const Income, Const Options] () ->
   TestDSL s () ->
   TestDSL s () ->
   m ()

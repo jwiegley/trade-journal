@@ -13,7 +13,9 @@ import Data.String.Here.Interpolated
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Journal.Closings as Closings
-import Journal.Entry
+import Journal.Entry.Deposit
+import Journal.Entry.Income
+import Journal.Entry.Options
 import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Pipes
@@ -203,7 +205,12 @@ zoomHistory = ii @--> oo
 x @--> y = do
   (_, msgs) <-
     runWriterT $ do
-      entries <- parseEntriesFromText @_ @'[Const Trade, Const Entry] "" x
+      entries <-
+        parseEntriesFromText
+          @_
+          @'[Const Trade, Const Deposit, Const Income, Const Options]
+          ""
+          x
       parseProcessPrint
         (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
         entries

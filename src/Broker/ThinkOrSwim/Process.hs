@@ -20,13 +20,16 @@ import qualified Data.Text.Lazy as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
-import Journal.Entry hiding (parseEntry)
+import Journal.Entry.Deposit
+import Journal.Entry.Income
+import Journal.Entry.Options
 import Journal.Entry.Trade
 import Journal.Types
 import Text.Megaparsec
 import Text.Printf
 
-type TOSEvent = Sum '[Const Trade, Const Entry] ()
+type TOSEvent =
+  Sum '[Const Trade, Const Deposit, Const Income, Const Options] ()
 
 entryTime :: TOSTransaction -> UTCTime
 entryTime record =
@@ -99,7 +102,7 @@ entryToAction xact = \case
       annotate $
         inject $
           Const $
-            Withdraw (xact ^. xactAmount . to abs)
+            Deposit (xact ^. xactAmount)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
@@ -144,9 +147,9 @@ entryToAction xact = \case
       annotate $
         inject $
           Const $
-            TransferIn
+            Transfer
               Lot
-                { _amount = coerce (abs amt),
+                { _amount = coerce amt,
                   _symbol = TL.toStrict sym,
                   _price = 0
                 }

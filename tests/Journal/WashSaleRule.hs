@@ -11,7 +11,9 @@ import Control.Monad.State
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import Journal.Closings
-import Journal.Entry
+import Journal.Entry.Deposit
+import Journal.Entry.Income
+import Journal.Entry.Options
 import Journal.Entry.Trade
 import Journal.Types
 import Taxes.USA.WashSaleRule
@@ -228,19 +230,23 @@ testWashSaleRule =
 
 testRule ::
   String ->
-  ( ( TestDSL '[Const Trade, Const Entry] () ->
+  ( ( TestDSL '[Const Trade, Const Deposit, Const Income, Const Options] () ->
       TestDSL
         '[ Const Washing,
            Const PositionEvent,
            Const Trade,
-           Const Entry
+           Const Deposit,
+           Const Income,
+           Const Options
          ]
         () ->
       TestDSL
         '[ Const Washing,
            Const PositionEvent,
            Const Trade,
-           Const Entry
+           Const Deposit,
+           Const Income,
+           Const Options
          ]
         () ->
       PropertyT IO ()
@@ -263,8 +269,23 @@ wash ::
   Period ->
   Int ->
   Amount 6 ->
-  TestDSL '[Const PositionEvent, Const Trade, Const Entry] () ->
-  TestDSL '[Const Washing, Const PositionEvent, Const Trade, Const Entry] ()
+  TestDSL
+    '[ Const PositionEvent,
+       Const Trade,
+       Const Deposit,
+       Const Income,
+       Const Options
+     ]
+    () ->
+  TestDSL
+    '[ Const Washing,
+       Const PositionEvent,
+       Const Trade,
+       Const Deposit,
+       Const Income,
+       Const Options
+     ]
+    ()
 wash
   period
   n
@@ -288,8 +309,23 @@ washedFrom ::
   Period ->
   Annotated Lot ->
   Amount 6 ->
-  TestDSL '[Const PositionEvent, Const Trade, Const Entry] () ->
-  TestDSL '[Const Washing, Const PositionEvent, Const Trade, Const Entry] ()
+  TestDSL
+    '[ Const PositionEvent,
+       Const Trade,
+       Const Deposit,
+       Const Income,
+       Const Options
+     ]
+    () ->
+  TestDSL
+    '[ Const Washing,
+       Const PositionEvent,
+       Const Trade,
+       Const Deposit,
+       Const Income,
+       Const Options
+     ]
+    ()
 washedFrom
   period
   lot

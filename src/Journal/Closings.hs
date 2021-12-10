@@ -23,7 +23,6 @@ import Control.Applicative
 import Control.Arrow
 import Control.Lens
 import Control.Monad.State
-import Data.Aeson hiding ((.=))
 import Data.Foldable
 import Data.Functor.Classes
 import Data.IntMap (IntMap)
@@ -31,15 +30,17 @@ import Data.List (intersperse)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Sum
+import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
-import Journal.Entry
+import Journal.Entry.Deposit
+import Journal.Entry.Income
+import Journal.Entry.Options
 import Journal.Entry.Trade
 import Journal.Parse
 import Journal.Print
 import Journal.Split
-import Data.Sum.Lens
 import Journal.Types
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Show.Pretty hiding (Time)
@@ -100,11 +101,13 @@ class HasPositionEvent f where
 instance HasTraversal' HasPositionEvent fs => HasPositionEvent (Sum fs) where
   _Event = traversing @HasPositionEvent _Event
 
-instance HasPositionEvent (Const Entry) where
-  _Event _ = pure
+instance HasPositionEvent (Const Deposit) where _Event _ = pure
 
-instance HasPositionEvent (Const Trade) where
-  _Event _ = pure
+instance HasPositionEvent (Const Income) where _Event _ = pure
+
+instance HasPositionEvent (Const Options) where _Event _ = pure
+
+instance HasPositionEvent (Const Trade) where _Event _ = pure
 
 instance HasPositionEvent (Const PositionEvent) where
   _Event f (Const s) = Const <$> f s
@@ -123,8 +126,7 @@ data Calculation = FIFO | LIFO
       Eq,
       Ord,
       Generic,
-      PrettyVal,
-      FromJSON
+      PrettyVal
     )
 
 data BasicState e = BasicState

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: af9738ddb738ccf69843686a22c8ad6a4ad54585ddfaf796dc92380f42c81d1b
+-- hash: 30a482dbb3703a49345bc57fa2d164de2790031e4440f1d0cfc9b4c411cf3807
 
 name:           trade-journal
 version:        0.0.2
@@ -22,7 +22,9 @@ library
       Data.Zippered
       Journal.Closings
       Journal.Crypto.ICP
-      Journal.Entry
+      Journal.Entry.Deposit
+      Journal.Entry.Income
+      Journal.Entry.Options
       Journal.Entry.Trade
       Journal.Parse
       Journal.Pipes
@@ -71,9 +73,11 @@ library
   default-language: Haskell2010
 
 executable trade-journal
-  main-is: bin/Main.hs
+  main-is: Main.hs
   other-modules:
       Options
+  hs-source-dirs:
+      bin
   ghc-options: -Wall -Wno-missing-home-modules
   build-depends:
       aeson
