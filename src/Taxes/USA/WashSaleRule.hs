@@ -26,8 +26,7 @@ import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
-import Data.Zippered
--- import Debug.Trace
+import Data.Zipper
 import GHC.Generics
 import Journal.Closings
 import Journal.Parse
@@ -117,10 +116,7 @@ washSaleRule =
       -- The wash sale rule looks for losing sales that haven't yet been
       -- washed. If there are none, we are done.
       let (z0, poss) = eligibleClose xs
-      -- traceM $ "::: go.z0 =\n" ++ ppShow z0
-      -- traceM $ "::: go.poss =\n" ++ ppShow poss
       z1 <- z0
-      -- traceM $ "::: go.z1 focus =\n" ++ ppShow (z1 ^? focus)
       x <- z1 ^? focus
       c <- x ^? _2 . item . _Event . _Close
 
@@ -136,11 +132,10 @@ washSaleRule =
             )
             (handleOpen x)
             z1
-      -- traceM $ "::: go.x' =\n" ++ ppShow x'
 
       let z3 = z2 & focus .~ x'
       guard $ z1 /= z3
-      pure $ unzippered z3
+      pure $ unzipper z3
 
     losses :: Position -> Closing -> Amount 6
     losses pos c =
@@ -154,7 +149,7 @@ washSaleRule =
       Washable r v =>
       [(Bool, Annotated (Sum (Const Washing ': r) v))] ->
       ( Maybe
-          ( Zippered
+          ( Zipper
               ( Bool,
                 Annotated (Sum (Const Washing ': r) v)
               )
@@ -162,12 +157,10 @@ washSaleRule =
         Map Text (IntMap (Annotated (Sum r v)))
       )
     eligibleClose xs = flip runState mempty $
-      flip zipperedM xs $ \(w, x) -> do
+      flip zipperM xs $ \(w, x) -> do
         poss <- get
         forM_ (x ^? item . _Event) $ \e ->
           put $ positionsFromEntry poss (inject (Const e) <$ x)
-        -- traceM $ "::: eligibleClose.poss =\n" ++ ppShow poss
-        -- traceM $ "::: eligibleClose.x =\n" ++ ppShow x
         pure $
           w && Just True == do
             c <- x ^? item . _Event . _Close
@@ -191,9 +184,6 @@ washSaleRule =
       State (Map Text (IntMap (Annotated (Sum r v)))) Bool
     eligibleOpen sym ident anchor inPast (w, y) = do
       poss <- get
-      -- traceM $ "::: eligibleOpen.inPast =\n" ++ ppShow inPast
-      -- traceM $ "::: eligibleOpen.poss =\n" ++ ppShow poss
-      -- traceM $ "::: eligibleOpen.y =\n" ++ ppShow y
       pure $
         w && Just True == do
           o <- y ^? item . _Event . _Open
@@ -207,20 +197,16 @@ washSaleRule =
       Washable r v =>
       (Bool, Annotated (Sum (Const Washing ': r) v)) ->
       Bool ->
-      Zippered (Bool, Annotated (Sum (Const Washing ': r) v)) ->
+      Zipper (Bool, Annotated (Sum (Const Washing ': r) v)) ->
       Maybe
-        ( Zippered (Bool, Annotated (Sum (Const Washing ': r) v)),
+        ( Zipper (Bool, Annotated (Sum (Const Washing ': r) v)),
           (Bool, Annotated (Sum (Const Washing ': r) v))
         )
     handleOpen x inPast part = do
       c <- x ^? _2 . item . _Event . _Close
-      -- traceM $ "::: handleOpen.c =\n" ++ ppShow c
       y <- part ^? focus
       o <- y ^? _2 . item . _Event . _Open
-      -- traceM $ "::: handleOpen.o =\n" ++ ppShow o
 
-      -- jww (2021-12-03): The basis adjustment must be washed into the whole
-      -- opening position, not a part; so don't use `alignment` here.
       let loss =
             (losses o c * c ^. closingLot . amount) -- the total loss
               / (o ^. posLot . amount)

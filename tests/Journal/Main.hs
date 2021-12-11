@@ -12,11 +12,11 @@ import Control.Monad.Trans.Class
 -- import GainsKeeper
 
 import Data.Sum
+import Data.Sum.Lens
+import Data.Zipper
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Data.Sum.Lens
-import Data.Zippered
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Hedgehog
@@ -27,14 +27,14 @@ main =
   defaultMain $
     testGroup
       "journal"
-      [ testProperty "zippered-unzippered" $ property do
+      [ testProperty "zipper-unzipper" $ property do
           xs <-
             forAll $
               Gen.list
                 (Range.linear 0 100)
                 (Gen.int (Range.linear 0 100))
-          lift $ xs @?= maybe xs unzippered (zippered even xs),
-        testProperty "zipperedM-unzippered" $ property do
+          lift $ xs @?= maybe xs unzipper (zipper even xs),
+        testProperty "zipperM-unzipper" $ property do
           xs <-
             forAll $
               Gen.list
@@ -44,17 +44,17 @@ main =
             xs
               @?= maybe
                 xs
-                unzippered
-                (runIdentity (zipperedM (pure . even) xs)),
+                unzipper
+                (runIdentity (zipperM (pure . even) xs)),
         --
-        testProperty "reverseZippered-reverseUnzippered" $ property do
+        testProperty "reverseZipper-reverseUnzipper" $ property do
           xs <-
             forAll $
               Gen.list
                 (Range.linear 0 100)
                 (Gen.int (Range.linear 0 100))
-          lift $ xs @?= maybe xs reverseUnzippered (reverseZippered even xs),
-        testProperty "reverseZipperedM-reverseUnzippered" $ property do
+          lift $ xs @?= maybe xs reverseUnzipper (reverseZipper even xs),
+        testProperty "reverseZipperM-reverseUnzipper" $ property do
           xs <-
             forAll $
               Gen.list
@@ -64,8 +64,8 @@ main =
             xs
               @?= maybe
                 xs
-                reverseUnzippered
-                (runIdentity (reverseZipperedM (pure . even) xs)),
+                reverseUnzipper
+                (runIdentity (reverseZipperM (pure . even) xs)),
         --
         testProperty "projected" $ property do
           lift $

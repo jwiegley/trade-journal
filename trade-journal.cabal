@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 672008dbdb17bcf0ebd81f8b6ac9337119a0906f3506ab53574e8ff7082e41e1
+-- hash: e60638e90d83d219a908a9ca090fc411b4b2f55234c117fd276e6217e564c104
 
 name:           trade-journal
 version:        0.0.2
@@ -19,7 +19,7 @@ library
   exposed-modules:
       Broker.ThinkOrSwim
       Data.Sum.Lens
-      Data.Zippered
+      Data.Zipper
       Journal.Closings
       Journal.Crypto.ICP
       Journal.Entry
@@ -53,6 +53,7 @@ library
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , comonad
     , constraints
     , containers
     , data-default
@@ -64,6 +65,7 @@ library
     , pretty
     , pretty-show
     , profunctors
+    , semigroupoids
     , simple-amount
     , split
     , text
@@ -85,6 +87,7 @@ executable trade-journal
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , comonad
     , constraints
     , containers
     , fastsum
@@ -94,6 +97,7 @@ executable trade-journal
     , mtl
     , optparse-applicative
     , pretty-show
+    , semigroupoids
     , simple-amount
     , text
     , time
@@ -120,6 +124,7 @@ test-suite journal-tests
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , comonad
     , constraints
     , containers
     , fastsum
@@ -130,6 +135,7 @@ test-suite journal-tests
     , megaparsec
     , mtl
     , pretty-show
+    , semigroupoids
     , simple-amount
     , tasty
     , tasty-hedgehog
@@ -156,6 +162,7 @@ test-suite thinkorswim-tests
     , base >=4.5 && <5.0
     , bytestring
     , cassava
+    , comonad
     , constraints
     , containers
     , fastsum
@@ -166,6 +173,7 @@ test-suite thinkorswim-tests
     , megaparsec
     , mtl
     , pretty-show
+    , semigroupoids
     , simple-amount
     , tasty
     , tasty-hedgehog
