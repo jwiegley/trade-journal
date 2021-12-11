@@ -3,10 +3,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Data.Zipper where
 
 import Control.Applicative
+import Control.Arrow (first)
 import Control.Comonad
 import Control.Lens hiding ((<.>))
 import Control.Monad
@@ -90,6 +92,10 @@ breakM :: (Monad m, MonadPlus f) => (a -> m Bool) -> [a] -> m (f a, [a])
 breakM p = spanM $ return . not <=< p
 
 makeLenses ''Zipper
+
+fromList :: [a] -> Maybe (Zipper a)
+fromList [] = Nothing
+fromList (x : xs) = Just (Zipper [] x xs)
 
 zipper :: MonadPlus f => (a -> Bool) -> [a] -> f (Zipper a)
 zipper f xs = case break f xs of
@@ -181,19 +187,66 @@ applyToPrefixOrSuffixM f g z = do
         (res, x) <- g False r
         pure (z & suffix .~ unzipper res, x)
 
-scanState :: (a -> s -> (b, s)) -> s -> [a] -> [(b, s)]
-scanState f = go
+scanPreState :: (a -> s -> (b, s)) -> s -> [a] -> [(b, s)]
+scanPreState f = go
+  where
+    go _ [] = []
+    go s (x : xs) =
+      let (b, s') = f x s
+       in (b, s) : go s' xs
+
+scanPreStateM :: Monad m => (a -> StateT s m b) -> [a] -> StateT s m [(b, s)]
+scanPreStateM f = go
+  where
+    go [] = pure []
+    go (x : xs) = do
+      s <- get
+      b <- f x
+      ((b, s) :) <$> go xs
+
+scanPostState :: (a -> s -> (b, s)) -> s -> [a] -> [(b, s)]
+scanPostState f = go
   where
     go _ [] = []
     go s (x : xs) =
       let (b, s') = f x s
        in (b, s') : go s' xs
 
-scanStateM :: Monad m => (a -> StateT s m b) -> [a] -> StateT s m [(b, s)]
-scanStateM f = go
+scanPostStateM :: Monad m => (a -> StateT s m b) -> [a] -> StateT s m [(b, s)]
+scanPostStateM f = go
   where
     go [] = pure []
     go (x : xs) = do
       b <- f x
       s <- get
       ((b, s) :) <$> go xs
+
+survey :: (Zipper a -> Zipper a) -> [a] -> [a]
+survey f = maybe [] go . fromList
+  where
+    go z = let z' = f z in maybe (unzipper z') go (right z')
+
+-- | Apply the given function to each member of the list until it returns
+--   'Just' some value, which replaces that discovered element and results in
+--   returning the final mutated list.
+mapUntil :: (a -> Maybe (a, b)) -> [a] -> Maybe ([a], b)
+mapUntil f = go
+  where
+    go [] = Nothing
+    go ((f -> Just (x, b)) : xs) = Just (x : xs, b)
+    go (x : xs) = first (x :) <$> go xs
+
+-- | Given a zipper list, attempt to locate an element first in the prefix,
+--   then in the suffix, and allow for a transformation of that sub-zipper
+--   list within the parent list, plus the generation of some datum.
+mapLeftThenRightUntil ::
+  Zipper a ->
+  (Bool -> a -> Maybe (a, b)) ->
+  Maybe (Zipper a, b)
+mapLeftThenRightUntil z f =
+  case mapUntil (f True) (z ^. prefix) of
+    Just (p', b) -> Just (z & prefix .~ p', b)
+    Nothing ->
+      case mapUntil (f False) (z ^. suffix) of
+        Just (s', b) -> Just (z & suffix .~ s', b)
+        Nothing -> Nothing
