@@ -17,6 +17,7 @@ dependencies:
   - comonad
   - constraints
   - containers
+  - data-default
   - fastsum # >= 0.2
   - free
   - lens

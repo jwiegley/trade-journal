@@ -7,8 +7,13 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Taxes.USA.WashSaleRule where
@@ -20,21 +25,21 @@ import Control.Monad.State
 import Data.Functor.Classes
 import Data.IntMap (IntMap)
 import Data.Map (Map)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Sum
 import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
-import Data.Time
 import Data.Zipper
+-- import Debug.Trace
 import GHC.Generics
 import Journal.Closings
 import Journal.Parse
 import Journal.Print
 import Journal.Types
-import Journal.Utils (distance, sideline)
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
+import Journal.Utils (distance)
+-- import Text.Megaparsec hiding (State)
+-- import Text.Megaparsec.Char
 import Text.Show.Pretty hiding (Time)
 
 data Period = Past | Future
@@ -42,46 +47,29 @@ data Period = Past | Future
 
 makePrisms ''Period
 
+data Washed = Washed
+  { _washedPeriod :: Period,
+    _washedPos :: Int,
+    _washedAmount :: Amount 6, -- number of shares
+    _washedAdjust :: Amount 6
+  }
+  deriving (Show, PrettyVal, Eq, Ord, Generic)
+
+makeLenses ''Washed
+
 data Washing
   = Exempt
-  | WashTo Text (Maybe (Amount 6, Amount 6))
-  | WashApply Text (Amount 6) -- per share wash applied
-  | Wash
-      { _washPeriod :: Period,
-        _washPositionIdent :: Int,
-        _washCostBasis :: Amount 6,
-        _washClosing :: Closing
-      }
-  | WashedFrom
-      { _washedFromPeriod :: Period,
-        _washedFromClosingLot :: Lot,
-        _washedFromCostBasis :: Amount 6,
-        _washedPosition :: Position
-      }
+  | WashTo Washed
+  | WashFrom Washed
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makePrisms ''Washing
 
 instance HasPositionEvent (Const Washing) where
-  _Event f (Const s) =
-    Const <$> case s of
-      Exempt -> pure Exempt
-      WashTo t m -> pure $ WashTo t m
-      WashApply t amt -> pure $ WashApply t amt
-      Wash p i a c -> Wash p i a <$> (f (Close c) <&> (^?! _Close))
-      WashedFrom p l a p' ->
-        WashedFrom p l a <$> (f (Open p') <&> (^?! _Open))
-
-_WashingLot :: Traversal' Washing Lot
-_WashingLot f = \case
-  Exempt -> pure Exempt
-  WashTo t m -> pure $ WashTo t m
-  WashApply t amt -> pure $ WashApply t amt
-  Wash p i a c -> Wash p i a <$> (c & closingLot %%~ f)
-  WashedFrom p l a p' -> WashedFrom p l a <$> (p' & posLot %%~ f)
+  _Event _ = pure
 
 instance HasLot (Const Washing) where
-  _Lot f (Const s) = fmap Const $ s & _WashingLot %%~ f
+  _Lot _ = pure
 
 type Washable r v =
   ( HasTraversal' HasPositionEvent r,
@@ -105,184 +93,120 @@ washSaleRule ::
   [Annotated (Sum r v)] ->
   [Annotated (Sum (Const Washing ': r) v)]
 washSaleRule =
-  sideline (isNothing . (^? item . projectedC . _Exempt)) go
-    . map (fmap weaken)
-  where
-    go ::
-      Washable r v =>
-      [(Bool, Annotated (Sum (Const Washing ': r) v))] ->
-      [(Bool, Annotated (Sum (Const Washing ': r) v))]
-    go xs = maybe xs go do
-      -- The wash sale rule looks for losing sales that haven't yet been
-      -- washed. If there are none, we are done.
-      let (z0, poss) = eligibleClose xs
-      z1 <- z0
-      x <- z1 ^? focus
-      c <- x ^? _2 . item . _Event . _Close
-
-      -- Next we look for an eligible opening 30 days before or after that
-      -- sale. If there isn't one, we are done.
-      (z2, x') <-
-        flip evalState poss $
-          applyToPrefixOrSuffixM
-            ( eligibleOpen
-                (c ^. closingLot . symbol)
-                (c ^. closingIdent)
-                (x ^. _2 . time)
-            )
-            (handleOpen x)
-            z1
-
-      let z3 = z2 & focus .~ x'
-      guard $ z1 /= z3
-      pure $ unzipper z3
-
-    losses :: Position -> Closing -> Amount 6
-    losses pos c =
-      let p = c ^. closingLot . price
-          b = pos ^. posLot . price
-       in case pos ^. posDisp of
-            Long -> p - b
-            Short -> b - p
-
-    eligibleClose ::
-      Washable r v =>
-      [(Bool, Annotated (Sum (Const Washing ': r) v))] ->
-      ( Maybe
-          ( Zipper
-              ( Bool,
-                Annotated (Sum (Const Washing ': r) v)
-              )
-          ),
-        Map Text (IntMap (Annotated (Sum r v)))
+  map fst
+    . flip evalState mempty
+    . surveyM wash
+    . scanPreState
+      ( \(fmap weaken -> x) s ->
+          (x, positionsFromEntry s x)
       )
-    eligibleClose xs = flip runState mempty $
-      flip zipperM xs $ \(w, x) -> do
-        poss <- get
-        forM_ (x ^? item . _Event) $ \e ->
-          put $ positionsFromEntry poss (inject (Const e) <$ x)
-        pure $
-          w && Just True == do
-            c <- x ^? item . _Event . _Close
-            pos <-
-              poss
-                ^? ix (c ^. closingLot . symbol)
-                  . ix (c ^. closingIdent)
-                  . item
-                  . _Event
-                  . _Open
-            guard $ losses pos c < 0
-            pure True
+      mempty
+  where
+    wash ::
+      (Washable r v, a ~ Annotated (Sum (Const Washing ': r) v)) =>
+      Zipper (a, Map Text (IntMap a)) ->
+      State (IntMap (Amount 6)) (Zipper (a, Map Text (IntMap a)))
+    wash z = do
+      m <- get
+      case go m z of
+        Just (res, m') -> do
+          put m'
+          pure res
+        Nothing -> pure z
 
-    eligibleOpen ::
-      Washable r v =>
-      Text ->
-      Int ->
-      UTCTime ->
-      Bool ->
-      (Bool, Annotated (Sum (Const Washing ': r) v)) ->
-      State (Map Text (IntMap (Annotated (Sum r v)))) Bool
-    eligibleOpen sym ident anchor inPast (w, y) = do
-      poss <- get
-      pure $
-        w && Just True == do
-          o <- y ^? item . _Event . _Open
-          guard $ o ^. posLot . symbol == sym
-          guard $ o ^. posIdent /= ident
-          guard $ not inPast || isJust (poss ^? ix sym . ix (o ^. posIdent))
-          guard $ abs (anchor `distance` (y ^. time)) <= 30
-          pure True
+    go m z = do
+      -- Washing begins by looking for closing events that closed at a loss.
+      -- Note that "closing at a loss" might be affected by previous washings,
+      -- so we use the 'survey' method to scan through the list of entries, so
+      -- that each time this function is called, we take any past washings
+      -- also into account.
+      let x = z ^. focus
+      c <- x ^? _1 . item . _Event . _Close
+      -- traceM $ "c = " ++ ppShow c
 
-    handleOpen ::
-      Washable r v =>
-      (Bool, Annotated (Sum (Const Washing ': r) v)) ->
-      Bool ->
-      Zipper (Bool, Annotated (Sum (Const Washing ': r) v)) ->
-      Maybe
-        ( Zipper (Bool, Annotated (Sum (Const Washing ': r) v)),
-          (Bool, Annotated (Sum (Const Washing ': r) v))
-        )
-    handleOpen x inPast part = do
-      c <- x ^? _2 . item . _Event . _Close
-      y <- part ^? focus
-      o <- y ^? _2 . item . _Event . _Open
+      -- Every valid closing must have a corresponding open position.
+      let sym = c ^. closingLot . symbol
+          ident = c ^. closingPos
+      pos <- x ^? _2 . ix sym . ix ident . item . _Event . _Open
 
+      -- Ignore closing that made a profit.
       let loss =
-            (losses o c * c ^. closingLot . amount) -- the total loss
-              / (o ^. posLot . amount)
-          o' =
-            WashedFrom
-              { _washedFromPeriod =
-                  if inPast
-                    then Future
-                    else Past,
-                _washedFromClosingLot = c ^. closingLot,
-                _washedFromCostBasis = o ^. posLot . price,
-                _washedPosition =
-                  -- losses increase cost basis
-                  o & posLot . price -~ loss
-              }
-          c' =
-            Wash
-              { _washPeriod =
-                  if inPast
-                    then Past
-                    else Future,
-                _washPositionIdent = o ^. posIdent,
-                _washCostBasis = o ^. posLot . price,
-                _washClosing = c
-              }
-      pure
-        ( part & focus
-            .~ ( y & _1 .~ False
-                   & _2 . item .~ (projectedC # o')
-               ),
-          x & _1 .~ False
-            & _2 . item .~ (projectedC # c')
-        )
+            let p = c ^. closingLot . price
+                b = pos ^. posLot . price
+             in case pos ^. posDisp of
+                  Long -> p - b
+                  Short -> b - p
+      guard $ loss < 0
+
+      -- When looking for openings, we have to take this closing into account
+      -- in the map of open positions.
+      let poss' = uncurry (flip positionsFromEntry) x
+
+      let mres = mapLeftThenRightUntils z $ \inLeft y -> do
+            o <- y ^? _1 . item . _Event . _Open
+
+            guard $ o ^. posLot . symbol == sym
+            guard $ o ^. posIdent /= ident
+            guard $ not inLeft || isJust (poss' ^? ix sym . ix (o ^. posIdent))
+            guard $ abs ((x ^. _1 . time) `distance` (y ^. _1 . time)) <= 30
+
+            let inOpen = o ^. posLot . amount
+                inClose = c ^. closingLot . amount
+                washed = fromMaybe 0 (m ^? ix (o ^. posIdent))
+            guard $ inOpen - washed >= inClose
+
+            -- traceM $ "o = " ++ ppShow o
+            -- traceM $ "m = " ++ ppShow m
+            pure
+              ( [ y,
+                  y & _1 . item
+                    .~ inject
+                      ( Const
+                          ( WashFrom
+                              Washed
+                                { _washedPeriod =
+                                    if inLeft
+                                      then Future
+                                      else Past,
+                                  _washedPos = c ^. closingPos,
+                                  _washedAmount = inClose,
+                                  _washedAdjust = (loss * inClose) / inOpen
+                                }
+                          )
+                      )
+                ],
+                ( m & at (o ^. posIdent) ?~ washed + inClose,
+                  [ x,
+                    x & _1 . item
+                      .~ inject
+                        ( Const
+                            ( WashTo
+                                Washed
+                                  { _washedPeriod =
+                                      if inLeft
+                                        then Past
+                                        else Future,
+                                    _washedPos = o ^. posIdent,
+                                    _washedAmount = inOpen,
+                                    _washedAdjust = loss
+                                  }
+                            )
+                        )
+                  ]
+                )
+              )
+
+      pure $ case mres of
+        Just (z', (m', outers)) -> (overlay z' outers, m')
+        Nothing -> (z, m)
 
 instance Printable (Const Washing) where
   printItem = either id id . printWashing . getConst
 
 printWashing :: Washing -> Either TL.Text TL.Text
 printWashing = \case
-  -- WashedFrom Past _ _ x -> Right $ "washed from past " <> printAmount 2 x
-  -- WashedFrom Future _ _ x -> Right $ "washed from future " <> printAmount 2 x
-  WashTo x (Just (q, p)) ->
-    Left $
-      "wash "
-        <> printAmount 0 q
-        <> " @ "
-        <> printAmount 4 p
-        <> " to "
-        <> TL.fromStrict x
-  WashTo x Nothing -> Left $ "wash to " <> TL.fromStrict x
-  WashApply x amt ->
-    Left $ "apply " <> TL.fromStrict x <> " " <> printAmount 0 amt
   Exempt -> Left "exempt"
 
 parseWashing :: Parser Washing
 parseWashing =
-  -- keyword "wash"
-  --   *> keyword "from"
-  --   *> keyword "past"
-  --   *> (WashedFromPast <$> parseTime <*> parseLot)
-  --   <|> keyword "wash"
-  --     *> keyword "from"
-  --     *> keyword "future"
-  --     *> (WashedFromFuture <$> parseTime <*> parseLot)
-  -- <|> keyword "washed" *> (Washed <$> parseAmount)
-  -- <|> keyword "wash" *> parseWash
-  keyword "apply"
-    *> (WashApply . TL.toStrict <$> parseSymbol <*> parseAmount)
-    <|> (Exempt <$ keyword "exempt")
-  where
-    parseWash = do
-      mres <- optional do
-        q <- parseAmount
-        _ <- char '@' <* whiteSpace
-        p <- parseAmount
-        pure (q, p)
-      _ <- keyword "to"
-      sym <- parseSymbol
-      pure $ WashTo (TL.toStrict sym) mres
+  Exempt <$ keyword "exempt"

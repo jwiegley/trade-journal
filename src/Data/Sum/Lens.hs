@@ -38,7 +38,7 @@ _stail = weakened
 underneath :: e :< r => Prism' (Sum (s ': r) v) (e v)
 underneath = weakened . projected
 
-underneathC :: Const e :< r => Prism' (Sum (s ': r) v) e
+underneathC :: forall r v s e. Const e :< r => Prism' (Sum (s ': r) v) e
 underneathC = weakened . projectedC
 
 decomposed :: Iso' (Sum (e ': r) v) (Either (Sum r v) (e v))

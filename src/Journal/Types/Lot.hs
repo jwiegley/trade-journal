@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -12,12 +13,13 @@ module Journal.Types.Lot where
 
 import Amount
 import Control.Lens
+import Data.Default
 import Data.Sum
+import Data.Sum.Lens
 import Data.Text (Text)
 import GHC.Generics hiding (to)
 import GHC.TypeLits
 import Journal.Split
-import Data.Sum.Lens
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
@@ -31,6 +33,14 @@ data Lot = Lot
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makeLenses ''Lot
+
+instance Default Lot where
+  def =
+    Lot
+      { _amount = 0,
+        _symbol = "",
+        _price = 0
+      }
 
 instance Splittable (Amount 6) Lot where
   howmuch = amount

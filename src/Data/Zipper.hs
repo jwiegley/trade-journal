@@ -7,12 +7,10 @@
 
 module Data.Zipper where
 
-import Control.Applicative
 import Control.Arrow (first)
 import Control.Comonad
 import Control.Lens hiding ((<.>))
 import Control.Monad
-import Control.Monad.State
 import Data.Foldable
 import Data.Functor.Apply
 import Data.Functor.Extend
@@ -27,6 +25,11 @@ data Zipper a = Zipper
     _suffix :: [a]
   }
   deriving (Show, Eq, Generic, Functor, Foldable, Traversable)
+
+overlay :: Zipper a -> [a] -> Zipper a
+overlay (Zipper _ _ []) [] = error "Cannot overlay nothing into nothing"
+overlay (Zipper xs _ (z : zs)) [] = Zipper xs z zs
+overlay (Zipper xs _ zs) (w : ws) = Zipper xs w (ws ++ zs)
 
 -- | Many of these instances are from Tony Morris's package, list-zipper
 instance Apply Zipper where
@@ -145,6 +148,7 @@ items f Zipper {..} =
     <*> f _focus
     <*> traverse f _suffix
 
+{-
 -- | Given a zipper list, attempt to locate an element first in the prefix,
 --   then in the suffix, and allow for a transformation of that sub-zipper
 --   list within the parent list, plus the generation of some datum.
@@ -186,6 +190,7 @@ applyToPrefixOrSuffixM f g z = do
         r <- r'
         (res, x) <- g False r
         pure (z & suffix .~ unzipper res, x)
+-}
 
 scanPreState :: (a -> s -> (b, s)) -> s -> [a] -> [(b, s)]
 scanPreState f = go
@@ -195,6 +200,7 @@ scanPreState f = go
       let (b, s') = f x s
        in (b, s) : go s' xs
 
+{-
 scanPreStateM :: Monad m => (a -> StateT s m b) -> [a] -> StateT s m [(b, s)]
 scanPreStateM f = go
   where
@@ -220,25 +226,41 @@ scanPostStateM f = go
       b <- f x
       s <- get
       ((b, s) :) <$> go xs
+-}
 
 survey :: (Zipper a -> Zipper a) -> [a] -> [a]
 survey f = maybe [] go . fromList
   where
     go z = let z' = f z in maybe (unzipper z') go (right z')
 
--- | Apply the given function to each member of the list until it returns
---   'Just' some value, which replaces that discovered element and results in
---   returning the final mutated list.
+surveyM :: Monad m => (Zipper a -> m (Zipper a)) -> [a] -> m [a]
+surveyM f = maybe (pure []) go . fromList
+  where
+    go z = do
+      z' <- f z
+      maybe (pure (unzipper z')) go (right z')
+
+{-
 mapUntil :: (a -> Maybe (a, b)) -> [a] -> Maybe ([a], b)
 mapUntil f = go
   where
     go [] = Nothing
     go ((f -> Just (x, b)) : xs) = Just (x : xs, b)
     go (x : xs) = first (x :) <$> go xs
+-}
 
--- | Given a zipper list, attempt to locate an element first in the prefix,
---   then in the suffix, and allow for a transformation of that sub-zipper
---   list within the parent list, plus the generation of some datum.
+{-
+mapUntilsM :: Monad m => (a -> m (Maybe ([a], b))) -> [a] -> m (Maybe ([a], b))
+mapUntilsM f = go
+  where
+    go [] = pure Nothing
+    go (x : xs) =
+      f x >>= \case
+        Just (xs', b) -> pure $ Just (xs' ++ xs, b)
+        Nothing -> fmap (first (x :)) <$> go xs
+-}
+
+{-
 mapLeftThenRightUntil ::
   Zipper a ->
   (Bool -> a -> Maybe (a, b)) ->
@@ -250,3 +272,38 @@ mapLeftThenRightUntil z f =
       case mapUntil (f False) (z ^. suffix) of
         Just (s', b) -> Just (z & suffix .~ s', b)
         Nothing -> Nothing
+-}
+
+-- | Given a zipper list, attempt to locate an element first in the prefix,
+--   then in the suffix, and allow for a transformation of that sub-zipper
+--   list within the parent list, plus the generation of some datum.
+mapLeftThenRightUntils ::
+  Zipper a -> (Bool -> a -> Maybe ([a], b)) -> Maybe (Zipper a, b)
+mapLeftThenRightUntils z f =
+  case mapUntils reverse (f True) (z ^. prefix) of
+    Just (p', b) -> Just (z & prefix .~ p', b)
+    Nothing ->
+      case mapUntils id (f False) (z ^. suffix) of
+        Just (s', b) -> Just (z & suffix .~ s', b)
+        Nothing -> Nothing
+  where
+    mapUntils rev k = go
+      where
+        go [] = Nothing
+        go ((k -> Just (xs', b)) : xs) = Just (rev xs' ++ xs, b)
+        go (x : xs) = first (x :) <$> go xs
+
+{-
+mapLeftThenRightUntilsM ::
+  Monad m =>
+  Zipper a ->
+  (Bool -> a -> m (Maybe ([a], b))) ->
+  m (Maybe (Zipper a, b))
+mapLeftThenRightUntilsM z f =
+  mapUntilsM (f True) (z ^. prefix) >>= \case
+    Just (p', b) -> pure $ Just (z & prefix .~ p', b)
+    Nothing ->
+      mapUntilsM (f False) (z ^. suffix) >>= \case
+        Just (s', b) -> pure $ Just (z & suffix .~ s', b)
+        Nothing -> pure Nothing
+-}

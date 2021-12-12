@@ -21,6 +21,7 @@
 module TestAction where
 
 import Amount
+import Control.Applicative
 import Control.Exception
 import Control.Lens hiding (Context)
 import Control.Monad
@@ -30,6 +31,7 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
 import Data.Ratio
 import Data.Sum
 import Data.Sum.Lens
@@ -118,7 +120,7 @@ genAnnotated gen = do
   _time <- genUTCTime
   _item <- gen
   let _details = []
-  let _context =
+      _context =
         Context
           { _currency = "",
             _account = ""
@@ -172,7 +174,68 @@ data TestExpr r
   | Const PositionEvent :< r => APositionEvent (Annotated PositionEvent)
   | Const Washing :< r => AWashing (Annotated Washing)
 
-deriving instance Show (TestExpr r)
+deriving instance Apply Show1 r => Show (TestExpr r)
+
+_Entity ::
+  '[ Const Deposit,
+     Const Income,
+     Const Options,
+     Const Trade
+   ]
+    :<: r =>
+  Prism' (TestExpr r) (Annotated (Sum r v))
+_Entity = prism' putTo getFrom
+  where
+    putTo ::
+      '[ Const Deposit,
+         Const Income,
+         Const Options,
+         Const Trade
+       ]
+        :<: r =>
+      Annotated (Sum r v) ->
+      TestExpr r
+    putTo x =
+      fromMaybe (error "impossible") $
+        (project (x ^. item) <&> \(Const x') -> ADeposit (x' <$ x))
+          <|> (project (x ^. item) <&> \(Const x') -> AnIncome (x' <$ x))
+          <|> (project (x ^. item) <&> \(Const x') -> AnOptions (x' <$ x))
+          <|> (project (x ^. item) <&> \(Const x') -> ATrade (x' <$ x))
+    -- <|> (project (x ^. item) <&> \(Const x') -> APositionEvent (x' <$ x))
+    -- <|> (project (x ^. item) <&> \(Const x') -> AWashing (x' <$ x))
+
+    getFrom :: TestExpr r -> Maybe (Annotated (Sum r v))
+    getFrom =
+      Just . \case
+        ADeposit x -> inject . Const <$> x
+        AnIncome x -> inject . Const <$> x
+        AnOptions x -> inject . Const <$> x
+        ATrade x -> inject . Const <$> x
+        APositionEvent x -> inject . Const <$> x
+        AWashing x -> inject . Const <$> x
+
+{-
+_Entity :: Prism' (TestExpr r) (Annotated (Sum r v))
+_Entity f = \case
+  ADeposit x ->
+    ADeposit . fmap (getConst . fromJust . project)
+      <$> f (inject . Const <$> x)
+  AnIncome x ->
+    AnIncome . fmap (getConst . fromJust . project)
+      <$> f (inject . Const <$> x)
+  AnOptions x ->
+    AnOptions . fmap (getConst . fromJust . project)
+      <$> f (inject . Const <$> x)
+  ATrade x ->
+    ATrade . fmap (getConst . fromJust . project)
+      <$> f (inject . Const <$> x)
+  APositionEvent x ->
+    APositionEvent . fmap (getConst . fromJust . project)
+      <$> f (inject . Const <$> x)
+  AWashing x ->
+    AWashing . fmap (getConst . fromJust . project)
+      <$> f (inject . Const <$> x)
+-}
 
 makePrisms ''TestExpr
 
@@ -186,9 +249,9 @@ handlePositionEvent ((^? _Event . _Open) -> Just pos) = do
   -- traceM $ "write " ++ show (pos ^. posIdent) ++ " => " ++ ppShow pos
   positions . at (pos ^. posIdent) ?= pos
 handlePositionEvent ((^? _Event . _Close) -> Just cl) = do
-  let n = cl ^. closingIdent
+  let n = cl ^. closingPos
   -- traceM $ "read " ++ show n
-  preuse (positions . ix (cl ^. closingIdent)) >>= \case
+  preuse (positions . ix (cl ^. closingPos)) >>= \case
     Nothing -> error $ "No open position " ++ show n
     Just pos -> do
       -- traceM $ "... " ++ show pos
@@ -294,47 +357,22 @@ instance (Apply PrettyVal1 t, PrettyVal v) => PrettyVal (Sum t v) where
   prettyVal = liftPrettyVal prettyVal
 
 checkJournal ::
-  forall s m.
-  ( '[Const Trade, Const Deposit, Const Income, Const Options] :<: s,
+  forall r s m.
+  ( Const Trade :< r,
     HasTraversal' HasPositionEvent s,
-    Const PositionEvent :< s,
     Apply Show1 s,
     Apply Eq1 s,
     Apply PrettyVal1 s,
     MonadIO m
   ) =>
-  ( ( [ Annotated
-          ( Sum
-              '[ Const PositionEvent,
-                 Const Trade,
-                 Const Deposit,
-                 Const Income,
-                 Const Options
-               ]
-              ()
-          )
-      ],
-      Map
-        Text
-        ( IntMap
-            ( Annotated
-                ( Sum
-                    '[ Const PositionEvent,
-                       Const Trade,
-                       Const Deposit,
-                       Const Income,
-                       Const Options
-                     ]
-                    ()
-                )
-            )
-        )
+  ( ( [Annotated (Sum (Const PositionEvent ': r) ())],
+      Map Text (IntMap (Annotated (Sum (Const PositionEvent ': r) ())))
     ) ->
     ( [Annotated (Sum s ())],
       Map Text (IntMap (Annotated (Sum s ())))
     )
   ) ->
-  TestDSL '[Const Trade, Const Deposit, Const Income, Const Options] () ->
+  TestDSL r () ->
   TestDSL s () ->
   TestDSL s () ->
   m ()

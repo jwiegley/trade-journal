@@ -60,7 +60,7 @@ data Position = Position
     )
 
 data Closing = Closing
-  { _closingIdent :: Int,
+  { _closingPos :: Int,
     _closingLot :: Lot
   }
   deriving
@@ -258,7 +258,7 @@ closePosition open close =
             pure
               [ projectedC . _Close
                   # Closing
-                    { _closingIdent = o ^. posIdent,
+                    { _closingPos = o ^. posIdent,
                       _closingLot = du
                     }
                   <$ close
@@ -324,7 +324,7 @@ positionsFromEntry m = go
             loc =
               at (cl ^. closingLot . symbol)
                 . non mempty
-                . at (cl ^. closingIdent)
+                . at (cl ^. closingPos)
         preuse (loc . _Just) >>= \case
           Nothing ->
             error $
@@ -365,7 +365,7 @@ printClosing Closing {..} =
   TL.concat $
     intersperse
       " "
-      [ TL.pack (show _closingIdent),
+      [ TL.pack (show _closingPos),
         printLot _closingLot
       ]
 

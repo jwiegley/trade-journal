@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: e60638e90d83d219a908a9ca090fc411b4b2f55234c117fd276e6217e564c104
+-- hash: eba40aa2013f3b2e80d57bb1e33cb5bf6cb9f08c35be4b1527d7d6865417f2ff
 
 name:           trade-journal
 version:        0.0.2
@@ -90,6 +90,7 @@ executable trade-journal
     , comonad
     , constraints
     , containers
+    , data-default
     , fastsum
     , free
     , lens
@@ -127,6 +128,7 @@ test-suite journal-tests
     , comonad
     , constraints
     , containers
+    , data-default
     , fastsum
     , free
     , hedgehog
@@ -165,6 +167,7 @@ test-suite thinkorswim-tests
     , comonad
     , constraints
     , containers
+    , data-default
     , fastsum
     , free
     , hedgehog
