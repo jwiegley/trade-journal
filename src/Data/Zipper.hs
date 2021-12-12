@@ -26,10 +26,7 @@ data Zipper a = Zipper
   }
   deriving (Show, Eq, Generic, Functor, Foldable, Traversable)
 
-overlay :: Zipper a -> [a] -> Zipper a
-overlay (Zipper _ _ []) [] = error "Cannot overlay nothing into nothing"
-overlay (Zipper xs _ (z : zs)) [] = Zipper xs z zs
-overlay (Zipper xs _ zs) (w : ws) = Zipper xs w (ws ++ zs)
+makeLenses ''Zipper
 
 -- | Many of these instances are from Tony Morris's package, list-zipper
 instance Apply Zipper where
@@ -81,6 +78,23 @@ left _ = Nothing
 right (Zipper as x (b : bs)) = Just (Zipper (x : as) b bs)
 right _ = Nothing
 
+fromList :: [a] -> Maybe (Zipper a)
+fromList [] = Nothing
+fromList (x : xs) = Just (Zipper [] x xs)
+
+unzipper :: Zipper a -> [a]
+unzipper Zipper {..} = reverse _prefix ++ _focus : _suffix
+
+overlay :: Zipper a -> [a] -> Zipper a
+overlay (Zipper _ _ []) [] = error "Cannot overlay nothing into nothing"
+overlay (Zipper xs _ (z : zs)) [] = Zipper xs z zs
+overlay (Zipper xs _ zs) (w : ws) = Zipper xs w (ws ++ zs)
+
+zipper :: MonadPlus f => (a -> Bool) -> [a] -> f (Zipper a)
+zipper f xs = case break f xs of
+  (ys, z : zs) -> pure (Zipper (reverse ys) z zs)
+  _ -> mzero
+
 spanM :: (Monad m, MonadPlus f) => (a -> m Bool) -> [a] -> m (f a, [a])
 spanM _ [] = return (mzero, [])
 spanM p (x : xs) = do
@@ -94,17 +108,6 @@ spanM p (x : xs) = do
 breakM :: (Monad m, MonadPlus f) => (a -> m Bool) -> [a] -> m (f a, [a])
 breakM p = spanM $ return . not <=< p
 
-makeLenses ''Zipper
-
-fromList :: [a] -> Maybe (Zipper a)
-fromList [] = Nothing
-fromList (x : xs) = Just (Zipper [] x xs)
-
-zipper :: MonadPlus f => (a -> Bool) -> [a] -> f (Zipper a)
-zipper f xs = case break f xs of
-  (ys, z : zs) -> pure (Zipper (reverse ys) z zs)
-  _ -> mzero
-
 zipperM ::
   (Monad m, MonadPlus f) =>
   (a -> m Bool) ->
@@ -115,82 +118,12 @@ zipperM f xs =
     (ys, z : zs) -> pure (Zipper (reverse ys) z zs)
     _ -> mzero
 
-unzipper :: Zipper a -> [a]
-unzipper Zipper {..} = reverse _prefix ++ _focus : _suffix
-
-revSplit :: ([a], [a]) -> ([a], [a])
-revSplit (xs, ys) = case ys of
-  [] -> (xs, [])
-  z : zs -> (zs, z : reverse xs)
-
-reverseZipper :: MonadPlus f => (a -> Bool) -> [a] -> f (Zipper a)
-reverseZipper f xs = case revSplit (break f xs) of
-  (ys, z : zs) -> pure (Zipper ys z zs)
-  _ -> mzero
-
-reverseZipperM ::
-  (Monad m, MonadPlus f) =>
-  (a -> m Bool) ->
-  [a] ->
-  m (f (Zipper a))
-reverseZipperM f xs =
-  revSplit <$> breakM f xs <&> \case
-    (ys, z : zs) -> pure (Zipper ys z zs)
-    _ -> mzero
-
-reverseUnzipper :: Zipper a -> [a]
-reverseUnzipper Zipper {..} = reverse (_focus : _suffix) ++ _prefix
-
 items :: Traversal' (Zipper a) a
 items f Zipper {..} =
   Zipper . reverse
     <$> traverse f (reverse _prefix)
     <*> f _focus
     <*> traverse f _suffix
-
-{-
--- | Given a zipper list, attempt to locate an element first in the prefix,
---   then in the suffix, and allow for a transformation of that sub-zipper
---   list within the parent list, plus the generation of some datum.
-applyToPrefixOrSuffix ::
-  (Bool -> a -> Bool) ->
-  (Bool -> Zipper a -> Maybe (Zipper a, b)) ->
-  Zipper a ->
-  Maybe (Zipper a, b)
-applyToPrefixOrSuffix f g z =
-  ( do
-      r <- reverseZipper (f True) (z ^. prefix)
-      (res, x) <- g True r
-      pure (z & prefix .~ reverseUnzipper res, x)
-  )
-    <|> ( do
-            r <- zipper (f False) (z ^. suffix)
-            (res, x) <- g False r
-            pure (z & suffix .~ unzipper res, x)
-        )
-
-applyToPrefixOrSuffixM ::
-  Monad m =>
-  (Bool -> a -> m Bool) ->
-  (Bool -> Zipper a -> Maybe (Zipper a, b)) ->
-  Zipper a ->
-  m (Maybe (Zipper a, b))
-applyToPrefixOrSuffixM f g z = do
-  b <- do
-    r' <- reverseZipperM (f True) (z ^. prefix)
-    pure $ do
-      r <- r'
-      (res, x) <- g True r
-      pure (z & prefix .~ reverseUnzipper res, x)
-  case b of
-    Just _ -> pure b
-    Nothing -> do
-      r' <- zipperM (f False) (z ^. suffix)
-      pure $ do
-        r <- r'
-        (res, x) <- g False r
-        pure (z & suffix .~ unzipper res, x)
--}
 
 scanPreState :: (a -> s -> (b, s)) -> s -> [a] -> [(b, s)]
 scanPreState f = go
@@ -199,34 +132,6 @@ scanPreState f = go
     go s (x : xs) =
       let (b, s') = f x s
        in (b, s) : go s' xs
-
-{-
-scanPreStateM :: Monad m => (a -> StateT s m b) -> [a] -> StateT s m [(b, s)]
-scanPreStateM f = go
-  where
-    go [] = pure []
-    go (x : xs) = do
-      s <- get
-      b <- f x
-      ((b, s) :) <$> go xs
-
-scanPostState :: (a -> s -> (b, s)) -> s -> [a] -> [(b, s)]
-scanPostState f = go
-  where
-    go _ [] = []
-    go s (x : xs) =
-      let (b, s') = f x s
-       in (b, s') : go s' xs
-
-scanPostStateM :: Monad m => (a -> StateT s m b) -> [a] -> StateT s m [(b, s)]
-scanPostStateM f = go
-  where
-    go [] = pure []
-    go (x : xs) = do
-      b <- f x
-      s <- get
-      ((b, s) :) <$> go xs
--}
 
 survey :: (Zipper a -> Zipper a) -> [a] -> [a]
 survey f = maybe [] go . fromList
@@ -239,40 +144,6 @@ surveyM f = maybe (pure []) go . fromList
     go z = do
       z' <- f z
       maybe (pure (unzipper z')) go (right z')
-
-{-
-mapUntil :: (a -> Maybe (a, b)) -> [a] -> Maybe ([a], b)
-mapUntil f = go
-  where
-    go [] = Nothing
-    go ((f -> Just (x, b)) : xs) = Just (x : xs, b)
-    go (x : xs) = first (x :) <$> go xs
--}
-
-{-
-mapUntilsM :: Monad m => (a -> m (Maybe ([a], b))) -> [a] -> m (Maybe ([a], b))
-mapUntilsM f = go
-  where
-    go [] = pure Nothing
-    go (x : xs) =
-      f x >>= \case
-        Just (xs', b) -> pure $ Just (xs' ++ xs, b)
-        Nothing -> fmap (first (x :)) <$> go xs
--}
-
-{-
-mapLeftThenRightUntil ::
-  Zipper a ->
-  (Bool -> a -> Maybe (a, b)) ->
-  Maybe (Zipper a, b)
-mapLeftThenRightUntil z f =
-  case mapUntil (f True) (z ^. prefix) of
-    Just (p', b) -> Just (z & prefix .~ p', b)
-    Nothing ->
-      case mapUntil (f False) (z ^. suffix) of
-        Just (s', b) -> Just (z & suffix .~ s', b)
-        Nothing -> Nothing
--}
 
 -- | Given a zipper list, attempt to locate an element first in the prefix,
 --   then in the suffix, and allow for a transformation of that sub-zipper
@@ -292,18 +163,3 @@ mapLeftThenRightUntils z f =
         go [] = Nothing
         go ((k -> Just (xs', b)) : xs) = Just (rev xs' ++ xs, b)
         go (x : xs) = first (x :) <$> go xs
-
-{-
-mapLeftThenRightUntilsM ::
-  Monad m =>
-  Zipper a ->
-  (Bool -> a -> m (Maybe ([a], b))) ->
-  m (Maybe (Zipper a, b))
-mapLeftThenRightUntilsM z f =
-  mapUntilsM (f True) (z ^. prefix) >>= \case
-    Just (p', b) -> pure $ Just (z & prefix .~ p', b)
-    Nothing ->
-      mapUntilsM (f False) (z ^. suffix) >>= \case
-        Just (s', b) -> pure $ Just (z & suffix .~ s', b)
-        Nothing -> pure Nothing
--}
