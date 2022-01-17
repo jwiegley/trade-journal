@@ -13,6 +13,7 @@ module Journal.Types.Lot where
 
 import Amount
 import Control.Lens
+import Control.Monad.State
 import Data.Default
 import Data.Sum
 import Data.Sum.Lens
@@ -57,3 +58,21 @@ class HasLot f where
 
 instance HasTraversal' HasLot fs => HasLot (Sum fs) where
   _Lot = traversing @HasLot _Lot
+
+foldOver :: (Splittable n s, Show s) => State s a -> s -> [a]
+foldOver f lot
+  | lot' ^. howmuch >= lot ^. howmuch =
+    error $ "Lot was not reduced: " ++ ppShow lot
+  | lot' ^. howmuch == 0 = [a]
+  | otherwise = a : foldOver f lot'
+  where
+    (a, lot') = runState f lot
+
+foldOverM :: (Splittable n s, Show s, Monad m) => StateT s m a -> s -> m [a]
+foldOverM f lot = do
+  (a, lot') <- runStateT f lot
+  when (lot' ^. howmuch >= lot ^. howmuch) $
+    error $ "Lot was not reduced: " ++ ppShow lot
+  if lot' ^. howmuch == 0
+    then pure [a]
+    else (a :) <$> foldOverM f lot'
