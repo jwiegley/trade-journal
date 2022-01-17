@@ -26,7 +26,7 @@ in haskellPackages.developPackage rec {
     # fastsum = import ../fastsum {
     #   inherit pkgs; returnShellEnv = false;
     # };
-    simple-amount = import ../simple-amount {
+    simple-amount = import ./vendor/simple-amount {
       inherit pkgs; returnShellEnv = false;
     };
   };
