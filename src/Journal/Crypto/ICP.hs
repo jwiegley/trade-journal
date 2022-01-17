@@ -51,18 +51,18 @@ data ManageNeuron
 
 makePrisms ''ManageNeuron
 
-data ICP = ICP
+data NeuronEntry = NeuronEntry
   { _neuron :: NeuronId,
     _manage :: ManageNeuron
   }
   deriving (Show, PrettyVal, Eq, Generic)
 
-makeLenses ''ICP
+makeLenses ''NeuronEntry
 
 -- | A fold over ICP transactions that yields the associated network fees.
 --   These are constant for the Internet Computer and not dependent on the
 --   transaction.
-icpFees :: ICP -> Amount 6
+icpFees :: NeuronEntry -> Amount 6
 icpFees icp = case icp ^. manage of
   Stake {} -> transactionFee
   Refresh {} -> transactionFee
@@ -73,7 +73,7 @@ icpFees icp = case icp ^. manage of
   Split {} -> transactionFee
   Merge {} -> transactionFee
 
-icpNetAmount :: ICP -> Amount 2
+icpNetAmount :: NeuronEntry -> Amount 2
 icpNetAmount icp = case icp ^. manage of
   Stake amt -> - amt ^. coerced
   Refresh amt -> - amt ^. coerced
@@ -84,11 +84,11 @@ icpNetAmount icp = case icp ^. manage of
   Split {} -> 0
   Merge {} -> 0
 
-instance HasNetAmount (Const ICP) where
+instance HasNetAmount (Const NeuronEntry) where
   _NetAmount f (Const icp) = error "never used" <$> f (icpNetAmount icp)
 
-printICP :: ICP -> TL.Text
-printICP (ICP n m) = case m of
+printNeuronEntry :: NeuronEntry -> TL.Text
+printNeuronEntry (NeuronEntry n m) = case m of
   Stake amt ->
     "stake " <> tshow n <> " " <> printAmount 8 amt
   Refresh amt ->
@@ -108,33 +108,50 @@ printICP (ICP n m) = case m of
   where
     tshow = TL.pack . show
 
-instance Printable (Const ICP) where
-  printItem = printICP . getConst
+instance Printable (Const NeuronEntry) where
+  printItem = printNeuronEntry . getConst
 
-parseICP :: Parser ICP
-parseICP = do
+parseNeuronEntry :: Parser NeuronEntry
+parseNeuronEntry = do
   keyword "stake"
-    *> (ICP <$> (L.decimal <* whiteSpace) <*> (Stake <$> parseAmount))
+    *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+           <*> (Stake <$> parseAmount)
+       )
     <|> keyword "refresh"
-      *> (ICP <$> (L.decimal <* whiteSpace) <*> (Refresh <$> parseAmount))
+      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+             <*> (Refresh <$> parseAmount)
+         )
     <|> keyword "accrue maturity"
-      *> (ICP <$> (L.decimal <* whiteSpace) <*> (AccrueMaturity <$> parseAmount))
+      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+             <*> (AccrueMaturity <$> parseAmount)
+         )
     <|> keyword "merge maturity"
-      *> (ICP <$> (L.decimal <* whiteSpace) <*> (MergeMaturity <$> parseAmount))
+      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+             <*> (MergeMaturity <$> parseAmount)
+         )
     <|> keyword "spawn"
-      *> (ICP <$> (L.decimal <* whiteSpace) <*> (Spawn <$> L.decimal))
+      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+             <*> (Spawn <$> L.decimal)
+         )
     <|> keyword "disburse"
-      *> (ICP <$> (L.decimal <* whiteSpace) <*> (Disburse <$> parseAmount))
+      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+             <*> (Disburse <$> parseAmount)
+         )
     <|> keyword "split"
-      *> (ICP <$> (L.decimal <* whiteSpace) <*> (Split <$> L.decimal))
+      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+             <*> (Split <$> L.decimal)
+         )
     <|> keyword "merge"
-      *> (ICP <$> (L.decimal <* whiteSpace) <*> (Merge <$> L.decimal))
+      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+             <*> (Merge <$> L.decimal)
+         )
 
-instance Producible Parser (Const ICP) where
-  produce = fmap Const parseICP
+instance Producible Parser (Const NeuronEntry) where
+  produce = fmap Const parseNeuronEntry
 
-_ICPLedgerRepr :: Fold (Annotated ICP) (Transaction (Annotated ICP) 8)
-_ICPLedgerRepr f ann =
+_NeuronEntryLedgerRepr ::
+  Fold (Annotated NeuronEntry) (Transaction (Annotated NeuronEntry) 8)
+_NeuronEntryLedgerRepr f ann =
   fmap (error "Never reached") . f $ case ann ^. item . manage of
     Stake _amt -> undefined
     Refresh _amt -> undefined
