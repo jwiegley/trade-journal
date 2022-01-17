@@ -1,7 +1,8 @@
 { compiler ? "ghc8107"
 
-, rev    ? "a3a23d9599b0a82e333ad91db2cdc479313ce154"
-, sha256 ? "05xmgrrnw6j39lh3d48kg064z510i0w5vvrm1s5cdwhdc2fkspjq"
+, rev    ? "61d24cba72831201efcab419f19b947cf63a2d61"
+, sha256 ? "10yi7pp764vz0ikplqysdbyw104gwh967yxis5zizcz0jksc27jn"
+
 , pkgs   ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
     inherit sha256; }) {
@@ -19,13 +20,8 @@ in haskellPackages.developPackage rec {
   name = "haskell-${compiler}-trade-journal";
   root = ./.;
 
-  source-overrides = {
-    # fastsum = "0.2.0";
-  };
+  source-overrides = {};
   overrides = self: super: with pkgs.haskell.lib; {
-    # fastsum = import ../fastsum {
-    #   inherit pkgs; returnShellEnv = false;
-    # };
     simple-amount = import ./vendor/simple-amount {
       inherit pkgs; returnShellEnv = false;
     };
@@ -42,11 +38,7 @@ in haskellPackages.developPackage rec {
       haskellPackages.haskell-language-server
     ];
 
-    libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [
-      # (import ../fastsum {
-      #   inherit pkgs; returnShellEnv = false;
-      # })
-    ];
+    libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [];
 
     passthru = {
       nixpkgs = pkgs;
