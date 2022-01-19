@@ -1,0 +1,3 @@
+name: trade-journal
+depend: agda-categories standard-library agda2hs
+include: .

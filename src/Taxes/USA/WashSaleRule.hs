@@ -114,13 +114,18 @@ washSaleRule =
           pure res
         Nothing -> pure z
 
+    go ::
+      (Washable r v, a ~ Annotated (Sum (Const Washing ': r) v)) =>
+      IntMap (Amount 6) ->
+      Zipper (a, Map Text (IntMap a)) ->
+      Maybe (Zipper (a, Map Text (IntMap a)), IntMap (Amount 6))
     go m z = do
       -- Washing begins by looking for closing events that closed at a loss.
       -- Note that "closing at a loss" might be affected by previous washings,
       -- so we use the 'survey' method to scan through the list of entries, so
       -- that each time this function is called, we take any past washings
       -- also into account.
-      let x = z ^. focus
+      let x = focus z
       c <- x ^? _1 . item . _Event . _Close
       -- traceM $ "c = " ++ ppShow c
 
@@ -196,9 +201,11 @@ washSaleRule =
                 )
               )
 
-      pure $ case mres of
-        Just (z', (m', outers)) -> (overlay z' outers, m')
-        Nothing -> (z, m)
+      case mres of
+        Just (z', (m', outers)) -> do
+          z'' <- overlay z' outers
+          pure (z'', m')
+        Nothing -> pure (z, m)
 
 instance Printable (Const Washing) where
   printItem = either id id . printWashing . getConst

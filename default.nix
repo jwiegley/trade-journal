@@ -14,7 +14,62 @@
 , mkDerivation ? null
 }:
 
-let haskellPackages = pkgs.haskell.packages.${compiler};
+let
+  haskellPackages = pkgs.haskell.packages.${compiler};
+
+  agda2hs-src = pkgs.fetchFromGitHub {
+    owner = "agda";
+    repo = "agda2hs";
+    rev = "160478a51bc78b0fdab07b968464420439f9fed6";
+    sha256 = "13k2lcljgq0f5zbbyyafx1pizw4ln60xi0x0n0p73pczz6wdpz79";
+    # date = 2021-09-08T18:00:00+02:00;
+  };
+
+  agda2hs = haskellPackages.developPackage rec {
+    name = "agda2hs";
+    root = agda2hs-src;
+
+    source-overrides = {};
+    overrides = self: super: with pkgs.haskell.lib; {};
+
+    modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
+      buildTools = (attrs.buildTools or []) ++ [
+        haskellPackages.cabal-install
+      ];
+
+      passthru = {
+        nixpkgs = pkgs;
+        inherit haskellPackages;
+      };
+    });
+
+    returnShellEnv = false;
+  };
+
+  agda2hs-lib = pkgs.stdenv.mkDerivation rec {
+    name = "agda2hs-${version}";
+    version = "1.0";
+
+    src = agda2hs-src;
+
+    buildInputs = [
+      (pkgs.agdaPackages.agda.withPackages (p: [p.standard-library]))
+    ];
+
+    libraryFile = "${libraryName}.agda-lib";
+    libraryName = "agda2hs";
+
+    phases = [ "unpackPhase" "patchPhase" "buildPhase" "installPhase" ];
+
+    buildPhase = ''
+      agda -i lib lib/Haskell/Prelude.agda
+    '';
+
+    installPhase = ''
+      mkdir -p $out
+      cp -pR * $out
+    '';
+  };
 
 in haskellPackages.developPackage rec {
   name = "haskell-${compiler}-trade-journal";
@@ -28,15 +83,19 @@ in haskellPackages.developPackage rec {
   };
 
   modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
-    buildTools = (attrs.buildTools or []) ++ [
-      haskellPackages.cabal-install
-      haskellPackages.hpack
-      haskellPackages.hoogle
-      haskellPackages.hasktags
-      haskellPackages.ghcid
-      haskellPackages.ormolu
-      haskellPackages.haskell-language-server
-    ];
+    buildTools = (attrs.buildTools or []) ++ (with haskellPackages; [
+      cabal-install
+      hpack
+      hoogle
+      hasktags
+      ghcid
+      ormolu
+      haskell-language-server
+      agda2hs
+      (pkgs.agdaPackages.agda.withPackages (p: [
+         p.standard-library p.agda-categories agda2hs-lib
+       ]))
+    ]);
 
     libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [];
 
