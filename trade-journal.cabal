@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.5.
+-- This file has been generated from package.yaml by hpack version 0.34.7.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: eba40aa2013f3b2e80d57bb1e33cb5bf6cb9f08c35be4b1527d7d6865417f2ff
+-- hash: d26c5de32f41c0fbb3ab475efc552f85b318e231df5aa2d95b51b856b08bd332
 
 name:           trade-journal
 version:        0.0.2
@@ -66,7 +66,7 @@ library
     , pretty-show
     , profunctors
     , semigroupoids
-    , simple-amount
+    , simple-amount >=0.2.0
     , split
     , text
     , time
@@ -97,14 +97,18 @@ executable trade-journal
     , megaparsec
     , mtl
     , optparse-applicative
+    , pretty
     , pretty-show
+    , profunctors
     , semigroupoids
-    , simple-amount
+    , simple-amount >=0.2.0
+    , split
     , text
     , time
     , trade-journal
     , transformers
     , unordered-containers
+    , vector
   default-language: Haskell2010
 
 test-suite journal-tests
@@ -136,9 +140,12 @@ test-suite journal-tests
     , lens
     , megaparsec
     , mtl
+    , pretty
     , pretty-show
+    , profunctors
     , semigroupoids
-    , simple-amount
+    , simple-amount >=0.2.0
+    , split
     , tasty
     , tasty-hedgehog
     , tasty-hunit
@@ -147,6 +154,7 @@ test-suite journal-tests
     , trade-journal
     , transformers
     , unordered-containers
+    , vector
   default-language: Haskell2010
 
 test-suite thinkorswim-tests
@@ -175,9 +183,12 @@ test-suite thinkorswim-tests
     , lens
     , megaparsec
     , mtl
+    , pretty
     , pretty-show
+    , profunctors
     , semigroupoids
-    , simple-amount
+    , simple-amount >=0.2.0
+    , split
     , tasty
     , tasty-hedgehog
     , tasty-hunit
@@ -186,4 +197,5 @@ test-suite thinkorswim-tests
     , trade-journal
     , transformers
     , unordered-containers
+    , vector
   default-language: Haskell2010

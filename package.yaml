@@ -23,13 +23,17 @@ dependencies:
   - lens
   - megaparsec
   - mtl
+  - pretty
   - pretty-show
+  - profunctors
   - semigroupoids
-  - simple-amount
+  - simple-amount >= 0.2.0
+  - split
   - text
   - time
   - transformers
   - unordered-containers
+  - vector
 
 library:
   source-dirs: src
@@ -50,12 +54,6 @@ library:
     - Ledger.Entry
     - Ledger.Render
     - Taxes.USA.WashSaleRule
-  dependencies:
-    - data-default
-    - pretty
-    - profunctors
-    - split
-    - vector
 
 tests:
   journal-tests:

@@ -1,7 +1,7 @@
-{ compiler ? "ghc8107"
+{ compiler ? "ghc922"
 
-, rev    ? "61d24cba72831201efcab419f19b947cf63a2d61"
-, sha256 ? "10yi7pp764vz0ikplqysdbyw104gwh967yxis5zizcz0jksc27jn"
+, rev    ? "bd4dffcdb7c577d74745bd1eff6230172bd176d5"
+, sha256 ? "18zacrykj2k5x42d0grr7g1y7xhy5ppq7j0gm3lrghwflyrdkslj"
 
 , pkgs   ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
@@ -16,6 +16,7 @@
 
 let
   haskellPackages = pkgs.haskell.packages.${compiler};
+  haskellPackages_8_10 = pkgs.haskell.packages.ghc8107;
 
   agda2hs-src = pkgs.fetchFromGitHub {
     owner = "agda";
@@ -25,7 +26,7 @@ let
     # date = 2021-09-08T18:00:00+02:00;
   };
 
-  agda2hs = haskellPackages.developPackage rec {
+  agda2hs = haskellPackages_8_10.developPackage rec {
     name = "agda2hs";
     root = agda2hs-src;
 
@@ -34,12 +35,12 @@ let
 
     modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
       buildTools = (attrs.buildTools or []) ++ [
-        haskellPackages.cabal-install
+        haskellPackages_8_10.cabal-install
       ];
 
       passthru = {
         nixpkgs = pkgs;
-        inherit haskellPackages;
+        haskellPackages = haskellPackages_8_10;
       };
     });
 
@@ -75,8 +76,12 @@ in haskellPackages.developPackage rec {
   name = "haskell-${compiler}-trade-journal";
   root = ./.;
 
-  source-overrides = {};
+  source-overrides = {
+    fastsum = "0.2.0.0";
+  };
   overrides = self: super: with pkgs.haskell.lib; {
+    hashtables = doJailbreak super.hashtables;
+    fastsum = doJailbreak super.fastsum;
     simple-amount = import ./vendor/simple-amount {
       inherit pkgs; returnShellEnv = false;
     };
@@ -90,14 +95,15 @@ in haskellPackages.developPackage rec {
       hasktags
       ghcid
       ormolu
-      haskell-language-server
       agda2hs
       (pkgs.agdaPackages.agda.withPackages (p: [
          p.standard-library p.agda-categories agda2hs-lib
        ]))
     ]);
 
-    libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [];
+    libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [
+      haskellPackages.simple-amount
+    ];
 
     passthru = {
       nixpkgs = pkgs;

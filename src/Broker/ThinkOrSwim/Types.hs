@@ -16,6 +16,7 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.Generics
+import GHC.TypeLits (KnownNat)
 import Text.Read (readMaybe)
 
 data TOSTransaction = TOSTransaction
@@ -31,7 +32,7 @@ data TOSTransaction = TOSTransaction
   }
   deriving (Generic, Eq, Show)
 
-readAmount :: String -> Amount 2
+readAmount :: KnownNat n => String -> Amount n
 readAmount "" = 0
 readAmount ('(' : xs) = - (readAmount xs)
 readAmount s = case readMaybe (filter (`notElem` [',', '$', ')']) s) of
