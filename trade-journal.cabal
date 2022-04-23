@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d26c5de32f41c0fbb3ab475efc552f85b318e231df5aa2d95b51b856b08bd332
+-- hash: 3956e2c089ab28075e6ab2d617988daea511bbffc1ddb397b94fe89d6a43af2c
 
 name:           trade-journal
 version:        0.0.2
@@ -37,7 +37,9 @@ library
       Broker.ThinkOrSwim.Parser
       Broker.ThinkOrSwim.Process
       Broker.ThinkOrSwim.Types
+      Data.Prod
       Journal.Entry.Deposit
+      Journal.Entry.Fees
       Journal.Entry.Income
       Journal.Entry.Options
       Journal.Entry.Trade
@@ -65,6 +67,7 @@ library
     , pretty
     , pretty-show
     , profunctors
+    , row-types
     , semigroupoids
     , simple-amount >=0.2.0
     , split
@@ -100,6 +103,7 @@ executable trade-journal
     , pretty
     , pretty-show
     , profunctors
+    , row-types
     , semigroupoids
     , simple-amount >=0.2.0
     , split
@@ -143,6 +147,7 @@ test-suite journal-tests
     , pretty
     , pretty-show
     , profunctors
+    , row-types
     , semigroupoids
     , simple-amount >=0.2.0
     , split
@@ -186,6 +191,7 @@ test-suite thinkorswim-tests
     , pretty
     , pretty-show
     , profunctors
+    , row-types
     , semigroupoids
     , simple-amount >=0.2.0
     , split

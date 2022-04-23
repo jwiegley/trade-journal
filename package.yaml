@@ -26,6 +26,7 @@ dependencies:
   - pretty
   - pretty-show
   - profunctors
+  - row-types
   - semigroupoids
   - simple-amount >= 0.2.0
   - split
