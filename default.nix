@@ -1,4 +1,4 @@
-{ compiler ? "ghc922"
+{ compiler ? "ghc923"
 
 , rev    ? "bd4dffcdb7c577d74745bd1eff6230172bd176d5"
 , sha256 ? "18zacrykj2k5x42d0grr7g1y7xhy5ppq7j0gm3lrghwflyrdkslj"
@@ -95,10 +95,10 @@ in haskellPackages.developPackage rec {
       hasktags
       ghcid
       ormolu
-      agda2hs
-      (pkgs.agdaPackages.agda.withPackages (p: [
-         p.standard-library p.agda-categories agda2hs-lib
-       ]))
+      #agda2hs
+      #(pkgs.agdaPackages.agda.withPackages (p: [
+      #   p.standard-library p.agda-categories agda2hs-lib
+      # ]))
     ]);
 
     libraryHaskellDepends = (attrs.libraryHaskellDepends or []) ++ [
