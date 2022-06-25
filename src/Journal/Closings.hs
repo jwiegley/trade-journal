@@ -5,6 +5,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -26,7 +27,7 @@ import Control.Monad.State
 import Data.Foldable
 import Data.Functor.Classes
 import Data.IntMap (IntMap)
-import Data.List (intersperse)
+import Data.List (intersperse, sortOn)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 import Data.Sum
@@ -117,35 +118,20 @@ _EventLot f = \case
 instance HasLot (Const PositionEvent) where
   _Lot f (Const s) = fmap Const $ s & _EventLot %%~ f
 
-data Calculation = FIFO | LIFO
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      PrettyVal
-    )
+data Calculation a = FIFO | LIFO | forall b. Ord b => Custom (a -> b)
 
-data BasicState e = BasicState
-  { _calc :: Calculation,
+data BasicState a m = BasicState
+  { _calc :: Calculation a,
     _nextId :: Int,
-    _events :: e
+    _events :: m
   }
-  deriving
-    ( Show,
-      Eq,
-      Ord,
-      Generic,
-      Functor,
-      Foldable,
-      Traversable
-    )
+  deriving (Generic, Functor)
 
 makeLenses ''BasicState
 
-type ClosingState r v = BasicState (Map Text (IntMap (Annotated (Sum r v))))
+type ClosingState a = BasicState a (Map Text (IntMap a))
 
-newClosingState :: Calculation -> ClosingState r v
+newClosingState :: Calculation a -> ClosingState a
 newClosingState c =
   BasicState
     { _calc = c,
@@ -153,19 +139,19 @@ newClosingState c =
       _events = mempty
     }
 
-type LocalState r v = BasicState (IntMap (Annotated (Sum r v)))
+type LocalState a = BasicState a (IntMap a)
 
-localState ::
-  Text ->
-  Traversal' (ClosingState r v) (LocalState r v)
+localState :: Text -> Traversal' (ClosingState a) (LocalState a)
 localState instrument f s =
-  f (view (at instrument . non' _Empty) <$> s) <&> \m ->
-    s & nextId .~ (m ^. nextId)
-      & events . at instrument ?~ (m ^. events)
+  f (view (at instrument . non' _Empty) <$> s)
+    <&> \m ->
+      s & calc   .~ (m ^. calc)
+        & nextId .~ (m ^. nextId)
+        & events . at instrument ?~ (m ^. events)
 
 closings ::
   Const Trade :< r =>
-  Calculation ->
+  Calculation (Annotated (Sum (Const PositionEvent ': r) v)) ->
   [Annotated (Sum r v)] ->
   ( [Annotated (Sum (Const PositionEvent ': r) v)],
     Map Text (IntMap (Annotated (Sum (Const PositionEvent ': r) v)))
@@ -189,7 +175,7 @@ handle ::
   Const Trade :< r =>
   Annotated (Sum r v) ->
   State
-    (LocalState (Const PositionEvent ': r) v)
+    (LocalState (Annotated (Sum (Const PositionEvent ': r) v)))
     ( [Annotated (Sum (Const PositionEvent ': r) v)],
       Remainder (Annotated (Sum r v))
     )
@@ -199,7 +185,10 @@ handle ann@(preview (item . projectedC) -> Just trade) = do
   -- and the user should be able to set it as a default. In the case of LIFE,
   -- this traversal needs to be reversed.
   gets
-    ( (case mode of FIFO -> id; LIFO -> reverse)
+    ( (case mode of
+           FIFO -> id
+           LIFO -> reverse
+           Custom f -> sortOn f)
         . (^.. events . traverse)
     )
     >>= \case
@@ -218,7 +207,7 @@ openPosition ::
   Const Trade :< r =>
   Annotated (Sum r v) ->
   State
-    (LocalState (Const PositionEvent ': r) v)
+    (LocalState (Annotated (Sum (Const PositionEvent ': r) v)))
     [Annotated (Sum (Const PositionEvent ': r) v)]
 openPosition open = do
   nextId += 1
@@ -245,7 +234,7 @@ closePosition ::
   Annotated (Sum (Const PositionEvent ': r) v) ->
   Annotated (Sum r v) ->
   State
-    (LocalState (Const PositionEvent ': r) v)
+    (LocalState (Annotated (Sum (Const PositionEvent ': r) v)))
     ( [Annotated (Sum (Const PositionEvent ': r) v)],
       Remainder (Annotated (Sum r v))
     )
