@@ -1,7 +1,7 @@
-{ compiler ? "ghc923"
+{ compiler ? "ghc924"
 
-, rev    ? "23488b5815ef60b3084a874f71fdae2dff52e1f7"
-, sha256 ? "1yrnca9n33q3v77snh6d7n9f8spfzfn22z6fl0nxq0pghkadb2f6"
+, rev    ? "80fc83ad314fe701766ee66ac8286307d65b39e3"
+, sha256 ? "0yrnca9n33q3v77snh6d7n9f8spfzfn22z6fl0nxq0pghkadb2f6"
 
 , pkgs   ? import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";

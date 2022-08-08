@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 3956e2c089ab28075e6ab2d617988daea511bbffc1ddb397b94fe89d6a43af2c
+-- hash: 2089e535908ad81160b217181aa964b1f2966580e0c3825fbbe7e902558e6db1
 
 name:           trade-journal
 version:        0.0.2
@@ -37,9 +37,7 @@ library
       Broker.ThinkOrSwim.Parser
       Broker.ThinkOrSwim.Process
       Broker.ThinkOrSwim.Types
-      Data.Prod
       Journal.Entry.Deposit
-      Journal.Entry.Fees
       Journal.Entry.Income
       Journal.Entry.Options
       Journal.Entry.Trade
