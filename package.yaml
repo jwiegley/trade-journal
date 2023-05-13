@@ -11,7 +11,7 @@ ghc-options:
 
 dependencies:
   - aeson
-  - base >= 4.5 && < 5.0
+  - base >= 4.5
   - bytestring
   - cassava
   - comonad
