@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.7.
+-- This file has been generated from package.yaml by hpack version 0.35.2.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 3956e2c089ab28075e6ab2d617988daea511bbffc1ddb397b94fe89d6a43af2c
+-- hash: dd50e34a0619bfcd55cbcea92438ff23698b72976f7477350ef97c9b8a941b94
 
 name:           trade-journal
 version:        0.0.2
@@ -37,7 +37,6 @@ library
       Broker.ThinkOrSwim.Parser
       Broker.ThinkOrSwim.Process
       Broker.ThinkOrSwim.Types
-      Data.Prod
       Journal.Entry.Deposit
       Journal.Entry.Fees
       Journal.Entry.Income
@@ -52,7 +51,7 @@ library
   ghc-options: -Wall -Wno-missing-home-modules
   build-depends:
       aeson
-    , base >=4.5 && <5.0
+    , base >=4.5
     , bytestring
     , cassava
     , comonad
@@ -87,7 +86,7 @@ executable trade-journal
   ghc-options: -Wall -Wno-missing-home-modules
   build-depends:
       aeson
-    , base >=4.5 && <5.0
+    , base >=4.5
     , bytestring
     , cassava
     , comonad
@@ -130,7 +129,7 @@ test-suite journal-tests
   build-depends:
       HUnit
     , aeson
-    , base >=4.5 && <5.0
+    , base >=4.5
     , bytestring
     , cassava
     , comonad
@@ -174,7 +173,7 @@ test-suite thinkorswim-tests
   build-depends:
       HUnit
     , aeson
-    , base >=4.5 && <5.0
+    , base >=4.5
     , bytestring
     , cassava
     , comonad
