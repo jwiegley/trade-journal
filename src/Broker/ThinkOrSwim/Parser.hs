@@ -4,6 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
 module Broker.ThinkOrSwim.Parser where
@@ -235,7 +236,7 @@ parseStrategy =
     <|> symbol "STRADDLE"
     <|> symbol "STRANGLE"
 
-parseTrade' :: Amount 2 -> Parser TOSTrade'
+parseTrade' :: Amount 2 -> Parser Trade'
 parseTrade' amount = do
   tdQuantity <- parseAmount
   strategy <- optional (try parseStrategy)
@@ -260,7 +261,7 @@ parseTrade' amount = do
                  )
           )
   tdExchange <- optional parseExchange
-  pure TOSTrade' {..}
+  pure Trade' {..}
 
 matchup :: [a] -> [b] -> [c] -> [(a, b, c)]
 matchup xs ys zs =
@@ -270,7 +271,7 @@ matchup xs ys zs =
         (concat (replicate (n `div` length ys) ys))
         (concat (replicate (n `div` length zs) zs))
 
-parseFuturesOptionStrategy :: Parser [Either Symbol TOSFuturesOption']
+parseFuturesOptionStrategy :: Parser [Either Symbol FuturesOption']
 parseFuturesOptionStrategy = do
   futOpMultNum <- read <$> some (satisfy isDigit)
   _ <- char '/'
@@ -288,9 +289,9 @@ parseFuturesOptionStrategy = do
       \(futOpEx, futOpStrike, e) ->
         case e of
           Left sym -> Left sym
-          Right futOpKind -> Right TOSFuturesOption' {..}
+          Right futOpKind -> Right FuturesOption' {..}
 
-parseFuturesOption :: Parser TOSFuturesOption'
+parseFuturesOption :: Parser FuturesOption'
 parseFuturesOption = do
   futOpMultNum <- read <$> some (satisfy isDigit)
   _ <- char '/'
@@ -300,7 +301,7 @@ parseFuturesOption = do
   futOpContract <- parseSymbol
   futOpStrike <- parseAmount @2
   futOpKind <- parsePutCall
-  pure TOSFuturesOption' {..}
+  pure FuturesOption' {..}
 
 parseFutOpExDate :: Parser FutureOptionExpirationDate
 parseFutOpExDate = do
@@ -325,7 +326,7 @@ parseFutOpExDate = do
             <> TL.concat [" " <> x | x <- postDesc]
       }
 
-parseOptionStrategy :: Parser [Either Symbol TOSOption']
+parseOptionStrategy :: Parser [Either Symbol Option']
 parseOptionStrategy = do
   opMult <- read <$> some (satisfy isDigit)
   whiteSpace
@@ -340,16 +341,16 @@ parseOptionStrategy = do
       \(opEx, opStrike, e) ->
         case e of
           Left sym -> Left sym
-          Right opKind -> Right TOSOption' {..}
+          Right opKind -> Right Option' {..}
 
-parseOption' :: Parser TOSOption'
+parseOption' :: Parser Option'
 parseOption' = do
   opMult <- read <$> some (satisfy isDigit)
   whiteSpace
   opEx <- parseOpExDate
   opStrike <- parseAmount
   opKind <- parsePutCall
-  pure TOSOption' {..}
+  pure Option' {..}
 
 parseOpExDate :: Parser OptionExpirationDate
 parseOpExDate = do
@@ -415,7 +416,7 @@ parseMonth =
 parsePutCall :: Parser PutCall
 parsePutCall = Put <$ symbol "PUT" <|> Call <$ symbol "CALL"
 
-parseDevice :: Parser TOSDevice
+parseDevice :: Parser Device
 parseDevice =
   (IPad <$ try (symbol "tIPAD"))
     <|> (IPhone <$ symbol "tIP")
@@ -454,7 +455,7 @@ parseSymbol =
 parseSeparated :: Parser b -> Parser a -> Parser [a]
 parseSeparated s p = liftA2 (:) p (many (s *> p))
 
-parseEntry :: Amount 2 -> Parser TOSEntry
+parseEntry :: Amount 2 -> Parser Entry
 parseEntry amount =
   try (AchCredit <$ symbol "ACH CREDIT RECEIVED")
     <|> (AchDebit <$ symbol "ACH DEBIT RECEIVED")
@@ -564,7 +565,7 @@ symbol = lexeme . string
 symbol_ :: Text -> Parser ()
 symbol_ = void . lexeme . string
 
-testParser :: Text -> Either (ParseErrorBundle Text Void) TOSEntry
+testParser :: Text -> Either (ParseErrorBundle Text Void) Entry
 testParser = parse (parseEntry 0) ""
 
 test :: FilePath -> IO ()

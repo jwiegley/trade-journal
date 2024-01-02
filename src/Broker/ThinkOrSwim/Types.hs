@@ -19,7 +19,7 @@ import GHC.Generics
 import GHC.TypeLits (KnownNat)
 import Text.Read (readMaybe)
 
-data TOSTransaction = TOSTransaction
+data Transaction = Transaction
   { _xactDate :: !Text,
     _xactTime :: !Text,
     _xactType :: !Text,
@@ -39,9 +39,9 @@ readAmount s = case readMaybe (filter (`notElem` [',', '$', ')']) s) of
   Nothing -> error $ "Failed to read amount: " ++ s
   Just x -> x
 
-instance Csv.FromNamedRecord TOSTransaction where
+instance Csv.FromNamedRecord Transaction where
   parseNamedRecord m =
-    TOSTransaction
+    Transaction
       <$> m .: "DATE"
       <*> m .: "TIME"
       <*> m .: "TYPE"
@@ -52,9 +52,9 @@ instance Csv.FromNamedRecord TOSTransaction where
       <*> (readAmount <$> m .: "AMOUNT")
       <*> (readAmount <$> m .: "BALANCE")
 
-makeLenses ''TOSTransaction
+makeLenses ''Transaction
 
-data TOSFuture = TOSFuture
+data Future = Future
   { _futureTradeDate :: !Text,
     _futureExecDate :: !Text,
     _futureExecTime :: !Text,
@@ -68,9 +68,9 @@ data TOSFuture = TOSFuture
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSFuture where
+instance Csv.FromNamedRecord Future where
   parseNamedRecord m =
-    TOSFuture
+    Future
       <$> m .: "Trade Date"
       <*> m .: "Exec Date"
       <*> m .: "Exec Time"
@@ -82,9 +82,9 @@ instance Csv.FromNamedRecord TOSFuture where
       <*> m .: "Amount"
       <*> m .: "Balance"
 
-makeLenses ''TOSFuture
+makeLenses ''Future
 
-data TOSForex = TOSForex
+data Forex = Forex
   { _forexDate :: !Text,
     _forexTime :: !Text,
     _forexType :: !Text,
@@ -97,9 +97,9 @@ data TOSForex = TOSForex
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSForex where
+instance Csv.FromNamedRecord Forex where
   parseNamedRecord m =
-    TOSForex
+    Forex
       <$> m .: "Date"
       <*> m .: "Time"
       <*> m .: "Type"
@@ -110,9 +110,9 @@ instance Csv.FromNamedRecord TOSForex where
       <*> m .: "Amount(USD)"
       <*> m .: "Balance"
 
-makeLenses ''TOSForex
+makeLenses ''Forex
 
-data TOSOrder = TOSOrder
+data Order = Order
   { _orderNotes :: !Text,
     _orderTimePlaced :: !Text,
     _orderOrderID :: !Text,
@@ -130,9 +130,9 @@ data TOSOrder = TOSOrder
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSOrder where
+instance Csv.FromNamedRecord Order where
   parseNamedRecord m =
-    TOSOrder
+    Order
       <$> m .: "Notes"
       <*> m .: "Time Placed"
       <*> m .: "Order ID"
@@ -148,9 +148,9 @@ instance Csv.FromNamedRecord TOSOrder where
       <*> m .: "TIF"
       <*> m .: "Status"
 
-makeLenses ''TOSOrder
+makeLenses ''Order
 
-data TOSTrade = TOSTrade
+data Trade = Trade
   { _tradeExecTime :: !Text,
     _tradeOrderID :: !Text,
     _tradeSpread :: !Text,
@@ -167,9 +167,9 @@ data TOSTrade = TOSTrade
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSTrade where
+instance Csv.FromNamedRecord Trade where
   parseNamedRecord m =
-    TOSTrade
+    Trade
       <$> m .: "Exec Time"
       <*> m .: "Order ID"
       <*> m .: "Spread"
@@ -184,9 +184,9 @@ instance Csv.FromNamedRecord TOSTrade where
       <*> m .: "Net Price"
       <*> m .: "Order Type"
 
-makeLenses ''TOSTrade
+makeLenses ''Trade
 
-data TOSEquity = TOSEquity
+data Equity = Equity
   { _equitySymbol :: !Text,
     _equityDescription :: !Text,
     _equityQty :: !Text,
@@ -196,9 +196,9 @@ data TOSEquity = TOSEquity
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSEquity where
+instance Csv.FromNamedRecord Equity where
   parseNamedRecord m =
-    TOSEquity
+    Equity
       <$> m .: "Symbol"
       <*> m .: "Description"
       <*> m .: "Qty"
@@ -206,9 +206,9 @@ instance Csv.FromNamedRecord TOSEquity where
       <*> m .: "Mark"
       <*> m .: "Mark Value"
 
-makeLenses ''TOSEquity
+makeLenses ''Equity
 
-data TOSFuturesOption = TOSFuturesOption
+data FuturesOption = FuturesOption
   { _futuresOptionSymbol :: !Text,
     _futuresOptionOptionCode :: !Text,
     _futuresOptionExp :: !Text,
@@ -221,9 +221,9 @@ data TOSFuturesOption = TOSFuturesOption
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSFuturesOption where
+instance Csv.FromNamedRecord FuturesOption where
   parseNamedRecord m =
-    TOSFuturesOption
+    FuturesOption
       <$> m .: "Symbol"
       <*> m .: "Option Code"
       <*> m .: "Exp"
@@ -234,9 +234,9 @@ instance Csv.FromNamedRecord TOSFuturesOption where
       <*> m .: "Mark"
       <*> m .: "Mark Value"
 
-makeLenses ''TOSFuturesOption
+makeLenses ''FuturesOption
 
-data TOSOption = TOSOption
+data Option = Option
   { _optionSymbol :: !Text,
     _optionOptionCode :: !Text,
     _optionExp :: !Text,
@@ -249,9 +249,9 @@ data TOSOption = TOSOption
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSOption where
+instance Csv.FromNamedRecord Option where
   parseNamedRecord m =
-    TOSOption
+    Option
       <$> m .: "Symbol"
       <*> m .: "Option Code"
       <*> m .: "Exp"
@@ -262,9 +262,9 @@ instance Csv.FromNamedRecord TOSOption where
       <*> m .: "Mark"
       <*> m .: "Mark Value"
 
-makeLenses ''TOSOption
+makeLenses ''Option
 
-data TOSProfitAndLoss = TOSProfitAndLoss
+data ProfitAndLoss = ProfitAndLoss
   { _pandlSymbol :: !Text,
     _pandlDescription :: !Text,
     _pandlPLOpen :: !Text,
@@ -277,9 +277,9 @@ data TOSProfitAndLoss = TOSProfitAndLoss
   }
   deriving (Generic, Eq, Show)
 
-instance Csv.FromNamedRecord TOSProfitAndLoss where
+instance Csv.FromNamedRecord ProfitAndLoss where
   parseNamedRecord m =
-    TOSProfitAndLoss
+    ProfitAndLoss
       <$> m .: "Symbol"
       <*> m .: "Description"
       <*> m .: "P/L Open"
@@ -290,7 +290,7 @@ instance Csv.FromNamedRecord TOSProfitAndLoss where
       <*> m .: "Margin Req"
       <*> m .: "Mark Value"
 
-makeLenses ''TOSProfitAndLoss
+makeLenses ''ProfitAndLoss
 
 data ForexAccountSummary = ForexAccountSummary
   { _forexCash :: Amount 2,
@@ -323,21 +323,21 @@ data ThinkOrSwim = ThinkOrSwim
     _name :: Text,
     _since :: Day,
     _until :: Day,
-    _xacts :: [TOSTransaction],
-    _futures :: [TOSFuture],
-    _forex :: [TOSForex],
-    _orders :: [TOSOrder],
-    _trades :: [TOSTrade],
-    _equities :: [TOSEquity],
-    _futuresOptions :: [TOSFuturesOption],
-    _options :: [TOSOption],
-    _profitAndLoss :: [TOSProfitAndLoss],
+    _xacts :: [Transaction],
+    _futures :: [Future],
+    _forex :: [Forex],
+    _orders :: [Order],
+    _trades :: [Trade],
+    _equities :: [Equity],
+    _futuresOptions :: [FuturesOption],
+    _options :: [Option],
+    _profitAndLoss :: [ProfitAndLoss],
     _forexSummary :: ForexAccountSummary,
     _accountSummary :: AccountSummary,
     _byOrderId ::
       Map
         Text
-        ([TOSTransaction], [TOSOrder], [TOSTrade])
+        ([Transaction], [Order], [Trade])
   }
   deriving (Eq, Show)
 
@@ -345,11 +345,11 @@ makeLenses ''ThinkOrSwim
 
 type Symbol = Text
 
-data TOSEntry
+data Entry
   = AchCredit
   | AchDebit
   | AdrFee Symbol
-  | Bought TOSDevice TOSTrade'
+  | Bought Device Trade'
   | CashAltInterest (Amount 2) Symbol
   | CourtesyAdjustment
   | CourtesyCredit
@@ -364,9 +364,9 @@ data TOSEntry
   | OrdinaryDividend Symbol
   | QualifiedDividend Symbol
   | Rebate
-  | RemoveOptionDueToAssignment (Amount 1) Symbol TOSOption'
-  | RemoveOptionDueToExpiration (Amount 1) Symbol TOSOption'
-  | Sold TOSDevice TOSTrade'
+  | RemoveOptionDueToAssignment (Amount 1) Symbol Option'
+  | RemoveOptionDueToExpiration (Amount 1) Symbol Option'
+  | Sold Device Trade'
   | TransferBetweenAccounts
   | TransferFromForexAccount
   | TransferInSecurityOrOption (Amount 1) Symbol
@@ -383,7 +383,7 @@ instance Show PutCall where
   show Put = "PUT"
   show Call = "CALL"
 
-data TOSDevice = Desktop | IPhone | IPad | Keys [Text] Text
+data Device = Desktop | IPhone | IPad | Keys [Text] Text
   deriving (Eq, Show)
 
 data OptionExpirationDate = OptionExpirationDate
@@ -392,7 +392,7 @@ data OptionExpirationDate = OptionExpirationDate
   }
   deriving (Eq, Show)
 
-data TOSOption' = TOSOption'
+data Option' = Option'
   { opMult :: Int,
     opEx :: OptionExpirationDate,
     opStrike :: Amount 2,
@@ -400,8 +400,8 @@ data TOSOption' = TOSOption'
   }
   deriving (Eq)
 
-instance Show TOSOption' where
-  show TOSOption' {..} =
+instance Show Option' where
+  show Option' {..} =
     show opMult
       ++ " "
       ++ show opEx
@@ -417,7 +417,7 @@ data FutureOptionExpirationDate = FutureOptionExpirationDate
   }
   deriving (Eq, Show)
 
-data TOSFuturesOption' = TOSFuturesOption'
+data FuturesOption' = FuturesOption'
   { futOpMultNum :: Int,
     futOpMultDen :: Int,
     futOpEx :: FutureOptionExpirationDate,
@@ -427,30 +427,30 @@ data TOSFuturesOption' = TOSFuturesOption'
   }
   deriving (Eq, Show)
 
-data TOSOptionTrade
-  = SingleOption TOSOption'
-  | OptionStrategy Text [Either Symbol TOSOption']
-  | SingleFuturesOption TOSFuturesOption'
-  | FuturesOptionStrategy Text [Either Symbol TOSFuturesOption']
+data OptionTrade
+  = SingleOption Option'
+  | OptionStrategy Text [Either Symbol Option']
+  | SingleFuturesOption FuturesOption'
+  | FuturesOptionStrategy Text [Either Symbol FuturesOption']
   deriving (Eq)
 
-instance Show TOSOptionTrade where
+instance Show OptionTrade where
   show (SingleOption opt) = show opt
   show (OptionStrategy _ opts) = show opts
   show (SingleFuturesOption fut) = show fut
   show (FuturesOptionStrategy _ futs) = show futs
 
-data TOSTrade' = TOSTrade'
+data Trade' = Trade'
   { tdQuantity :: Amount 0,
     tdSymbol :: Symbol,
-    tdOptDetails :: Maybe TOSOptionTrade,
+    tdOptDetails :: Maybe OptionTrade,
     tdPrice :: Amount 2,
     tdExchange :: Maybe Text
   }
   deriving (Eq)
 
-instance Show TOSTrade' where
-  show TOSTrade' {..} =
+instance Show Trade' where
+  show Trade' {..} =
     show tdQuantity
       ++ case tdOptDetails of
         Just (OptionStrategy strat _) -> " " ++ TL.unpack strat

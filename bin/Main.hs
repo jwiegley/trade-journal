@@ -17,7 +17,7 @@ import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy.IO as TL
 import GHC.Generics hiding (to)
 import qualified Journal.Closings as Closings
-import Journal.Entry
+import Journal.Entry as Journal
 import Journal.Parse
 import Journal.Pipes
 import Journal.Print
@@ -65,7 +65,7 @@ main = do
         entries <-
           parseEntries
             @_
-            @'[Const Trade, Const Deposit, Const Income, Const Options]
+            @'[Const Journal.Trade, Const Deposit, Const Income, Const Options]
             path
         parseProcessPrint
           (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)

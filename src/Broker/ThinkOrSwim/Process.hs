@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -16,25 +17,25 @@ import Data.Foldable
 import Data.List (intercalate)
 import Data.Sum
 import Data.Text.Lazy (Text)
-import qualified Data.Text.Lazy as TL
+import Data.Text.Lazy qualified as TL
 import Data.Time
 import Data.Void (Void)
 import Debug.Trace
-import Journal.Entry
+import Journal.Entry as Journal
 import Journal.Types
 import Text.Megaparsec
 import Text.Printf
 
-type TOSEvent =
-  Sum '[Const Trade, Const Deposit, Const Income, Const Options] ()
+type Event =
+  Sum '[Const Journal.Trade, Const Deposit, Const Income, Const Options] ()
 
-entryTime :: TOSTransaction -> UTCTime
+entryTime :: Transaction -> UTCTime
 entryTime record =
   case parseTimeM False defaultTimeLocale "%m/%d/%y %H:%M:%S" timeString of
     Nothing -> error $ "Could not parse date/time from " ++ show record
     Just t -> t
   where
-    splitString :: (TOSTransaction -> Text) -> Char -> String
+    splitString :: (Transaction -> Text) -> Char -> String
     splitString key ch =
       intercalate [ch] $
         map
@@ -44,7 +45,7 @@ entryTime record =
     timeString =
       concat [splitString _xactDate '/', " ", splitString _xactTime ':']
 
-entryParse :: TOSTransaction -> Either (ParseErrorBundle Text Void) TOSEntry
+entryParse :: Transaction -> Either (ParseErrorBundle Text Void) Entry
 entryParse xact =
   parse
     (parseEntry (xact ^. xactAmount))
@@ -53,16 +54,16 @@ entryParse xact =
 
 entryToAction ::
   Context ->
-  TOSTransaction ->
-  TOSEntry ->
-  Either String (Annotated TOSEvent)
+  Transaction ->
+  Entry ->
+  Either String (Annotated Event)
 entryToAction ctx xact = \case
-  Bought _device TOSTrade' {..} ->
+  Bought _device Trade' {..} ->
     Right $
       annotate $
         inject $
           Const $
-            Trade
+            Journal.Trade
               { _tradeAction = Buy,
                 _tradeLot =
                   Lot
@@ -75,12 +76,12 @@ entryToAction ctx xact = \case
                     (-(xact ^. xactMiscFees . coerced))
                     (-(xact ^. xactCommissionsAndFees . coerced))
               }
-  Sold _device TOSTrade' {..} ->
+  Sold _device Trade' {..} ->
     Right $
       annotate $
         inject $
           Const $
-            Trade
+            Journal.Trade
               { _tradeAction = Sell,
                 _tradeLot =
                   Lot
@@ -181,9 +182,9 @@ entryToAction ctx xact = \case
 
 xactAction ::
   Context ->
-  TOSTransaction ->
+  Transaction ->
   Amount 2 ->
-  Either String (Annotated TOSEvent)
+  Either String (Annotated Event)
 xactAction ctx xact bal = do
   ent <- left show $ entryParse xact
   x <- entryToAction ctx xact ent
@@ -194,7 +195,7 @@ xactAction ctx xact bal = do
 thinkOrSwimEntries ::
   Context ->
   ThinkOrSwim ->
-  [Annotated TOSEvent]
+  [Annotated Event]
 thinkOrSwimEntries ctx tos =
   concatMap
     ( \case
