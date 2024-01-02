@@ -295,8 +295,7 @@ buy b =
             ( Trade
                 { _tradeAction = Buy,
                   _tradeLot = b ^. item,
-                  _tradeFees = 0,
-                  _tradeCommission = 0
+                  _tradeFees = Fees 0 0
                 }
                 <$ b
             )
@@ -309,8 +308,7 @@ sell s =
             ( Trade
                 { _tradeAction = Sell,
                   _tradeLot = s ^. item,
-                  _tradeFees = 0,
-                  _tradeCommission = 0
+                  _tradeFees = Fees 0 0
                 }
                 <$ s
             )

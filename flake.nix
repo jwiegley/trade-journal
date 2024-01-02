@@ -24,7 +24,7 @@
               compiler-nix-name = "ghc947";
               shell.tools = {
                 cabal = {};
-                # haskell-language-server = {};
+                haskell-language-server = {};
                 hlint = {};
               };
               shell.buildInputs = with pkgs; [
@@ -33,17 +33,9 @@
             };
         })
       ];
-    in flake // {
+    in {
       packages.default = flake.packages."trade-journal:exe:trade-journal";
-
-      devShell = pkgs.haskellPackages.shellFor {
-        packages = p: [
-        ];
-
-        buildInputs = with pkgs.haskellPackages; [
-          cabal-install
-        ];
-
+      devShell = flake.devShell // {
         withHoogle = true;
       };
     });

@@ -212,6 +212,8 @@ instance Printable (Const Washing) where
 
 printWashing :: Washing -> Either TL.Text TL.Text
 printWashing = \case
+  WashTo _ -> error "NYI: printWashing.WashTo"
+  WashFrom _ -> error "NYI: printWashing.WashFrom"
   Exempt -> Left "exempt"
 
 parseWashing :: Parser Washing

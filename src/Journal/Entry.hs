@@ -4,3 +4,4 @@ import Journal.Entry.Deposit as X
 import Journal.Entry.Income as X
 import Journal.Entry.Options as X
 import Journal.Entry.Trade as X
+import Journal.Entry.Fees as X

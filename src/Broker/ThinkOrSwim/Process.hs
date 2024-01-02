@@ -70,8 +70,10 @@ entryToAction ctx xact = \case
                       _symbol = TL.toStrict tdSymbol,
                       _price = coerce tdPrice
                     },
-                _tradeFees = - (xact ^. xactMiscFees . coerced),
-                _tradeCommission = - (xact ^. xactCommissionsAndFees . coerced)
+                _tradeFees =
+                  Fees
+                    (-(xact ^. xactMiscFees . coerced))
+                    (-(xact ^. xactCommissionsAndFees . coerced))
               }
   Sold _device TOSTrade' {..} ->
     Right $
@@ -86,8 +88,10 @@ entryToAction ctx xact = \case
                       _symbol = TL.toStrict tdSymbol,
                       _price = coerce tdPrice
                     },
-                _tradeFees = - (xact ^. xactMiscFees . coerced),
-                _tradeCommission = - (xact ^. xactCommissionsAndFees . coerced)
+                _tradeFees =
+                  Fees
+                    (-(xact ^. xactMiscFees . coerced))
+                    (-(xact ^. xactCommissionsAndFees . coerced))
               }
   AchCredit ->
     Right $
@@ -197,10 +201,10 @@ thinkOrSwimEntries ctx tos =
         Left err -> trace err []
         Right x -> [x]
     )
-    $ snd $
-      (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts)) $
-        \xact (bal, rest) ->
-          let nxt = bal + xact ^. xactAmount
-           in case xactAction ctx xact nxt of
-                x@(Left _) -> (bal, x : rest)
-                x -> (nxt, x : rest)
+    $ snd
+    $ (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts))
+    $ \xact (bal, rest) ->
+      let nxt = bal + xact ^. xactAmount
+       in case xactAction ctx xact nxt of
+            x@(Left _) -> (bal, x : rest)
+            x -> (nxt, x : rest)
