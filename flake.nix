@@ -21,7 +21,7 @@
           trade-journal =
             final.haskell-nix.project' {
               src = ./.;
-              compiler-nix-name = "ghc947";
+              compiler-nix-name = "ghc948";
               shell.tools = {
                 cabal = {};
                 haskell-language-server = {};
