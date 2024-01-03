@@ -14,7 +14,6 @@ module Broker.ThinkOrSwim.Parser where
 
 import Amount
 import Broker.ThinkOrSwim.Types
-import Control.Applicative (liftA2)
 import Control.Lens
 import Control.Monad.State
 import Data.Char
@@ -33,6 +32,8 @@ import GHC.TypeLits (KnownNat)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import Control.Monad (foldM_, (<=<))
+import Data.Functor (void)
 
 type Parser = ParsecT Void Text Identity
 

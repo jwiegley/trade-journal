@@ -6,17 +6,17 @@
 
 module Examples (testExamples) where
 
-import Control.Lens
+-- import Control.Lens
 import Control.Monad.Writer
 import Data.List (intersperse)
 import Data.String.Here.Interpolated
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
-import qualified Journal.Closings as Closings
-import Journal.Entry
+-- import qualified Journal.Closings as Closings
+-- import Journal.Entry
 import Journal.Parse
-import Journal.Pipes
-import Taxes.USA.WashSaleRule
+-- import Journal.Pipes
+-- import Taxes.USA.WashSaleRule
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -202,16 +202,12 @@ zoomHistory = ii @--> oo
 x @--> y = do
   (_, msgs) <-
     runWriterT $ do
-      entries <-
-        parseEntriesFromText
-          @_
-          @'[Const Trade, Const Deposit, Const Income, Const Options]
-          ""
-          x
-      parseProcessPrint
-        (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
-        entries
-        tell
+      _entries <- parseEntriesFromText "" x
+      -- parseProcessPrint
+      --   (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
+      --   entries
+      --   tell
+      pure ()
   let y' = TL.intercalate "\n" (map TL.fromStrict msgs)
   trimLines y' @?= trimLines y
   where

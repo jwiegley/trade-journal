@@ -4,33 +4,31 @@
 
 module Journal.Pipes where
 
-import Control.Monad.Except
-import Data.Sum
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Journal.Print
-import Data.Sum.Lens
 import Journal.Types
+import Control.Monad.IO.Class
 
 processEntries ::
-  (HasTraversal' HasLot s, Apply Printable s) =>
-  ( [Annotated (Sum r v)] ->
-    [Annotated (Sum s v)]
+  (HasLot a, Printable a) =>
+  ( [Annotated a] ->
+    [Annotated a]
   ) ->
-  [Annotated (Sum r v)] ->
+  [Annotated a] ->
   [Text]
 processEntries handleData = map TL.toStrict . printEntries . handleData
 
 parseProcessPrint ::
-  ( HasTraversal' HasLot s,
-    Apply Printable s,
+  ( HasLot a,
+    Printable a,
     MonadFail m,
     MonadIO m
   ) =>
-  ( [Annotated (Sum r v)] ->
-    [Annotated (Sum s v)]
+  ( [Annotated a] ->
+    [Annotated a]
   ) ->
-  [Annotated (Sum r v)] ->
+  [Annotated a] ->
   ([Text] -> m ()) ->
   m ()
 parseProcessPrint handleData entries printer =

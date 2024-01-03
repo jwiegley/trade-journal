@@ -16,10 +16,8 @@ module Journal.Entry.Options where
 import Amount
 import Control.Applicative
 import Control.Lens
-import Data.Sum.Lens
 import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
-import Journal.Parse
 import Journal.Print
 import Journal.Types.Entry
 import Journal.Types.Lot
@@ -30,9 +28,9 @@ import Prelude hiding (Double, Float)
 --   either directly due to the actions above, or indirectly because of other
 --   factors.
 data Options
-  = Exercise Lot -- exercise a long options position
-  | Assign Lot -- assignment of a short options position
-  | Expire Lot -- expiration of a short options position
+  = Exercise !Lot -- exercise a long options position
+  | Assign !Lot -- assignment of a short options position
+  | Expire !Lot -- expiration of a short options position
   deriving
     ( Show,
       PrettyVal,
@@ -48,8 +46,8 @@ _OptionsLot f = \case
   Assign lot -> Assign <$> f lot
   Expire lot -> Expire <$> f lot
 
-instance HasLot (Const Options) where
-  _Lot f (Const s) = fmap Const $ s & _OptionsLot %%~ f
+instance HasLot Options where
+  _Lot f s = s & _OptionsLot %%~ f
 
 _OptionsNetAmount :: Fold Options (Amount 2)
 _OptionsNetAmount f =
@@ -58,8 +56,8 @@ _OptionsNetAmount f =
     Assign _lot -> 0 -- jww (2021-06-12): NYI
     Expire _lot -> 0
 
-instance HasNetAmount (Const Options) where
-  _NetAmount f (Const s) = fmap Const $ s & _OptionsNetAmount %%~ f
+instance HasNetAmount Options where
+  _NetAmount f s = s & _OptionsNetAmount %%~ f
 
 printOptions :: Options -> TL.Text
 printOptions = \case
@@ -67,14 +65,5 @@ printOptions = \case
   Assign lot -> "assign " <> printLot lot
   Expire lot -> "expire " <> printLot lot
 
-instance Printable (Const Options) where
-  printItem = printOptions . getConst
-
-parseOptions :: Parser Options
-parseOptions =
-  keyword "exercise" *> (Exercise <$> parseLot)
-    <|> keyword "assign" *> (Assign <$> parseLot)
-    <|> keyword "expire" *> (Expire <$> parseLot)
-
-instance Producible Parser (Const Options) where
-  produce = fmap Const parseOptions
+instance Printable Options where
+  printItem = printOptions

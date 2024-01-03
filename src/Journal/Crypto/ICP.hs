@@ -17,7 +17,6 @@ import Amount
 import Control.Applicative
 import Control.Lens
 import Data.Int
-import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
@@ -39,21 +38,21 @@ type AccountId = Text
 type NeuronId = Int64
 
 data ManageNeuron
-  = Stake {_stakeAmount :: Amount 8}
-  | Refresh {_refreshAmount :: Amount 8}
-  | AccrueMaturity {_accrueMaturityAmount :: Amount 8}
-  | MergeMaturity {_mergeMaturityAmount :: Amount 2}
-  | Spawn {_spawnedNeuron :: NeuronId}
-  | Disburse {_disburseAmount :: Amount 8}
-  | Split {_splitNeuron :: NeuronId}
-  | Merge {_mergeSource :: NeuronId}
+  = Stake {_stakeAmount :: !(Amount 8)}
+  | Refresh {_refreshAmount :: !(Amount 8)}
+  | AccrueMaturity {_accrueMaturityAmount :: !(Amount 8)}
+  | MergeMaturity {_mergeMaturityAmount :: !(Amount 2)}
+  | Spawn {_spawnedNeuron :: !NeuronId}
+  | Disburse {_disburseAmount :: !(Amount 8)}
+  | Split {_splitNeuron :: !NeuronId}
+  | Merge {_mergeSource :: !NeuronId}
   deriving (Show, PrettyVal, Eq, Generic)
 
 makePrisms ''ManageNeuron
 
 data NeuronEntry = NeuronEntry
-  { _neuron :: NeuronId,
-    _manage :: ManageNeuron
+  { _neuron :: !NeuronId,
+    _manage :: !ManageNeuron
   }
   deriving (Show, PrettyVal, Eq, Generic)
 
@@ -84,8 +83,8 @@ icpNetAmount icp = case icp ^. manage of
   Split {} -> 0
   Merge {} -> 0
 
-instance HasNetAmount (Const NeuronEntry) where
-  _NetAmount f (Const icp) = error "never used" <$> f (icpNetAmount icp)
+instance HasNetAmount NeuronEntry where
+  _NetAmount f icp = error "never used" <$> f (icpNetAmount icp)
 
 printNeuronEntry :: NeuronEntry -> TL.Text
 printNeuronEntry (NeuronEntry n m) = case m of
@@ -108,8 +107,8 @@ printNeuronEntry (NeuronEntry n m) = case m of
   where
     tshow = TL.pack . show
 
-instance Printable (Const NeuronEntry) where
-  printItem = printNeuronEntry . getConst
+instance Printable NeuronEntry where
+  printItem = printNeuronEntry
 
 parseNeuronEntry :: Parser NeuronEntry
 parseNeuronEntry = do
@@ -145,9 +144,6 @@ parseNeuronEntry = do
       *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
              <*> (Merge <$> L.decimal)
          )
-
-instance Producible Parser (Const NeuronEntry) where
-  produce = fmap Const parseNeuronEntry
 
 _NeuronEntryLedgerRepr ::
   Fold (Annotated NeuronEntry) (Transaction (Annotated NeuronEntry) 8)

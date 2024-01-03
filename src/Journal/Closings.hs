@@ -25,13 +25,10 @@ import Control.Arrow
 import Control.Lens
 import Control.Monad.State
 import Data.Foldable
-import Data.Functor.Classes
 import Data.IntMap (IntMap)
 import Data.List (intersperse, sortOn)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
-import Data.Sum
-import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
@@ -48,9 +45,9 @@ data Disposition = Long | Short
   deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
 
 data Position = Position
-  { _posIdent :: Int,
-    _posLot :: Lot,
-    _posDisp :: Disposition
+  { _posIdent :: !Int,
+    _posLot :: !Lot,
+    _posDisp :: !Disposition
   }
   deriving
     ( Show,
@@ -61,8 +58,8 @@ data Position = Position
     )
 
 data Closing = Closing
-  { _closingPos :: Int,
-    _closingLot :: Lot
+  { _closingPos :: !Int,
+    _closingLot :: !Lot
   }
   deriving
     ( Show,
@@ -82,8 +79,8 @@ makeLenses ''Closing
 --   howmuch = closingLot . amount
 
 data PositionEvent
-  = Open Position -- open a position in the account
-  | Close Closing -- close a position in the account
+  = Open !Position -- open a position in the account
+  | Close !Closing -- close a position in the account
   deriving
     ( Show,
       PrettyVal,
@@ -95,9 +92,6 @@ makePrisms ''PositionEvent
 
 class HasPositionEvent f where
   _Event :: Traversal' (f v) PositionEvent
-
-instance HasTraversal' HasPositionEvent fs => HasPositionEvent (Sum fs) where
-  _Event = traversing @HasPositionEvent _Event
 
 instance HasPositionEvent (Const Deposit) where _Event _ = pure
 
@@ -115,15 +109,15 @@ _EventLot f = \case
   Open pos -> Open <$> (pos & posLot %%~ f)
   Close cl -> Close <$> (cl & closingLot %%~ f)
 
-instance HasLot (Const PositionEvent) where
-  _Lot f (Const s) = fmap Const $ s & _EventLot %%~ f
+instance HasLot PositionEvent where
+  _Lot f s = s & _EventLot %%~ f
 
-data Calculation a = FIFO | LIFO | forall b. Ord b => Custom (a -> b)
+data Calculation a = FIFO | LIFO | forall b. Ord b => Custom !(a -> b)
 
 data BasicState a m = BasicState
-  { _calc :: Calculation a,
-    _nextId :: Int,
-    _events :: m
+  { _calc :: !(Calculation a),
+    _nextId :: !Int,
+    _events :: !m
   }
   deriving (Generic, Functor)
 
@@ -150,36 +144,38 @@ localState instrument f s =
         & events . at instrument ?~ (m ^. events)
 
 closings ::
-  Const Trade :< r =>
-  Calculation (Annotated (Sum (Const PositionEvent ': r) v)) ->
-  [Annotated (Sum r v)] ->
-  ( [Annotated (Sum (Const PositionEvent ': r) v)],
-    Map Text (IntMap (Annotated (Sum (Const PositionEvent ': r) v)))
+  Calculation (Annotated PositionEvent) ->
+  [Annotated Trade] ->
+  ( [[Annotated PositionEvent]],
+    Map Text (IntMap (Annotated PositionEvent))
   )
 closings mode =
-  (concat *** _events) . flip runState (newClosingState mode) . mapM go
+  second _events . flip runState (newClosingState mode) . mapM go
   where
+    go :: Annotated Trade ->
+          State
+            (ClosingState (Annotated PositionEvent))
+            [Annotated PositionEvent]
     go entry = do
       gst <- get
-      case entry ^? item . projectedC . tradeLot . symbol of
+      case entry ^? item . tradeLot . symbol of
         Just sym -> do
           let (results, gst') =
                 flip runState gst $
                   zoom (localState sym) $
                     untilDone handle entry
           put gst'
-          pure (fmap weaken entry : results)
-        Nothing -> pure [fmap weaken entry]
+          pure results
+        Nothing -> pure []
 
 handle ::
-  Const Trade :< r =>
-  Annotated (Sum r v) ->
+  Annotated Trade ->
   State
-    (LocalState (Annotated (Sum (Const PositionEvent ': r) v)))
-    ( [Annotated (Sum (Const PositionEvent ': r) v)],
-      Remainder (Annotated (Sum r v))
+    (LocalState (Annotated PositionEvent))
+    ( [Annotated PositionEvent],
+      Remainder (Annotated Trade)
     )
-handle ann@(preview (item . projectedC) -> Just trade) = do
+handle ann@(preview item -> Just trade) = do
   mode <- use calc
   -- jww (2021-12-04): the buy/sell should be able to specify FIFO or LIFO,
   -- and the user should be able to set it as a default. In the case of LIFE,
@@ -192,29 +188,28 @@ handle ann@(preview (item . projectedC) -> Just trade) = do
         . (^.. events . traverse)
     )
     >>= \case
-      open@(preview (item . projectedC . _Open . posDisp) -> Just disp) : _
+      open@(preview (item . _Open . posDisp) -> Just disp) : _
         | disp
             == case trade ^?! tradeAction of
               Sell -> Long
               Buy -> Short -> do
-          events . at (open ^?! item . projectedC . _Open . posIdent) .= Nothing
+          events . at (open ^?! item . _Open . posIdent) .= Nothing
           closePosition open ann
-      _ -> (,Finished) <$> openPosition ann
+      _ -> (,Finished) . (:[]) <$> openPosition ann
 handle _ = pure ([], Finished)
 
 -- | Open a new position.
 openPosition ::
-  Const Trade :< r =>
-  Annotated (Sum r v) ->
+  Annotated Trade ->
   State
-    (LocalState (Annotated (Sum (Const PositionEvent ': r) v)))
-    [Annotated (Sum (Const PositionEvent ': r) v)]
+    (LocalState (Annotated PositionEvent))
+    (Annotated PositionEvent)
 openPosition open = do
   nextId += 1
   ident <- use nextId
-  let trade = open ^?! item . projectedC
+  let trade = open ^?! item
       event =
-        projectedC . _Open
+        _Open
           # Position
             { _posIdent = ident,
               _posLot = trade ^. tradeLot,
@@ -225,27 +220,26 @@ openPosition open = do
             }
           <$ open
   events . at ident ?= event
-  pure [event]
+  pure event
 
 -- | Close an existing position. If the amount to close is more than what is
 --   open, the remainder is considered a separate opening event.
 closePosition ::
-  Const Trade :< r =>
-  Annotated (Sum (Const PositionEvent ': r) v) ->
-  Annotated (Sum r v) ->
+  Annotated PositionEvent ->
+  Annotated Trade ->
   State
-    (LocalState (Annotated (Sum (Const PositionEvent ': r) v)))
-    ( [Annotated (Sum (Const PositionEvent ': r) v)],
-      Remainder (Annotated (Sum r v))
+    (LocalState (Annotated PositionEvent))
+    ( [Annotated PositionEvent],
+      Remainder (Annotated Trade)
     )
 closePosition open close =
-  let o = open ^?! item . projectedC . _Open
+  let o = open ^?! item . _Open
    in alignForClose
         (o ^. posLot)
-        (close ^?! item . projectedC . tradeLot)
+        (close ^?! item . tradeLot)
         ( \_su du ->
             pure
-              [ projectedC . _Close
+              [ _Close
                   # Closing
                     { _closingPos = o ^. posIdent,
                       _closingLot = du
@@ -254,10 +248,10 @@ closePosition open close =
               ]
         )
         ( \sk ->
-            events . at (open ^?! item . projectedC . _Open . posIdent)
-              ?= (open & item . projectedC . _Open . posLot .~ sk)
+            events . at (open ^?! item . _Open . posIdent)
+              ?= (open & item . _Open . posLot .~ sk)
         )
-        (\dk -> pure $ close & item . projectedC . tradeLot .~ dk)
+        (\dk -> pure $ close & item . tradeLot .~ dk)
 
 alignForClose ::
   (Splittable n a, Splittable n b, Applicative m) =>
@@ -275,41 +269,28 @@ alignForClose l r f g h =
         _ -> Finished
 
 positions ::
-  ( HasTraversal' HasPositionEvent r,
-    Apply Eq1 r,
-    Eq v,
-    Apply Show1 r,
-    Show v
-  ) =>
-  [Annotated (Sum r v)] ->
-  Map Text (IntMap (Annotated (Sum r v)))
-positions = foldl' positionsFromEntry mempty
+  [Annotated PositionEvent] ->
+  Map Text (IntMap (Annotated PositionEvent))
+positions = foldl' positionsFromEvent mempty
 
-positionsFromEntry ::
-  ( HasTraversal' HasPositionEvent r,
-    Apply Eq1 r,
-    Eq v,
-    Apply Show1 r,
-    Show v
-  ) =>
-  Map Text (IntMap (Annotated (Sum r v))) ->
-  Annotated (Sum r v) ->
-  Map Text (IntMap (Annotated (Sum r v)))
-positionsFromEntry m = go
+positionsFromEvent ::
+  Map Text (IntMap (Annotated PositionEvent)) ->
+  Annotated PositionEvent ->
+  Map Text (IntMap (Annotated PositionEvent))
+positionsFromEvent m = go
   where
-    go o@((^? item . _Event . _Open) -> Just pos) =
+    go o@((^? item . _Open) -> Just pos) =
       m
         & at (pos ^. posLot . symbol)
           . non mempty
           . at (pos ^. posIdent)
         ?~ o
-    go ((^? item . _Event . _Close) -> Just cl) =
+    go ((^? item . _Close) -> Just cl) =
       flip execState m do
         let loc ::
-              (Apply Eq1 r, Eq v) =>
               Traversal'
-                (Map Text (IntMap (Annotated (Sum r v))))
-                (Maybe (Annotated (Sum r v)))
+                (Map Text (IntMap (Annotated PositionEvent)))
+                (Maybe (Annotated PositionEvent))
             loc =
               at (cl ^. closingLot . symbol)
                 . non mempty
@@ -323,15 +304,15 @@ positionsFromEntry m = go
                 ++ ppShow m
           Just o ->
             alignedA
-              (o ^?! item . _Event . _Open . posLot)
+              (o ^?! item . _Open . posLot)
               (cl ^. closingLot)
               (\_ou _cu -> loc .= Nothing)
-              (\ok -> loc ?= (o & item . _Event . _Open . posLot .~ ok))
+              (\ok -> loc ?= (o & item . _Open . posLot .~ ok))
               (\_ck -> error "Invalid closing")
     go _ = m
 
-instance Printable (Const PositionEvent) where
-  printItem = printEvent . getConst
+instance Printable PositionEvent where
+  printItem = printEvent
 
 printEvent :: PositionEvent -> TL.Text
 printEvent = \case

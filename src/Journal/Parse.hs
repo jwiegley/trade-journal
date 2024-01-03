@@ -6,25 +6,23 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Journal.Parse where
 
 import Amount
-import Control.Lens hiding (each, noneOf)
+import Control.Lens hiding (Context, each, noneOf)
 import Control.Monad.IO.Class
 import Data.Char
 import Data.Functor
-import Data.Sum
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.IO as TL
-import Data.Time hiding (parseTime)
+import Data.Time
 import Data.Void
 import GHC.TypeLits
-import Data.Sum.Lens
+import Journal.Entry
 import Journal.Types
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -51,21 +49,21 @@ keyword :: Text -> Parser Text
 keyword = lexeme . string
 
 parseEntries ::
-  (MonadFail m, MonadIO m, Populate Parser r) =>
+  (MonadFail m, MonadIO m) =>
   FilePath ->
-  m [Annotated (Sum r v)]
+  m [Annotated Entry]
 parseEntries path = do
   input <- liftIO $ TL.readFile path
   parseEntriesFromText path input
 
 parseEntriesFromText ::
-  (MonadFail m, Populate Parser r) =>
+  MonadFail m =>
   FilePath ->
   Text ->
-  m [Annotated (Sum r v)]
+  m [Annotated Entry]
 parseEntriesFromText path input =
   case parse
-    ( many (whiteSpace *> parseAnnotated populate)
+    ( many (whiteSpace *> parseAnnotated parseEntry)
         <* eof
     )
     path
@@ -78,7 +76,11 @@ parseAnnotated parser = do
   _time <- Journal.Parse.parseTime
   _item <- parser
   _details <- many parseAnnotation
-  let _account = "NYI"
+  let _context =
+        Context
+          { _account = "NYI",
+            _currency = "NYI"
+          }
   pure Annotated {..}
 
 -- & details . traverse . failing _Fees _Commission
@@ -150,5 +152,71 @@ parseAmount =
 
 parseSymbol :: Parser Text
 parseSymbol =
-  TL.pack <$> some (satisfy (\c -> isAlphaNum c || c `elem` ['.', '/']))
+  TL.pack
+    <$> some (satisfy (\c -> isAlphaNum c || c `elem` ['.', '/']))
     <* whiteSpace
+
+parseDeposit :: Parser Deposit
+parseDeposit =
+  keyword "deposit"
+    *> ( Deposit
+           <$> parseAmount
+           <*> (keyword "from" *> parseText)
+       )
+    <|> keyword "withdraw"
+      *> ( Deposit
+             <$> (negate <$> parseAmount)
+             <*> (keyword "to" *> parseText)
+         )
+    <|> keyword "transfer"
+      *> ( Transfer
+             <$> parseLot
+             <*> (keyword "from" *> parseText)
+         )
+    <|> keyword "transfer"
+      *> ( Transfer
+             <$> (over amount negate <$> parseLot)
+             <*> (keyword "to" *> parseText)
+         )
+
+parseTrade :: Parser Trade
+parseTrade = do
+  _tradeAction <- (Buy <$ keyword "buy") <|> (Sell <$ keyword "sell")
+  _tradeLot <- parseLot
+  _tradeFees <-
+    Fees
+      <$> ( ( keyword "fees"
+                *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
+            )
+              <|> pure 0
+          )
+      <*> ( ( keyword "commission"
+                *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
+            )
+              <|> pure 0
+          )
+  pure Trade {..}
+
+parseOptions :: Parser Options
+parseOptions =
+  keyword "exercise" *> (Exercise <$> parseLot)
+    <|> keyword "assign" *> (Assign <$> parseLot)
+    <|> keyword "expire" *> (Expire <$> parseLot)
+
+parseIncome :: Parser Income
+parseIncome =
+  keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
+    <|> keyword "interest"
+      *> ( Interest
+             <$> parseAmount
+             <*> optional (keyword "from" *> (TL.toStrict <$> parseSymbol))
+         )
+    <|> keyword "income" *> (Income <$> parseAmount)
+    <|> keyword "credit" *> (Credit <$> parseAmount)
+
+parseEntry :: Parser Entry
+parseEntry =
+  (TradeEntry <$> parseTrade)
+    <|> (OptionsEntry <$> parseOptions)
+    <|> (IncomeEntry <$> parseIncome)
+    <|> (DepositEntry <$> parseDeposit)

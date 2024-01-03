@@ -16,11 +16,9 @@ module Journal.Entry.Trade where
 import Amount
 import Control.Applicative
 import Control.Lens
-import Data.Sum.Lens
 import Data.Text.Lazy
 import GHC.Generics hiding (to)
 import Journal.Entry.Fees
-import Journal.Parse
 import Journal.Print
 import Journal.Types.Entry
 import Journal.Types.Lot
@@ -31,9 +29,9 @@ data Action = Buy | Sell
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 data Trade = Trade
-  { _tradeAction :: Action,
-    _tradeLot :: Lot,
-    _tradeFees :: Fees
+  { _tradeAction :: !Action,
+    _tradeLot :: !Lot,
+    _tradeFees :: !Fees
   }
   deriving (Show, PrettyVal, Eq, Generic)
 
@@ -46,8 +44,8 @@ tradeTotalFees f Trade {..} =
 _TradeLot :: Traversal' Trade Lot
 _TradeLot f s = s & tradeLot %%~ f
 
-instance HasLot (Const Trade) where
-  _Lot f (Const s) = fmap Const $ s & _TradeLot %%~ f
+instance HasLot Trade where
+  _Lot f s = s & _TradeLot %%~ f
 
 _TradeNetAmount :: Fold Trade (Amount 2)
 _TradeNetAmount f s@Trade {..} =
@@ -66,8 +64,8 @@ _TradeNetAmount f s@Trade {..} =
             <&> flip Fees 0 . view coerced
         )
 
-instance HasNetAmount (Const Trade) where
-  _NetAmount f (Const s) = fmap Const $ s & _TradeNetAmount %%~ f
+instance HasNetAmount Trade where
+  _NetAmount f s = s & _TradeNetAmount %%~ f
 
 printTrade :: Trade -> Text
 printTrade Trade {..} =
@@ -87,26 +85,5 @@ printTrade Trade {..} =
            else ""
        )
 
-instance Printable (Const Trade) where
-  printItem = printTrade . getConst
-
-parseTrade :: Parser Trade
-parseTrade = do
-  _tradeAction <- (Buy <$ keyword "buy") <|> (Sell <$ keyword "sell")
-  _tradeLot <- parseLot
-  _tradeFees <-
-    Fees
-      <$> ( ( keyword "fees"
-                *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
-            )
-              <|> pure 0
-          )
-      <*> ( ( keyword "commission"
-                *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
-            )
-              <|> pure 0
-          )
-  pure Trade {..}
-
-instance Producible Parser (Const Trade) where
-  produce = fmap Const parseTrade
+instance Printable Trade where
+  printItem = printTrade

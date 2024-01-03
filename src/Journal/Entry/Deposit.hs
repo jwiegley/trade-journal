@@ -17,13 +17,11 @@ module Journal.Entry.Deposit where
 import Amount
 import Control.Applicative
 import Control.Lens
-import Data.Sum.Lens
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.Generics hiding (to)
-import Journal.Parse
 import Journal.Print
 import Journal.Types.Annotated
 import Journal.Types.Entry
@@ -37,8 +35,8 @@ import Prelude hiding (Double, Float)
 --   either directly due to the actions above, or indirectly because of other
 --   factors.
 data Deposit
-  = Deposit (Amount 2) Text -- deposit (or withdraw if negative)
-  | Transfer Lot Text -- deposits not in the base currency
+  = Deposit !(Amount 2) !Text -- deposit (or withdraw if negative)
+  | Transfer !Lot !Text -- deposits not in the base currency
   deriving
     ( Show,
       PrettyVal,
@@ -53,16 +51,16 @@ _DepositLot f = \case
   Deposit amt acct -> pure $ Deposit amt acct
   Transfer lot acct -> Transfer <$> f lot <*> pure acct
 
-instance HasLot (Const Deposit) where
-  _Lot f (Const s) = fmap Const $ s & _DepositLot %%~ f
+instance HasLot Deposit where
+  _Lot f s = s & _DepositLot %%~ f
 
 _DepositNetAmount :: Fold Deposit (Amount 2)
 _DepositNetAmount f = \case
   Deposit amt acct -> Deposit <$> f amt <*> pure acct
   Transfer _lot acct -> Deposit <$> f 0 <*> pure acct
 
-instance HasNetAmount (Const Deposit) where
-  _NetAmount f (Const s) = fmap Const $ s & _DepositNetAmount %%~ f
+instance HasNetAmount Deposit where
+  _NetAmount f s = s & _DepositNetAmount %%~ f
 
 printDeposit :: Deposit -> TL.Text
 printDeposit = \case
@@ -92,34 +90,8 @@ printDeposit = \case
           )
             <> TL.pack (show acct)
 
-instance Printable (Const Deposit) where
-  printItem = printDeposit . getConst
-
-parseDeposit :: Parser Deposit
-parseDeposit =
-  keyword "deposit"
-    *> ( Deposit
-           <$> parseAmount
-           <*> (keyword "from" *> parseText)
-       )
-    <|> keyword "withdraw"
-    *> ( Deposit
-           <$> (negate <$> parseAmount)
-           <*> (keyword "to" *> parseText)
-       )
-    <|> keyword "transfer"
-    *> ( Transfer
-           <$> parseLot
-           <*> (keyword "from" *> parseText)
-       )
-    <|> keyword "transfer"
-    *> ( Transfer
-           <$> (over amount negate <$> parseLot)
-           <*> (keyword "to" *> parseText)
-       )
-
-instance Producible Parser (Const Deposit) where
-  produce = fmap Const parseDeposit
+instance Printable Deposit where
+  printItem = printDeposit
 
 _ICPLedgerRepr ::
   Fold (Annotated Deposit) (Transaction (Annotated Deposit) 8)

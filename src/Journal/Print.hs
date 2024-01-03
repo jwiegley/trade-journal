@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Journal.Print where
@@ -16,24 +15,19 @@ import Data.Char
 import Data.Either
 import Data.List (intersperse, sort)
 import Data.Maybe (fromMaybe, mapMaybe)
-import Data.Sum
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time
 import GHC.TypeLits
-import Data.Sum.Lens
 import Journal.Types
 
-class Printable f where
-  printItem :: f v -> Text
-
-instance Apply Printable fs => Printable (Sum fs) where
-  printItem s = s ^. applied @Printable printItem
+class Printable a where
+  printItem :: a -> Text
 
 printEntries ::
-  (HasTraversal' HasLot r, Apply Printable r) =>
-  [Annotated (Sum r v)] ->
+  (Printable a, HasLot a) =>
+  [Annotated a] ->
   [Text]
 printEntries = map $ \x ->
   ( case x ^? time of
@@ -41,7 +35,7 @@ printEntries = map $ \x ->
       Nothing -> ""
   )
     <> printItem (x ^. item)
-    <> case printAnnotated x (x ^? item . traversing @HasLot _Lot) of
+    <> case printAnnotated x (x ^? item . _Lot) of
       "" -> ""
       anns -> " " <> anns
 

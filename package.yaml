@@ -18,7 +18,6 @@ dependencies:
   - constraints
   - containers
   - data-default
-  - fastsum # >= 0.2
   - free
   - lens
   - megaparsec
@@ -40,7 +39,6 @@ library:
   source-dirs: src
   exposed-modules:
     - Broker.ThinkOrSwim
-    - Data.Sum.Lens
     - Data.Zipper
     - Journal.Closings
     - Journal.Crypto.ICP

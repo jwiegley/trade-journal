@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: dd50e34a0619bfcd55cbcea92438ff23698b72976f7477350ef97c9b8a941b94
+-- hash: f0a6768c1cac70fd8d00a990a7a5d3a42cb894f5a9db3b74db16f08df5c97095
 
 name:           trade-journal
 version:        0.0.2
@@ -18,7 +18,6 @@ build-type:     Simple
 library
   exposed-modules:
       Broker.ThinkOrSwim
-      Data.Sum.Lens
       Data.Zipper
       Journal.Closings
       Journal.Crypto.ICP
@@ -58,7 +57,6 @@ library
     , constraints
     , containers
     , data-default
-    , fastsum
     , free
     , lens
     , megaparsec
@@ -93,7 +91,6 @@ executable trade-journal
     , constraints
     , containers
     , data-default
-    , fastsum
     , free
     , lens
     , megaparsec
@@ -136,7 +133,6 @@ test-suite journal-tests
     , constraints
     , containers
     , data-default
-    , fastsum
     , free
     , hedgehog
     , here
@@ -180,7 +176,6 @@ test-suite thinkorswim-tests
     , constraints
     , containers
     , data-default
-    , fastsum
     , free
     , hedgehog
     , here

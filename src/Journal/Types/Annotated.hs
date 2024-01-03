@@ -19,8 +19,8 @@ import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
 data Annotation
-  = Note Text
-  | Meta Text Text
+  = Note !Text
+  | Meta !Text !Text
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
 makePrisms ''Annotation
@@ -29,8 +29,8 @@ instance PrettyVal UTCTime where
   prettyVal = String . iso8601Show
 
 data Context = Context
-  { _account :: Text,
-    _currency :: Text
+  { _account :: !Text,
+    _currency :: !Text
   }
   deriving (Show, PrettyVal, Eq, Generic)
 

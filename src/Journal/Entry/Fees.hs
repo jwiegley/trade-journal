@@ -14,8 +14,8 @@ import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
 data Fees = Fees
-  { _fees :: Amount 6,
-    _commission :: Amount 6
+  { _fees :: !(Amount 6),
+    _commission :: !(Amount 6)
   }
   deriving (Show, PrettyVal, Eq, Generic)
 

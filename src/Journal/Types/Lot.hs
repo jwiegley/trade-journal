@@ -15,21 +15,20 @@ import Amount
 import Control.Lens
 import Control.Monad.State
 import Data.Default
-import Data.Sum
-import Data.Sum.Lens
 import Data.Text (Text)
 import GHC.Generics hiding (to)
 import GHC.TypeLits
 import Journal.Split
 import Text.Show.Pretty
 import Prelude hiding (Double, Float)
+import Control.Monad (when)
 
 -- | A 'Lot' represents a collection of shares, with a given price and a
 --   transaction date.
 data Lot = Lot
-  { _amount :: Amount 6, -- number of shares, units, tokens, etc.
-    _symbol :: Text, -- CUSIP, token name, etc.
-    _price :: Amount 6 -- price per unit
+  { _amount :: !(Amount 6), -- number of shares, units, tokens, etc.
+    _symbol :: !Text, -- CUSIP, token name, etc.
+    _price :: !(Amount 6) -- price per unit
   }
   deriving (Show, PrettyVal, Eq, Ord, Generic)
 
@@ -53,11 +52,8 @@ totaled lot n = lot ^. amount . coerced * n
 
 -- | 'HasLot' is a type class for indicating that all members of an open type
 --   support the '_Lot' traversal.
-class HasLot f where
-  _Lot :: Traversal' (f v) Lot
-
-instance HasTraversal' HasLot fs => HasLot (Sum fs) where
-  _Lot = traversing @HasLot _Lot
+class HasLot a where
+  _Lot :: Traversal' a Lot
 
 foldOver :: (Splittable n s, Show s) => State s a -> s -> [a]
 foldOver f lot

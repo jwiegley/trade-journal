@@ -11,8 +11,6 @@ import Control.Monad.Trans.Class
 -- import Gains
 -- import GainsKeeper
 
-import Data.Sum
-import Data.Sum.Lens
 import Data.Zipper
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen

@@ -13,8 +13,6 @@ import Amount
 import Control.Arrow
 import Control.Lens hiding (Context)
 import Control.Monad.State
-import Data.Sum
-import Data.Sum.Lens
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Time.Format
