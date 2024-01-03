@@ -74,8 +74,8 @@ icpFees icp = case icp ^. manage of
 
 icpNetAmount :: NeuronEntry -> Amount 2
 icpNetAmount icp = case icp ^. manage of
-  Stake amt -> - amt ^. coerced
-  Refresh amt -> - amt ^. coerced
+  Stake amt -> -amt ^. coerced
+  Refresh amt -> -amt ^. coerced
   AccrueMaturity {} -> 0
   MergeMaturity {} -> 0
   Spawn {} -> 0
@@ -113,35 +113,43 @@ instance Printable NeuronEntry where
 parseNeuronEntry :: Parser NeuronEntry
 parseNeuronEntry = do
   keyword "stake"
-    *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+    *> ( NeuronEntry
+           <$> (L.decimal <* whiteSpace)
            <*> (Stake <$> parseAmount)
        )
     <|> keyword "refresh"
-      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+      *> ( NeuronEntry
+             <$> (L.decimal <* whiteSpace)
              <*> (Refresh <$> parseAmount)
          )
     <|> keyword "accrue maturity"
-      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+      *> ( NeuronEntry
+             <$> (L.decimal <* whiteSpace)
              <*> (AccrueMaturity <$> parseAmount)
          )
     <|> keyword "merge maturity"
-      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+      *> ( NeuronEntry
+             <$> (L.decimal <* whiteSpace)
              <*> (MergeMaturity <$> parseAmount)
          )
     <|> keyword "spawn"
-      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+      *> ( NeuronEntry
+             <$> (L.decimal <* whiteSpace)
              <*> (Spawn <$> L.decimal)
          )
     <|> keyword "disburse"
-      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+      *> ( NeuronEntry
+             <$> (L.decimal <* whiteSpace)
              <*> (Disburse <$> parseAmount)
          )
     <|> keyword "split"
-      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+      *> ( NeuronEntry
+             <$> (L.decimal <* whiteSpace)
              <*> (Split <$> L.decimal)
          )
     <|> keyword "merge"
-      *> ( NeuronEntry <$> (L.decimal <* whiteSpace)
+      *> ( NeuronEntry
+             <$> (L.decimal <* whiteSpace)
              <*> (Merge <$> L.decimal)
          )
 

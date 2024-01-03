@@ -68,11 +68,11 @@ split x n
   | xq == n = (All x, 0)
   | xq < n = (All x, diff)
   | otherwise =
-    ( Some
-        (x & howmuch .~ n)
-        (x & howmuch .~ diff),
-      0
-    )
+      ( Some
+          (x & howmuch .~ n)
+          (x & howmuch .~ diff),
+        0
+      )
   where
     xq = x ^. howmuch
     diff = abs (xq - n)
@@ -88,17 +88,17 @@ align x y
   | xq == 0 = (None x, All y)
   | yq == 0 = (All x, None y)
   | xq < yq =
-    ( All x,
-      Some
-        (y & howmuch .~ xq)
-        (y & howmuch .~ diff)
-    )
+      ( All x,
+        Some
+          (y & howmuch .~ xq)
+          (y & howmuch .~ diff)
+      )
   | otherwise =
-    ( Some
-        (x & howmuch .~ yq)
-        (x & howmuch .~ diff),
-      All y
-    )
+      ( Some
+          (x & howmuch .~ yq)
+          (x & howmuch .~ diff),
+        All y
+      )
   where
     xq, yq :: n
     xq = x ^. howmuch
@@ -119,7 +119,8 @@ alignedA ::
   m (Maybe x, Remainder (Either y z))
 alignedA a b f g h = do
   let (sa, sb) = a `align` b
-  (,) <$> for ((,) <$> sa ^? _SplitUsed <*> sb ^? _SplitUsed) (uncurry f)
+  (,)
+    <$> for ((,) <$> sa ^? _SplitUsed <*> sb ^? _SplitUsed) (uncurry f)
     <*> case sa ^? _SplitKept of
       Nothing -> case sb ^? _SplitKept of
         Nothing -> pure Finished
@@ -172,7 +173,8 @@ makeLenses ''Considered
 
 consideredList :: Traversal' (Considered a a c) a
 consideredList f Considered {..} =
-  Considered <$> traverse f _fromList
+  Considered
+    <$> traverse f _fromList
     <*> traverse f _newList
     <*> pure _fromElement
     <*> pure _newElement
@@ -185,7 +187,8 @@ consideredElements f Considered {..} =
 
 consideredFrom :: Traversal' (Considered a b a) a
 consideredFrom f Considered {..} =
-  Considered <$> traverse f _fromList
+  Considered
+    <$> traverse f _fromList
     <*> pure _newList
     <*> traverse f _fromElement
     <*> pure _newElement
@@ -218,7 +221,8 @@ consider ::
   c ->
   Considered a b c
 consider f mk lst el =
-  result & fromList %~ reverse
+  result
+    & fromList %~ reverse
     & newList %~ reverse
     & fromElement %~ reverse
     & newElement .~ remaining
@@ -227,7 +231,8 @@ consider f mk lst el =
     go (Nothing, c) x = (Nothing, c & newList %~ (x :))
     go (Just z, c) x =
       ( _dest ^? _SplitKept,
-        c & fromList %~ maybe id ((:) . mk z _value) (_src ^? _SplitUsed)
+        c
+          & fromList %~ maybe id ((:) . mk z _value) (_src ^? _SplitUsed)
           & newList %~ maybe id (:) (_src ^? _SplitKept)
           & fromElement %~ maybe id (:) (_dest ^? _SplitUsed)
       )

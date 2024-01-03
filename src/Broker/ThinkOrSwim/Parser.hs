@@ -15,11 +15,13 @@ module Broker.ThinkOrSwim.Parser where
 import Amount
 import Broker.ThinkOrSwim.Types
 import Control.Lens
+import Control.Monad (foldM_, (<=<))
 import Control.Monad.State
 import Data.Char
 import Data.Coerce
 import qualified Data.Csv as Csv
 import Data.Foldable
+import Data.Functor (void)
 import Data.Maybe (fromMaybe)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -32,8 +34,6 @@ import GHC.TypeLits (KnownNat)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-import Control.Monad (foldM_, (<=<))
-import Data.Functor (void)
 
 type Parser = ParsecT Void Text Identity
 
@@ -127,21 +127,28 @@ parseCsv = do
   traceM "Forex Account Summary"
   _forexCash <- symbol_ "Forex Cash" *> char ',' *> maybeQuoted parseDollars
   _forexUnrealizedPL <-
-    symbol_ "Forex Unrealized P/L" *> char ','
+    symbol_ "Forex Unrealized P/L"
+      *> char ','
       *> maybeQuoted parseDollars
   _forexFloatingPL <-
-    symbol_ "Forex Floating P/L" *> char ','
+    symbol_ "Forex Floating P/L"
+      *> char ','
       *> maybeQuoted parseDollars
   _forexEquity <- symbol_ "Forex Equity" *> char ',' *> maybeQuoted parseDollars
   _forexMargin <- symbol_ "Forex Margin" *> char ',' *> maybeQuoted parseDollars
   _forexBuyingPower <-
-    symbol_ "Forex Buying Power" *> char ','
+    symbol_ "Forex Buying Power"
+      *> char ','
       *> maybeQuoted parseDollars
   _forexRiskLevel <-
-    symbol_ "Forex Risk Level" *> char ','
-      *> (parseAmount :: Parser (Amount 2)) <* char '%' <* whiteSpace
+    symbol_ "Forex Risk Level"
+      *> char ','
+      *> (parseAmount :: Parser (Amount 2))
+      <* char '%'
+      <* whiteSpace
   _forexCommissionsYTD <-
-    symbol_ "Forex Commissions YTD" *> char ','
+    symbol_ "Forex Commissions YTD"
+      *> char ','
       *> maybeQuoted parseDollars
   traceM $ "parseCsv..20b: " ++ show _forexCommissionsYTD
 
@@ -150,22 +157,28 @@ parseCsv = do
   symbol_ "Account Summary"
   traceM "Account Summary"
   _netLiquidatingValue <-
-    symbol_ "Net Liquidating Value" *> char ','
+    symbol_ "Net Liquidating Value"
+      *> char ','
       *> maybeQuoted parseDollars
   _stockBuyingPower <-
-    symbol_ "Stock Buying Power" *> char ','
+    symbol_ "Stock Buying Power"
+      *> char ','
       *> maybeQuoted parseDollars
   _optionBuyingPower <-
-    symbol_ "Option Buying Power" *> char ','
+    symbol_ "Option Buying Power"
+      *> char ','
       *> maybeQuoted parseDollars
   _equityCommissionsFeesYTD <-
-    symbol_ "Equity Commissions & Fees YTD" *> char ','
+    symbol_ "Equity Commissions & Fees YTD"
+      *> char ','
       *> maybeQuoted parseDollars
   _futuresCommissionsFeesYTD <-
-    symbol_ "Futures Commissions & Fees YTD" *> char ','
+    symbol_ "Futures Commissions & Fees YTD"
+      *> char ','
       *> maybeQuoted parseDollars
   _totalCommissionsFeesYTD <-
-    symbol_ "Total Commissions & Fees YTD" *> char ','
+    symbol_ "Total Commissions & Fees YTD"
+      *> char ','
       *> maybeQuoted parseDollars
 
   let _accountSummary = AccountSummary {..}
@@ -430,7 +443,8 @@ parseDevice =
                       )
                 )
             <*> ( TL.pack . (: [])
-                    <$> oneOf ['A' .. 'Z'] <* space
+                    <$> oneOf ['A' .. 'Z']
+                    <* space
                 )
         )
     <|> pure Desktop
@@ -444,7 +458,8 @@ parseAmount = do
            then '0' : str
            else str
        )
-    ^.. folded . filtered (/= ',') ^? _Amount of
+    ^.. folded . filtered (/= ',')
+    ^? _Amount of
     Nothing -> fail $ "Could not parse amount: " ++ str
     Just n -> pure n
 

@@ -139,7 +139,8 @@ localState :: Text -> Traversal' (ClosingState a) (LocalState a)
 localState instrument f s =
   f (view (at instrument . non' _Empty) <$> s)
     <&> \m ->
-      s & calc   .~ (m ^. calc)
+      s
+        & calc .~ (m ^. calc)
         & nextId .~ (m ^. nextId)
         & events . at instrument ?~ (m ^. events)
 
@@ -152,10 +153,11 @@ closings ::
 closings mode =
   second _events . flip runState (newClosingState mode) . mapM go
   where
-    go :: Annotated Trade ->
-          State
-            (ClosingState (Annotated PositionEvent))
-            [Annotated PositionEvent]
+    go ::
+      Annotated Trade ->
+      State
+        (ClosingState (Annotated PositionEvent))
+        [Annotated PositionEvent]
     go entry = do
       gst <- get
       case entry ^? item . tradeLot . symbol of
@@ -181,10 +183,11 @@ handle ann@(preview item -> Just trade) = do
   -- and the user should be able to set it as a default. In the case of LIFE,
   -- this traversal needs to be reversed.
   gets
-    ( (case mode of
-           FIFO -> id
-           LIFO -> reverse
-           Custom f -> sortOn f)
+    ( ( case mode of
+          FIFO -> id
+          LIFO -> reverse
+          Custom f -> sortOn f
+      )
         . (^.. events . traverse)
     )
     >>= \case
@@ -193,9 +196,9 @@ handle ann@(preview item -> Just trade) = do
             == case trade ^?! tradeAction of
               Sell -> Long
               Buy -> Short -> do
-          events . at (open ^?! item . _Open . posIdent) .= Nothing
-          closePosition open ann
-      _ -> (,Finished) . (:[]) <$> openPosition ann
+            events . at (open ^?! item . _Open . posIdent) .= Nothing
+            closePosition open ann
+      _ -> (,Finished) . (: []) <$> openPosition ann
 handle _ = pure ([], Finished)
 
 -- | Open a new position.
@@ -284,7 +287,7 @@ positionsFromEvent m = go
         & at (pos ^. posLot . symbol)
           . non mempty
           . at (pos ^. posIdent)
-        ?~ o
+          ?~ o
     go ((^? item . _Close) -> Just cl) =
       flip execState m do
         let loc ::
@@ -342,7 +345,8 @@ printClosing Closing {..} =
 parsePosition :: Parser Position
 parsePosition =
   Position
-    <$> L.decimal <* whiteSpace
+    <$> L.decimal
+    <* whiteSpace
     <*> parseLot
     <*> parseDisposition
   where

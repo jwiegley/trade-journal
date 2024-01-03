@@ -23,6 +23,7 @@ import Journal.Parse
 import Journal.Print
 import Journal.Types
 import qualified Options
+
 -- import Taxes.USA.WashSaleRule
 
 data Config = Config

@@ -4,11 +4,11 @@
 
 module Journal.Pipes where
 
+import Control.Monad.IO.Class
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Journal.Print
 import Journal.Types
-import Control.Monad.IO.Class
 
 processEntries ::
   (HasLot a, Printable a) =>

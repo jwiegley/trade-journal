@@ -280,8 +280,9 @@ on ::
   TestDSL r ()
 on date (flip execState [] -> [e]) =
   put
-    [ e & _Entity . time
-        .~ parseTimeOrError False defaultTimeLocale "%m/%d" date
+    [ e
+        & _Entity . time
+          .~ parseTimeOrError False defaultTimeLocale "%m/%d" date
     ]
 on _ _ = error "Incorrect use of on"
 

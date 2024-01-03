@@ -34,7 +34,7 @@ data Transaction = Transaction
 
 readAmount :: KnownNat n => String -> Amount n
 readAmount "" = 0
-readAmount ('(' : xs) = - (readAmount xs)
+readAmount ('(' : xs) = -(readAmount xs)
 readAmount s = case readMaybe (filter (`notElem` [',', '$', ')']) s) of
   Nothing -> error $ "Failed to read amount: " ++ s
   Just x -> x
