@@ -1,8 +1,11 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Journal.Entry (module X, Entry (..)) where
+module Journal.Entry (module X, Entry (..), AsEntry (..)) where
 
 import Control.Lens
+import GHC.Generics hiding (to)
 import Journal.Entry.Deposit as X
 import Journal.Entry.Fees as X
 import Journal.Entry.Income as X
@@ -11,14 +14,16 @@ import Journal.Entry.Trade as X
 import Journal.Print
 import Journal.Types.Entry as X
 import Journal.Types.Lot as X
+import Text.Show.Pretty hiding (Time)
 
 data Entry
   = TradeEntry !Trade
   | OptionsEntry !Options
   | IncomeEntry !Income
   | DepositEntry !Deposit
+  deriving (Show, Eq, PrettyVal, Generic)
 
-makePrisms ''Entry
+makeClassyPrisms ''Entry
 
 instance Printable Entry where
   printItem (TradeEntry s) = printItem s

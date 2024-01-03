@@ -7,7 +7,7 @@
 module Main where
 
 import Amount
-import Broker.ThinkOrSwim hiding (_account)
+import Provider.ThinkOrSwim hiding (_account)
 import Control.Lens hiding (Context)
 import Data.Foldable (forM_)
 import Data.List (isSuffixOf)
@@ -16,7 +16,7 @@ import Data.Map (Map)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy.IO as TL
 import GHC.Generics hiding (to)
--- import qualified Journal.Closings as Closings
+-- import qualified Closings
 -- import Journal.Entry qualified as Journal
 import Journal.Parse
 -- import Journal.Pipes

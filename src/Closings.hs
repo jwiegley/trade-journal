@@ -18,7 +18,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Journal.Closings where
+module Closings where
 
 import Control.Applicative
 import Control.Arrow

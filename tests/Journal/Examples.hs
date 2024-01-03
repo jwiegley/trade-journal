@@ -12,7 +12,7 @@ import Data.List (intersperse)
 import Data.String.Here.Interpolated
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
--- import qualified Journal.Closings as Closings
+-- import qualified Closings
 -- import Journal.Entry
 import Journal.Parse
 -- import Journal.Pipes

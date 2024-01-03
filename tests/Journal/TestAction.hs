@@ -21,6 +21,8 @@
 module TestAction where
 
 import Amount
+import Closings hiding (positions)
+import qualified Closings
 import Control.Applicative
 import Control.Exception
 import Control.Lens hiding (Context)
@@ -31,6 +33,7 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Maybe (mapMaybe)
 import Data.Ratio
 import Data.Text (Text)
 import Data.Time
@@ -39,8 +42,6 @@ import GHC.Generics hiding (to)
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Journal.Closings hiding (positions)
-import qualified Journal.Closings as Closings
 import Journal.Entry
 import Journal.Pipes ()
 import Journal.Types
@@ -142,6 +143,9 @@ data TestExpr
   = AnEntry !(Annotated Entry)
   | APositionEvent !(Annotated PositionEvent)
   | AWashing !(Annotated Washing)
+  deriving (Show, Eq, PrettyVal, Generic)
+
+makePrisms ''TestExpr
 
 _Entity ::
   Prism' TestExpr (Annotated Entry)
@@ -180,8 +184,6 @@ _Entity f = \case
     AWashing . fmap (getConst . fromJust . project)
       <$> f (inject . Const <$> x)
 -}
-
-makePrisms ''TestExpr
 
 data Positions = Positions
   { _positions :: !(IntMap Position),
@@ -308,11 +310,27 @@ instance PrettyVal e => PrettyVal1 (Const e) where
   liftPrettyVal _ (Const x) = prettyVal x
 
 checkJournal ::
+  (Eq a, PrettyVal a, Eq b, PrettyVal b, MonadIO m) =>
+  ([TestExpr] -> (a, b)) ->
+  ([TestExpr] -> a) ->
+  ([TestExpr] -> b) ->
+  TestDSL () ->
+  TestDSL () ->
+  TestDSL () ->
+  m ()
+checkJournal f g h journal act actLeft =
+  do
+    journal' <- getExprs (evalDSL journal)
+    expectedEntries <- getExprs (evalDSL act)
+    expectedEntriesLeft <- getExprs (evalDSL actLeft)
+    f journal' @?== (g expectedEntries, h expectedEntriesLeft)
+
+checkJournal' ::
   MonadIO m =>
   ( ( [[Annotated PositionEvent]],
       Map Text (IntMap (Annotated PositionEvent))
     ) ->
-    ( [Annotated s],
+    ( [[Annotated PositionEvent]],
       Map Text (IntMap (Annotated PositionEvent))
     )
   ) ->
@@ -320,15 +338,24 @@ checkJournal ::
   TestDSL () ->
   TestDSL () ->
   m ()
-checkJournal f journal act actLeft =
-  do
-    journal' <- getExprs (evalDSL journal)
-    expectedEntries <- getExprs (evalDSL act)
-    expectedEntriesLeft <- Closings.positions <$> getExprs (evalDSL actLeft)
-    let (entries', entriesLeft') = f (closings FIFO journal')
-        entriesLeft'' = case entriesLeft' ^? ix "FOO" of
-          Just m
-            | IM.null m ->
-                entriesLeft' & at "FOO" .~ Nothing
-          _ -> entriesLeft'
-    (entries', entriesLeft'') @?== (expectedEntries, expectedEntriesLeft)
+checkJournal' f =
+  checkJournal
+    ( \xs ->
+        let journal' =
+              mapMaybe
+                ( \(x :: TestExpr) -> do
+                    entry <- x ^? _AnEntry
+                    trade <- entry ^? item . _TradeEntry
+                    pure $ trade <$ entry
+                )
+                xs
+            (entries', entriesLeft') = f (closings FIFO journal')
+            entriesLeft'' = case entriesLeft' ^? ix "FOO" of
+              Just m
+                | IM.null m ->
+                    entriesLeft' & at "FOO" .~ Nothing
+              _ -> entriesLeft'
+         in (entries', entriesLeft'')
+    )
+    (mapMaybe (fmap (: []) . preview _APositionEvent))
+    (Closings.positions . mapMaybe (preview _APositionEvent))

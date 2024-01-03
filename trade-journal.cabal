@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f0a6768c1cac70fd8d00a990a7a5d3a42cb894f5a9db3b74db16f08df5c97095
+-- hash: bab1b7b6cc9691650070274f29cc84ed1d40784fc418dc6b5d7d5abf95ba1e67
 
 name:           trade-journal
 version:        0.0.2
@@ -17,10 +17,10 @@ build-type:     Simple
 
 library
   exposed-modules:
-      Broker.ThinkOrSwim
+      Provider.ThinkOrSwim
       Data.Zipper
-      Journal.Closings
-      Journal.Crypto.ICP
+      Closings
+      Crypto.ICP
       Journal.Entry
       Journal.Parse
       Journal.Pipes
@@ -33,9 +33,6 @@ library
       Ledger.Render
       Taxes.USA.WashSaleRule
   other-modules:
-      Broker.ThinkOrSwim.Parser
-      Broker.ThinkOrSwim.Process
-      Broker.ThinkOrSwim.Types
       Journal.Entry.Deposit
       Journal.Entry.Fees
       Journal.Entry.Income
@@ -44,6 +41,9 @@ library
       Journal.Types.Annotated
       Journal.Types.Entry
       Journal.Types.Lot
+      Provider.ThinkOrSwim.Parser
+      Provider.ThinkOrSwim.Process
+      Provider.ThinkOrSwim.Types
       Paths_trade_journal
   hs-source-dirs:
       src
@@ -115,10 +115,10 @@ test-suite journal-tests
   type: exitcode-stdio-1.0
   main-is: Main.hs
   other-modules:
-      Closings
       Examples
       TestAction
-      WashSaleRule
+      TestClosings
+      TestWashSaleRule
       Paths_trade_journal
   hs-source-dirs:
       tests/Journal
@@ -164,7 +164,7 @@ test-suite thinkorswim-tests
       ThinkOrSwim
       Paths_trade_journal
   hs-source-dirs:
-      tests/Broker/ThinkOrSwim
+      tests/Provider/ThinkOrSwim
   ghc-options: -Wall -Wno-missing-home-modules
   build-depends:
       HUnit

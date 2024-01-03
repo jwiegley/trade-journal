@@ -30,7 +30,7 @@ import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Zipper
 import GHC.Generics
-import Journal.Closings
+import Closings
 import Journal.Parse
 import Journal.Print
 import Journal.Types

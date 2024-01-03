@@ -4,11 +4,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Broker.ThinkOrSwim.Process (thinkOrSwimEntries) where
+module Provider.ThinkOrSwim.Process (thinkOrSwimEntries) where
 
 import Amount
-import Broker.ThinkOrSwim.Parser
-import Broker.ThinkOrSwim.Types
+import Provider.ThinkOrSwim.Parser
+import Provider.ThinkOrSwim.Types
 import Control.Arrow (left)
 import Control.Exception
 import Control.Lens hiding (Context)

@@ -1,12 +1,12 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 
-module Closings where
+module TestClosings where
 
 import Control.Lens hiding (each)
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
-import Journal.Closings
+import Closings
 import Journal.Entry
 import Journal.Types
 import Test.Tasty
@@ -208,23 +208,9 @@ testClosings =
 
 testRule ::
   String ->
-  ( ( TestDSL '[Const Trade, Const Deposit, Const Income, Const Options] () ->
-      TestDSL
-        '[ Const PositionEvent,
-           Const Trade,
-           Const Deposit,
-           Const Income,
-           Const Options
-         ]
-        () ->
-      TestDSL
-        '[ Const PositionEvent,
-           Const Trade,
-           Const Deposit,
-           Const Income,
-           Const Options
-         ]
-        () ->
+  ( ( TestDSL () ->
+      TestDSL () ->
+      TestDSL () ->
       PropertyT IO ()
     ) ->
     Annotated Lot ->
@@ -237,4 +223,4 @@ testRule name f = testProperty name $
       forAll $
         Gen.filter (\b -> (b ^. item . price) > 10) $
           genAnnotated genLot
-    f (checkJournal id) b
+    f (checkJournal' id) b

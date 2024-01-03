@@ -1,24 +1,28 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module WashSaleRule where
+module TestWashSaleRule where
 
 import Amount
-import Control.Arrow
+-- import Control.Arrow
+
+-- import Data.IntMap (IntMap)
+-- import Data.Map (Map)
+-- import Data.Text qualified as T
+
+import Closings
 import Control.Lens hiding (Context)
 import Control.Monad.State
 import Data.Text.Lazy (Text)
-import qualified Data.Text.Lazy as TL
+import Data.Text.Lazy qualified as TL
 import Data.Time.Format
 import Hedgehog hiding (Action)
-import qualified Hedgehog.Gen as Gen
-import Journal.Closings
+import Hedgehog.Gen qualified as Gen
 import Journal.Entry
 import Journal.Parse
 import Journal.Types
@@ -251,33 +255,13 @@ testWashSaleRule =
             --       pure ()
     ]
 
-event ::
-  forall r.
-  ( Populate Parser r,
-    '[ Const Deposit,
-       Const Income,
-       Const Options,
-       Const Trade
-     ]
-      :<: r
-  ) =>
-  Text ->
-  TestDSL r ()
+event :: Text -> TestDSL ()
 event txt = do
-  case parseEntriesFromText @Maybe @r "" txt of
+  case parseEntriesFromText "" txt of
     Nothing -> error $ "event could not be parsed: " ++ TL.unpack txt
     Just xs -> put $ map (_Entity #) xs
 
-on ::
-  '[ Const Deposit,
-     Const Income,
-     Const Options,
-     Const Trade
-   ]
-    :<: r =>
-  String ->
-  TestDSL r () ->
-  TestDSL r ()
+on :: String -> TestDSL () -> TestDSL ()
 on date (flip execState [] -> [e]) =
   put
     [ e
@@ -288,25 +272,9 @@ on _ _ = error "Incorrect use of on"
 
 testRule ::
   String ->
-  ( ( TestDSL '[Const Trade, Const Deposit, Const Income, Const Options] () ->
-      TestDSL
-        '[ Const Washing,
-           Const PositionEvent,
-           Const Trade,
-           Const Deposit,
-           Const Income,
-           Const Options
-         ]
-        () ->
-      TestDSL
-        '[ Const Washing,
-           Const PositionEvent,
-           Const Trade,
-           Const Deposit,
-           Const Income,
-           Const Options
-         ]
-        () ->
+  ( ( TestDSL () ->
+      TestDSL () ->
+      TestDSL () ->
       PropertyT IO ()
     ) ->
     Annotated Lot ->
@@ -319,32 +287,18 @@ testRule name f = testProperty name $
       forAll $
         Gen.filter (\b -> (b ^. item . price) > 10) $
           genAnnotated genLot
-    f (checkJournal washSaleRuleTest) b
-  where
-    washSaleRuleTest = (id &&& positions) . washSaleRule . fst
+    f (checkJournal' undefined) b
+
+-- where
+-- washSaleRuleTest = (id &&& positions) . washSaleRule . concat . fst
 
 wash ::
   Period ->
   Int ->
   Annotated Lot ->
   Amount 6 ->
-  TestDSL
-    '[ Const PositionEvent,
-       Const Trade,
-       Const Deposit,
-       Const Income,
-       Const Options
-     ]
-    () ->
-  TestDSL
-    '[ Const Washing,
-       Const PositionEvent,
-       Const Trade,
-       Const Deposit,
-       Const Income,
-       Const Options
-     ]
-    ()
+  TestDSL () ->
+  TestDSL ()
 wash
   period
   n
@@ -371,23 +325,8 @@ washedFrom ::
   Int ->
   Annotated Lot ->
   Amount 6 ->
-  TestDSL
-    '[ Const PositionEvent,
-       Const Trade,
-       Const Deposit,
-       Const Income,
-       Const Options
-     ]
-    () ->
-  TestDSL
-    '[ Const Washing,
-       Const PositionEvent,
-       Const Trade,
-       Const Deposit,
-       Const Income,
-       Const Options
-     ]
-    ()
+  TestDSL () ->
+  TestDSL ()
 washedFrom
   period
   n

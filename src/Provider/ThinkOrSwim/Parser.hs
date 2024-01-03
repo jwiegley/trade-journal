@@ -7,13 +7,13 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-module Broker.ThinkOrSwim.Parser where
+module Provider.ThinkOrSwim.Parser where
 
 -- import qualified Data.ByteString as B
 -- import qualified Data.ByteString.Lazy as BL
 
 import Amount
-import Broker.ThinkOrSwim.Types
+import Provider.ThinkOrSwim.Types
 import Control.Lens
 import Control.Monad (foldM_, (<=<))
 import Control.Monad.State

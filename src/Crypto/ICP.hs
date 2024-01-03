@@ -11,7 +11,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Journal.Crypto.ICP where
+module Crypto.ICP where
 
 import Amount
 import Control.Applicative

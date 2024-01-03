@@ -38,10 +38,10 @@ dependencies:
 library:
   source-dirs: src
   exposed-modules:
-    - Broker.ThinkOrSwim
+    - Provider.ThinkOrSwim
     - Data.Zipper
-    - Journal.Closings
-    - Journal.Crypto.ICP
+    - Closings
+    - Crypto.ICP
     - Journal.Entry
     - Journal.Parse
     - Journal.Pipes
@@ -69,7 +69,7 @@ tests:
 
   thinkorswim-tests:
     main: Main.hs
-    source-dirs: tests/Broker/ThinkOrSwim
+    source-dirs: tests/Provider/ThinkOrSwim
     dependencies:
       - HUnit
       - hedgehog
