@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bdd20af0814e7822b4abcb0a57fc3b08f6c2b436729df889f93eb2c2fb68b50a
+-- hash: 60985b3c3567ec8a392a11ab75f3b3dc777148d217a6462e01b69329e2d26a8a
 
 name:           trade-journal
 version:        0.0.2
@@ -17,34 +17,34 @@ build-type:     Simple
 
 library
   exposed-modules:
-      Closings
-      Crypto.ICP
-      Data.Zipper
-      Journal.Entry
-      Journal.Parse
-      Journal.Pipes
-      Journal.Print
-      Journal.Split
-      Journal.Types
-      Journal.Utils
-      Ledger
-      Ledger.Entry
-      Ledger.Render
-      Process
-      Provider.ThinkOrSwim
-      Taxes.USA.WashSaleRule
+      Trade.Closings
+      Trade.Crypto.ICP
+      Trade.Data.Zipper
+      Trade.Journal.Entry
+      Trade.Journal.Parse
+      Trade.Journal.Pipes
+      Trade.Journal.Print
+      Trade.Journal.Split
+      Trade.Journal.Types
+      Trade.Journal.Utils
+      Trade.Ledger
+      Trade.Ledger.Entry
+      Trade.Ledger.Render
+      Trade.Process
+      Trade.Provider.ThinkOrSwim
+      Trade.Taxes.USA.WashSaleRule
   other-modules:
-      Journal.Entry.Deposit
-      Journal.Entry.Fees
-      Journal.Entry.Income
-      Journal.Entry.Options
-      Journal.Entry.Trade
-      Journal.Types.Annotated
-      Journal.Types.Entry
-      Journal.Types.Lot
-      Provider.ThinkOrSwim.Parser
-      Provider.ThinkOrSwim.Process
-      Provider.ThinkOrSwim.Types
+      Trade.Journal.Entry.Deposit
+      Trade.Journal.Entry.Fees
+      Trade.Journal.Entry.Income
+      Trade.Journal.Entry.Options
+      Trade.Journal.Entry.Trade
+      Trade.Journal.Types.Annotated
+      Trade.Journal.Types.Entry
+      Trade.Journal.Types.Lot
+      Trade.Provider.ThinkOrSwim.Parser
+      Trade.Provider.ThinkOrSwim.Process
+      Trade.Provider.ThinkOrSwim.Types
       Paths_trade_journal
   hs-source-dirs:
       src

@@ -15,7 +15,6 @@ import Amount
 -- import Data.Map (Map)
 -- import Data.Text qualified as T
 
-import Closings
 import Control.Lens hiding (Context)
 import Control.Monad.State
 import Data.Text.Lazy (Text)
@@ -23,14 +22,15 @@ import Data.Text.Lazy qualified as TL
 import Data.Time.Format
 import Hedgehog hiding (Action)
 import Hedgehog.Gen qualified as Gen
-import Journal.Entry
-import Journal.Parse
-import Journal.Types
-import Process
-import Taxes.USA.WashSaleRule
 import Test.Tasty
 import Test.Tasty.Hedgehog
 import TestAction hiding (positions)
+import Trade.Closings
+import Trade.Journal.Entry
+import Trade.Journal.Parse
+import Trade.Journal.Types
+import Trade.Process
+import Trade.Taxes.USA.WashSaleRule
 
 testWashSaleRule :: TestTree
 testWashSaleRule =

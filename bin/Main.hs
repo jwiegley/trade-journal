@@ -7,7 +7,6 @@
 module Main where
 
 import Amount
-import Provider.ThinkOrSwim hiding (_account)
 import Control.Lens hiding (Context)
 import Data.Foldable (forM_)
 import Data.List (isSuffixOf)
@@ -16,13 +15,16 @@ import Data.Map (Map)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy.IO as TL
 import GHC.Generics hiding (to)
--- import qualified Closings
--- import Journal.Entry qualified as Journal
-import Journal.Parse
--- import Journal.Pipes
-import Journal.Print
-import Journal.Types
+-- import qualified Trade.Closings
+-- import Trade.Journal.Entry qualified as Journal
+
+-- import Trade.Journal.Pipes
+
 import qualified Options
+import Trade.Journal.Parse
+import Trade.Journal.Print
+import Trade.Journal.Types
+import Trade.Provider.ThinkOrSwim hiding (_account)
 
 -- import Taxes.USA.WashSaleRule
 

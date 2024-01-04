@@ -6,12 +6,12 @@ module TestClosings where
 import Control.Lens hiding (each)
 import Hedgehog hiding (Action)
 import qualified Hedgehog.Gen as Gen
-import Closings
-import Journal.Entry
-import Journal.Types
 import Test.Tasty
 import Test.Tasty.Hedgehog
 import TestAction
+import Trade.Closings
+import Trade.Journal.Entry
+import Trade.Journal.Types
 
 testClosings :: TestTree
 testClosings =

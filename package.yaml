@@ -38,22 +38,22 @@ dependencies:
 library:
   source-dirs: src
   exposed-modules:
-    - Closings
-    - Crypto.ICP
-    - Data.Zipper
-    - Journal.Entry
-    - Journal.Parse
-    - Journal.Pipes
-    - Journal.Print
-    - Journal.Split
-    - Journal.Types
-    - Journal.Utils
-    - Ledger
-    - Ledger.Entry
-    - Ledger.Render
-    - Process
-    - Provider.ThinkOrSwim
-    - Taxes.USA.WashSaleRule
+    - Trade.Closings
+    - Trade.Crypto.ICP
+    - Trade.Data.Zipper
+    - Trade.Journal.Entry
+    - Trade.Journal.Parse
+    - Trade.Journal.Pipes
+    - Trade.Journal.Print
+    - Trade.Journal.Split
+    - Trade.Journal.Types
+    - Trade.Journal.Utils
+    - Trade.Ledger
+    - Trade.Ledger.Entry
+    - Trade.Ledger.Render
+    - Trade.Process
+    - Trade.Provider.ThinkOrSwim
+    - Trade.Taxes.USA.WashSaleRule
 
 tests:
   journal-tests:

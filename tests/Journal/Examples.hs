@@ -12,11 +12,11 @@ import Data.List (intersperse)
 import Data.String.Here.Interpolated
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
--- import qualified Closings
--- import Journal.Entry
-import Journal.Parse
--- import Journal.Pipes
--- import Taxes.USA.WashSaleRule
+-- import qualified Trade.Closings as Closings
+-- import Trade.Journal.Entry
+import Trade.Journal.Parse
+-- import Trade.Journal.Pipes
+-- import Trade.Taxes.USA.WashSaleRule
 import Test.Tasty
 import Test.Tasty.HUnit
 

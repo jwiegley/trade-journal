@@ -21,8 +21,6 @@
 module TestAction where
 
 import Amount
-import Closings hiding (positions)
-import qualified Closings
 import Control.Applicative
 import Control.Arrow (second)
 import Control.Exception
@@ -42,13 +40,15 @@ import GHC.Generics hiding (to)
 import Hedgehog hiding (Action, assert)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Journal.Entry
-import Journal.Pipes ()
-import Journal.Types
-import Process
 import Test.HUnit.Lang (FailureReason (..))
 import Test.Tasty.HUnit hiding (assert)
 import Text.Show.Pretty hiding (Time)
+import Trade.Closings hiding (positions)
+import qualified Trade.Closings
+import Trade.Journal.Entry
+import Trade.Journal.Pipes ()
+import Trade.Journal.Types
+import Trade.Process
 
 {--------------------------------------------------------------------------}
 
@@ -294,7 +294,7 @@ checkJournal f journal act actLeft =
     journal' <- getExprs (evalDSL journal)
     expectedEntries <- getExprs (evalDSL act)
     expectedOpenPositions <-
-      Closings.positions . positionsOnly <$> getExprs (evalDSL actLeft)
+      Trade.Closings.positions . positionsOnly <$> getExprs (evalDSL actLeft)
     assert (length journal' == length (entriesOnly journal')) $
       f (entriesOnly journal') @?== (expectedEntries, expectedOpenPositions)
 
