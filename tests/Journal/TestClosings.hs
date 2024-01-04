@@ -223,4 +223,4 @@ testRule name f = testProperty name $
       forAll $
         Gen.filter (\b -> (b ^. item . price) > 10) $
           genAnnotated genLot
-    f (checkJournal' id) b
+    f (checkJournal' False id) b

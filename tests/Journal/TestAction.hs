@@ -24,6 +24,7 @@ import Amount
 import Closings hiding (positions)
 import qualified Closings
 import Control.Applicative
+import Control.Arrow (second)
 import Control.Exception
 import Control.Lens hiding (Context)
 import Control.Monad
@@ -33,21 +34,20 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import Data.Map (Map)
 import qualified Data.Map as M
-import Data.Maybe (mapMaybe)
 import Data.Ratio
 import Data.Text (Text)
 import Data.Time
 import Data.Typeable
 import GHC.Generics hiding (to)
-import Hedgehog hiding (Action)
+import Hedgehog hiding (Action, assert)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Journal.Entry
 import Journal.Pipes ()
 import Journal.Types
-import Taxes.USA.WashSaleRule
+import Process
 import Test.HUnit.Lang (FailureReason (..))
-import Test.Tasty.HUnit
+import Test.Tasty.HUnit hiding (assert)
 import Text.Show.Pretty hiding (Time)
 
 {--------------------------------------------------------------------------}
@@ -139,55 +139,24 @@ instance (PrettyVal a, PrettyVal b) => PrettyVal (Map a b) where
 instance PrettyVal a => PrettyVal (IntMap a) where
   prettyVal = Con "IntMap.fromList" . map prettyVal . IM.assocs
 
-data TestExpr
-  = AnEntry !(Annotated Entry)
-  | APositionEvent !(Annotated PositionEvent)
-  | AWashing !(Annotated Washing)
-  deriving (Show, Eq, PrettyVal, Generic)
-
-makePrisms ''TestExpr
-
 _Entity ::
-  Prism' TestExpr (Annotated Entry)
+  Prism' (Annotated ProcessedEntry) (Annotated Entry)
 _Entity = prism' putTo getFrom
   where
     putTo ::
       Annotated Entry ->
-      TestExpr
-    putTo = AnEntry
+      Annotated ProcessedEntry
+    putTo x = AnEntry (x ^. item) <$ x
 
-    getFrom :: TestExpr -> Maybe (Annotated Entry)
-    getFrom = \case
-      AnEntry x -> Just x
+    getFrom :: Annotated ProcessedEntry -> Maybe (Annotated Entry)
+    getFrom ent = case ent ^. item of
+      AnEntry x -> Just (x <$ ent)
       APositionEvent _ -> Nothing
       AWashing _ -> Nothing
 
-{-
-_Entity :: Prism' TestExpr (Annotated (Sum r v))
-_Entity f = \case
-  ADeposit x ->
-    ADeposit . fmap (getConst . fromJust . project)
-      <$> f (inject . Const <$> x)
-  AnIncome x ->
-    AnIncome . fmap (getConst . fromJust . project)
-      <$> f (inject . Const <$> x)
-  AnOptions x ->
-    AnOptions . fmap (getConst . fromJust . project)
-      <$> f (inject . Const <$> x)
-  ATrade x ->
-    ATrade . fmap (getConst . fromJust . project)
-      <$> f (inject . Const <$> x)
-  APositionEvent x ->
-    APositionEvent . fmap (getConst . fromJust . project)
-      <$> f (inject . Const <$> x)
-  AWashing x ->
-    AWashing . fmap (getConst . fromJust . project)
-      <$> f (inject . Const <$> x)
--}
-
 data Positions = Positions
   { _positions :: !(IntMap Position),
-    _exprs :: ![TestExpr]
+    _exprs :: ![Annotated ProcessedEntry]
   }
 
 newPositions :: Positions
@@ -195,22 +164,22 @@ newPositions = Positions mempty mempty
 
 makeLenses ''Positions
 
-getExprs :: MonadIO m => StateT Positions m a -> m [TestExpr]
+getExprs :: MonadIO m => StateT Positions m a -> m [Annotated ProcessedEntry]
 getExprs act = view exprs <$> execStateT act newPositions
 
 instance PrettyVal () where
   prettyVal () = String "()"
 
-data TestExprClose = TestExprClose
+data ProcessedEntryClose = ProcessedEntryClose
   { _eClosePosition :: !Int,
     _eCloseLot :: !(Annotated Lot),
     _eClosePL :: !(Amount 6)
   }
   deriving (Show, Eq, Generic, PrettyVal, Typeable)
 
-makeLenses ''TestExprClose
+makeLenses ''ProcessedEntryClose
 
-type TestDSL = State [TestExpr]
+type TestDSL = State [Annotated ProcessedEntry]
 
 handlePositionEvent ::
   MonadIO m =>
@@ -235,14 +204,14 @@ handlePositionEvent (Close cl) = do
             then positions . at n .= Nothing
             else positions . at n ?= pos'
 
-eval :: MonadIO m => TestExpr -> StateT Positions m ()
-eval x@(AnEntry _) = do
+eval :: MonadIO m => Annotated ProcessedEntry -> StateT Positions m ()
+eval x@(Annotated (AnEntry _) _ _ _) = do
   exprs <>= [x]
-eval x@(AWashing _) = do
+eval x@(Annotated (AWashing _) _ _ _) = do
   exprs <>= [x]
-eval x@(APositionEvent p) = do
+eval x@(Annotated (APositionEvent p) _ _ _) = do
   exprs <>= [x]
-  handlePositionEvent (p ^. item)
+  handlePositionEvent p
 
 evalDSL :: MonadIO m => TestDSL () -> StateT Positions m ()
 evalDSL = mapM_ TestAction.eval . flip execState []
@@ -258,8 +227,8 @@ buy b =
                       _tradeFees = Fees 0 0
                     }
                 )
-                <$ b
             )
+            <$ b
         ]
 
 sell :: Annotated Lot -> TestDSL ()
@@ -273,8 +242,8 @@ sell s =
                       _tradeFees = Fees 0 0
                     }
                 )
-                <$ s
             )
+            <$ s
         ]
 
 open ::
@@ -291,15 +260,15 @@ open i disp b =
                     _posLot = b ^. item,
                     _posDisp = disp
                   }
-                <$ b
             )
+            <$ b
         ]
 
 close ::
   Int ->
   Annotated Lot ->
   TestDSL ()
-close n b = id <>= [APositionEvent (Close (Closing n (b ^. item)) <$ b)]
+close n b = id <>= [APositionEvent (Close (Closing n (b ^. item))) <$ b]
 
 {--------------------------------------------------------------------------}
 
@@ -310,27 +279,9 @@ instance PrettyVal e => PrettyVal1 (Const e) where
   liftPrettyVal _ (Const x) = prettyVal x
 
 checkJournal ::
-  (Eq a, PrettyVal a, Eq b, PrettyVal b, MonadIO m) =>
-  ([TestExpr] -> (a, b)) ->
-  ([TestExpr] -> a) ->
-  ([TestExpr] -> b) ->
-  TestDSL () ->
-  TestDSL () ->
-  TestDSL () ->
-  m ()
-checkJournal f g h journal act actLeft =
-  do
-    journal' <- getExprs (evalDSL journal)
-    expectedEntries <- getExprs (evalDSL act)
-    expectedEntriesLeft <- getExprs (evalDSL actLeft)
-    f journal' @?== (g expectedEntries, h expectedEntriesLeft)
-
-checkJournal' ::
   MonadIO m =>
-  ( ( [[Annotated PositionEvent]],
-      Map Text (IntMap (Annotated PositionEvent))
-    ) ->
-    ( [[Annotated PositionEvent]],
+  ( [Annotated Entry] ->
+    ( [Annotated ProcessedEntry],
       Map Text (IntMap (Annotated PositionEvent))
     )
   ) ->
@@ -338,24 +289,38 @@ checkJournal' ::
   TestDSL () ->
   TestDSL () ->
   m ()
-checkJournal' f =
-  checkJournal
-    ( \xs ->
-        let journal' =
-              mapMaybe
-                ( \(x :: TestExpr) -> do
-                    entry <- x ^? _AnEntry
-                    trade <- entry ^? item . _TradeEntry
-                    pure $ trade <$ entry
-                )
-                xs
-            (entries', entriesLeft') = f (closings FIFO journal')
-            entriesLeft'' = case entriesLeft' ^? ix "FOO" of
-              Just m
-                | IM.null m ->
-                    entriesLeft' & at "FOO" .~ Nothing
-              _ -> entriesLeft'
-         in (entries', entriesLeft'')
+checkJournal f journal act actLeft =
+  do
+    journal' <- getExprs (evalDSL journal)
+    expectedEntries <- getExprs (evalDSL act)
+    expectedOpenPositions <-
+      Closings.positions . positionsOnly <$> getExprs (evalDSL actLeft)
+    assert (length journal' == length (entriesOnly journal')) $
+      f (entriesOnly journal') @?== (expectedEntries, expectedOpenPositions)
+
+checkJournal' ::
+  MonadIO m =>
+  Bool ->
+  ( ( [Annotated ProcessedEntry],
+      Map Text (IntMap (Annotated PositionEvent))
+    ) ->
+    ( [Annotated ProcessedEntry],
+      Map Text (IntMap (Annotated PositionEvent))
     )
-    (mapMaybe (fmap (: []) . preview _APositionEvent))
-    (Closings.positions . mapMaybe (preview _APositionEvent))
+  ) ->
+  TestDSL () ->
+  TestDSL () ->
+  TestDSL () ->
+  m ()
+checkJournal' washSales f =
+  checkJournal
+    ( second
+        ( \entriesLeft -> case entriesLeft ^? ix "FOO" of
+            Just m
+              | IM.null m ->
+                  entriesLeft & at "FOO" .~ Nothing
+            _ -> entriesLeft
+        )
+        . f
+        . processJournal FIFO washSales
+    )

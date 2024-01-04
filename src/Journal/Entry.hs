@@ -1,10 +1,12 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Journal.Entry (module X, Entry (..), AsEntry (..)) where
 
 import Control.Lens
+import Data.Data
 import GHC.Generics hiding (to)
 import Journal.Entry.Deposit as X
 import Journal.Entry.Fees as X
@@ -21,7 +23,7 @@ data Entry
   | OptionsEntry !Options
   | IncomeEntry !Income
   | DepositEntry !Deposit
-  deriving (Show, Eq, PrettyVal, Generic)
+  deriving (Show, Eq, PrettyVal, Generic, Data)
 
 makeClassyPrisms ''Entry
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -24,6 +25,7 @@ import Control.Applicative
 import Control.Arrow
 import Control.Lens
 import Control.Monad.State
+import Data.Data
 import Data.Foldable
 import Data.IntMap (IntMap)
 import Data.List (intersperse, sortOn)
@@ -42,7 +44,7 @@ import Text.Show.Pretty hiding (Time)
 import Prelude hiding (Double, Float)
 
 data Disposition = Long | Short
-  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
+  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic, Data)
 
 data Position = Position
   { _posIdent :: !Int,
@@ -54,6 +56,7 @@ data Position = Position
       Eq,
       Ord,
       Generic,
+      Data,
       PrettyVal
     )
 
@@ -66,17 +69,12 @@ data Closing = Closing
       Eq,
       Ord,
       Generic,
+      Data,
       PrettyVal
     )
 
 makeLenses ''Position
 makeLenses ''Closing
-
--- instance Splittable (Amount 6) Position where
---   howmuch = posLot . amount
-
--- instance Splittable (Amount 6) Closing where
---   howmuch = closingLot . amount
 
 data PositionEvent
   = Open !Position -- open a position in the account
@@ -85,32 +83,11 @@ data PositionEvent
     ( Show,
       PrettyVal,
       Eq,
-      Generic
+      Generic,
+      Data
     )
 
 makePrisms ''PositionEvent
-
-class HasPositionEvent f where
-  _Event :: Traversal' (f v) PositionEvent
-
-instance HasPositionEvent (Const Deposit) where _Event _ = pure
-
-instance HasPositionEvent (Const Income) where _Event _ = pure
-
-instance HasPositionEvent (Const Options) where _Event _ = pure
-
-instance HasPositionEvent (Const Trade) where _Event _ = pure
-
-instance HasPositionEvent (Const PositionEvent) where
-  _Event f (Const s) = Const <$> f s
-
-_EventLot :: Traversal' PositionEvent Lot
-_EventLot f = \case
-  Open pos -> Open <$> (pos & posLot %%~ f)
-  Close cl -> Close <$> (cl & closingLot %%~ f)
-
-instance HasLot PositionEvent where
-  _Lot f s = s & _EventLot %%~ f
 
 data Calculation a = FIFO | LIFO | forall b. Ord b => Custom !(a -> b)
 
@@ -144,31 +121,41 @@ localState instrument f s =
         & nextId .~ (m ^. nextId)
         & events . at instrument ?~ (m ^. events)
 
+-- | This function returns the position events related to each incoming trade,
+--   and also returns the set of open positions at the conclusion of all those
+--   trades.
 closings ::
   Calculation (Annotated PositionEvent) ->
-  [Annotated Trade] ->
+  Prism' a Trade ->
+  [Annotated a] ->
   ( [[Annotated PositionEvent]],
     Map Text (IntMap (Annotated PositionEvent))
   )
-closings mode =
-  second _events . flip runState (newClosingState mode) . mapM go
+closings mode p =
+  second _events
+    . flip runState (newClosingState mode)
+    . mapM go
   where
-    go ::
-      Annotated Trade ->
-      State
-        (ClosingState (Annotated PositionEvent))
-        [Annotated PositionEvent]
-    go entry = do
-      gst <- get
-      case entry ^? item . tradeLot . symbol of
-        Just sym -> do
-          let (results, gst') =
-                flip runState gst $
-                  zoom (localState sym) $
-                    untilDone handle entry
-          put gst'
-          pure results
-        Nothing -> pure []
+    go x = case x ^? item . p of
+      Just trade -> closing (trade <$ x)
+      Nothing -> pure []
+
+closing ::
+  Annotated Trade ->
+  State
+    (ClosingState (Annotated PositionEvent))
+    [Annotated PositionEvent]
+closing entry = do
+  gst <- get
+  case entry ^? item . tradeLot . symbol of
+    Just sym -> do
+      let (results, gst') =
+            flip runState gst $
+              zoom (localState sym) $
+                untilDone handle entry
+      put gst'
+      pure results
+    Nothing -> pure []
 
 handle ::
   Annotated Trade ->

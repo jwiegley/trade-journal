@@ -83,9 +83,6 @@ parseAnnotated parser = do
           }
   pure Annotated {..}
 
--- & details . traverse . failing _Fees _Commission
---   //~ (Const _item ^?! _Lot . amount)
-
 quotedString :: Parser T.Text
 quotedString = identPQuoted <&> T.pack
   where

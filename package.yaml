@@ -38,10 +38,9 @@ dependencies:
 library:
   source-dirs: src
   exposed-modules:
-    - Provider.ThinkOrSwim
-    - Data.Zipper
     - Closings
     - Crypto.ICP
+    - Data.Zipper
     - Journal.Entry
     - Journal.Parse
     - Journal.Pipes
@@ -52,6 +51,8 @@ library:
     - Ledger
     - Ledger.Entry
     - Ledger.Render
+    - Process
+    - Provider.ThinkOrSwim
     - Taxes.USA.WashSaleRule
 
 tests:

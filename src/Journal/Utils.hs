@@ -147,3 +147,8 @@ splitOn s f =
     . conjoined traverse (indexing traverse) f
     . T.splitOn s
 {-# INLINE splitOn #-}
+
+meld :: [a] -> [[b]] -> [Either a b]
+meld [] [] = []
+meld (x : xs) (ys : yss) = Left x : map Right ys ++ meld xs yss
+meld _ _ = error "meld: lists not of same length"

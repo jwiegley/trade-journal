@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -17,6 +18,7 @@ module Journal.Entry.Deposit where
 import Amount
 import Control.Applicative
 import Control.Lens
+import Data.Data
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -41,7 +43,8 @@ data Deposit
     ( Show,
       PrettyVal,
       Eq,
-      Generic
+      Generic,
+      Data
     )
 
 makePrisms ''Deposit

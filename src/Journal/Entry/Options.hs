@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -16,6 +17,7 @@ module Journal.Entry.Options where
 import Amount
 import Control.Applicative
 import Control.Lens
+import Data.Data
 import qualified Data.Text.Lazy as TL
 import GHC.Generics hiding (to)
 import Journal.Print
@@ -35,7 +37,8 @@ data Options
     ( Show,
       PrettyVal,
       Eq,
-      Generic
+      Generic,
+      Data
     )
 
 makePrisms ''Options

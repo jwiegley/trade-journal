@@ -26,6 +26,7 @@ import Hedgehog.Gen qualified as Gen
 import Journal.Entry
 import Journal.Parse
 import Journal.Types
+import Process
 import Taxes.USA.WashSaleRule
 import Test.Tasty
 import Test.Tasty.Hedgehog
@@ -287,10 +288,7 @@ testRule name f = testProperty name $
       forAll $
         Gen.filter (\b -> (b ^. item . price) > 10) $
           genAnnotated genLot
-    f (checkJournal' undefined) b
-
--- where
--- washSaleRuleTest = (id &&& positions) . washSaleRule . concat . fst
+    f (checkJournal' True id) b
 
 wash ::
   Period ->
@@ -304,9 +302,9 @@ wash
   n
   lot
   pl
-  (flip execState [] -> [APositionEvent c@(view item -> Close _cl)]) =
+  (flip execState [] -> [e@(view item -> APositionEvent (Close _))]) =
     id
-      <>= [ APositionEvent c,
+      <>= [ e,
             AWashing
               ( WashTo
                   Washed
@@ -315,8 +313,8 @@ wash
                       _washedAmount = lot ^. item . amount,
                       _washedAdjust = pl
                     }
-                  <$ c
               )
+              <$ e
           ]
 wash _ _ _ _ _ = error "Incorrect use of wash"
 
@@ -332,9 +330,9 @@ washedFrom
   n
   lot
   loss
-  (flip execState [] -> [APositionEvent o@(view item -> Open pos)]) =
+  (flip execState [] -> [e@(view item -> APositionEvent (Open pos))]) =
     id
-      <>= [ APositionEvent o,
+      <>= [ e,
             AWashing
               ( let proratedLoss =
                       ( (loss * lot ^. item . amount)
@@ -347,7 +345,7 @@ washedFrom
                           _washedAmount = lot ^. item . amount,
                           _washedAdjust = proratedLoss
                         }
-                      <$ o
               )
+              <$ e
           ]
 washedFrom _ _ _ _ _ = error "Incorrect use of washedFrom"

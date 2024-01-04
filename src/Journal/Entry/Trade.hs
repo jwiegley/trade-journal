@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -16,6 +17,7 @@ module Journal.Entry.Trade where
 import Amount
 import Control.Applicative
 import Control.Lens
+import Data.Data
 import Data.Text.Lazy
 import GHC.Generics hiding (to)
 import Journal.Entry.Fees
@@ -26,14 +28,14 @@ import Text.Show.Pretty
 import Prelude hiding (Double, Float)
 
 data Action = Buy | Sell
-  deriving (Show, PrettyVal, Eq, Ord, Generic)
+  deriving (Show, PrettyVal, Eq, Ord, Generic, Data)
 
 data Trade = Trade
   { _tradeAction :: !Action,
     _tradeLot :: !Lot,
     _tradeFees :: !Fees
   }
-  deriving (Show, PrettyVal, Eq, Generic)
+  deriving (Show, PrettyVal, Eq, Generic, Data)
 
 makeLenses ''Trade
 

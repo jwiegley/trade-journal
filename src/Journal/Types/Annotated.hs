@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,6 +10,7 @@
 module Journal.Types.Annotated where
 
 import Control.Lens hiding (Context)
+import Data.Data
 import Data.Default
 import Data.Text (Text)
 import Data.Time
@@ -21,7 +23,7 @@ import Prelude hiding (Double, Float)
 data Annotation
   = Note !Text
   | Meta !Text !Text
-  deriving (Show, PrettyVal, Eq, Ord, Generic)
+  deriving (Show, PrettyVal, Eq, Ord, Generic, Data)
 
 makePrisms ''Annotation
 
@@ -32,7 +34,7 @@ data Context = Context
   { _account :: !Text,
     _currency :: !Text
   }
-  deriving (Show, PrettyVal, Eq, Generic)
+  deriving (Show, PrettyVal, Eq, Generic, Data)
 
 makeLenses ''Context
 
@@ -44,13 +46,13 @@ instance Default Context where
       }
 
 data Annotated a = Annotated
-  { _item :: a,
-    _time :: UTCTime,
-    _context :: Context,
+  { _item :: !a,
+    _time :: !UTCTime,
+    _context :: !Context,
     -- | All annotations that relate to lot shares are expressed "per share".
-    _details :: [Annotation]
+    _details :: ![Annotation]
   }
-  deriving (Show, PrettyVal, Eq, Generic, Functor, Traversable, Foldable)
+  deriving (Show, PrettyVal, Eq, Generic, Functor, Traversable, Foldable, Data)
 
 makeLenses ''Annotated
 

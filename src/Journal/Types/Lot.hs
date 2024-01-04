@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -15,6 +16,7 @@ import Amount
 import Control.Lens
 import Control.Monad (when)
 import Control.Monad.State
+import Data.Data
 import Data.Default
 import Data.Text (Text)
 import GHC.Generics hiding (to)
@@ -30,7 +32,7 @@ data Lot = Lot
     _symbol :: !Text, -- CUSIP, token name, etc.
     _price :: !(Amount 6) -- price per unit
   }
-  deriving (Show, PrettyVal, Eq, Ord, Generic)
+  deriving (Show, PrettyVal, Eq, Ord, Generic, Data)
 
 makeLenses ''Lot
 

@@ -2,11 +2,13 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -19,10 +21,11 @@
 module Taxes.USA.WashSaleRule where
 
 import Amount
+import Closings
 import Control.Lens
 import Control.Monad
 import Control.Monad.State
-import Data.Either (fromRight)
+import Data.Data
 import Data.IntMap (IntMap)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, isJust)
@@ -30,7 +33,6 @@ import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
 import Data.Zipper
 import GHC.Generics
-import Closings
 import Journal.Parse
 import Journal.Print
 import Journal.Types
@@ -40,7 +42,7 @@ import Text.Show.Pretty hiding (Time)
 -- import Debug.Trace
 
 data Period = Past | Future
-  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic)
+  deriving (Show, PrettyVal, Eq, Ord, Enum, Bounded, Generic, Data)
 
 makePrisms ''Period
 
@@ -50,7 +52,7 @@ data Washed = Washed
     _washedAmount :: !(Amount 6), -- number of shares
     _washedAdjust :: !(Amount 6)
   }
-  deriving (Show, PrettyVal, Eq, Ord, Generic)
+  deriving (Show, PrettyVal, Eq, Ord, Generic, Data)
 
 makeLenses ''Washed
 
@@ -58,12 +60,9 @@ data Washing
   = Exempt
   | WashTo !Washed
   | WashFrom !Washed
-  deriving (Show, PrettyVal, Eq, Ord, Generic)
+  deriving (Show, PrettyVal, Eq, Ord, Generic, Data)
 
 makePrisms ''Washing
-
-instance HasPositionEvent (Const Washing) where
-  _Event _ = pure
 
 instance HasLot Washing where
   _Lot _ = pure
@@ -74,25 +73,33 @@ instance HasLot Washing where
 -- for an eligible losing close; if it exists, the loss is moved into the cost
 -- basis of the open.
 washSaleRule ::
-  [Annotated PositionEvent] ->
-  [Annotated [Washing]]
-washSaleRule =
-  map (fmap (fromRight []) . fst)
+  forall a.
+  Prism' a PositionEvent ->
+  [Annotated a] ->
+  [Annotated (Either a Washing)]
+washSaleRule p =
+  map fst
     . flip evalState mempty
     . surveyM wash
     . scanPreState
-      (\x s -> (Left <$> x, positionsFromEvent s x))
+      ( \x s ->
+          ( Left <$> x,
+            case x ^? item . p of
+              Just ev -> positionsFromEvent s (ev <$ x)
+              Nothing -> s
+          )
+      )
       mempty
   where
     wash ::
       Zipper
-        ( Annotated (Either PositionEvent [Washing]),
+        ( Annotated (Either a Washing),
           Map Text (IntMap (Annotated PositionEvent))
         ) ->
       State
         (IntMap (Amount 6))
         ( Zipper
-            ( Annotated (Either PositionEvent [Washing]),
+            ( Annotated (Either a Washing),
               Map Text (IntMap (Annotated PositionEvent))
             )
         )
@@ -107,12 +114,12 @@ washSaleRule =
     go ::
       IntMap (Amount 6) ->
       Zipper
-        ( Annotated (Either PositionEvent [Washing]),
+        ( Annotated (Either a Washing),
           Map Text (IntMap (Annotated PositionEvent))
         ) ->
       Maybe
         ( Zipper
-            ( Annotated (Either PositionEvent [Washing]),
+            ( Annotated (Either a Washing),
               Map Text (IntMap (Annotated PositionEvent))
             ),
           IntMap (Amount 6)
@@ -124,7 +131,7 @@ washSaleRule =
       -- that each time this function is called, we take any past washings
       -- also into account.
       let x = focus z
-      c <- x ^? _1 . item . _Left . _Close
+      c <- x ^? _1 . item . _Left . p . _Close
       -- traceM $ "c = " ++ ppShow c
 
       -- Every valid closing must have a corresponding open position.
@@ -134,22 +141,22 @@ washSaleRule =
 
       -- Ignore closing that made a profit.
       let loss =
-            let p = c ^. closingLot . price
-                b = pos ^. posLot . price
+            let cp = c ^. closingLot . price
+                pp = pos ^. posLot . price
              in case pos ^. posDisp of
-                  Long -> p - b
-                  Short -> b - p
+                  Long -> cp - pp
+                  Short -> pp - cp
       guard $ loss < 0
 
       -- When looking for openings, we have to take this closing into account
       -- in the map of open positions.
       let poss' :: Map Text (IntMap (Annotated PositionEvent)) = case x of
-            (ev, m') -> case ev ^? item . _Left of
+            (ev, m') -> case ev ^? item . _Left . p of
               Just pe -> positionsFromEvent m' (ev & item .~ pe)
               Nothing -> mempty
 
       let mres = mapLeftThenRightUntils z $ \inLeft y -> do
-            o <- y ^? _1 . item . _Left . _Open
+            o <- y ^? _1 . item . _Left . p . _Open
 
             guard $ o ^. posLot . symbol == sym
             guard $ o ^. posIdent /= ident
@@ -168,7 +175,7 @@ washSaleRule =
                   y
                     & _1 . item
                       .~ Right
-                        [ WashFrom
+                        ( WashFrom
                             Washed
                               { _washedPeriod =
                                   if inLeft
@@ -178,14 +185,14 @@ washSaleRule =
                                 _washedAmount = inClose,
                                 _washedAdjust = (loss * inClose) / inOpen
                               }
-                        ]
+                        )
                 ],
                 ( m & at (o ^. posIdent) ?~ washed + inClose,
                   [ x,
                     x
                       & _1 . item
                         .~ Right
-                          [ WashTo
+                          ( WashTo
                               Washed
                                 { _washedPeriod =
                                     if inLeft
@@ -195,7 +202,7 @@ washSaleRule =
                                   _washedAmount = inOpen,
                                   _washedAdjust = loss
                                 }
-                          ]
+                          )
                   ]
                 )
               )
