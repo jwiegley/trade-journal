@@ -18,8 +18,9 @@ import Text.Show.Pretty hiding (Time)
 import Trade.Closings (Calculation, PositionEvent, closings)
 import Trade.Journal.Entry (AsEntry (..), Entry)
 import Trade.Journal.Parse (parseEntries)
-import Trade.Journal.Print (printEntries)
+import Trade.Journal.Print (Printable (..), printEntries)
 import Trade.Journal.Types (Annotated, item)
+import Trade.Journal.Types.Lot (HasLot (..))
 import Trade.Journal.Utils (meld)
 import Trade.Taxes.USA.WashSaleRule (Washing, washSaleRule)
 
@@ -30,6 +31,16 @@ data ProcessedEntry
   deriving (Show, Eq, PrettyVal, Generic, Data)
 
 makeClassyPrisms ''ProcessedEntry
+
+instance Printable ProcessedEntry where
+  printItem (AnEntry entry) = printItem entry
+  printItem (APositionEvent event) = printItem event
+  printItem (AWashing washing) = printItem washing
+
+instance HasLot ProcessedEntry where
+  _Lot f (AnEntry s) = AnEntry <$> (s & _Lot %%~ f)
+  _Lot f (APositionEvent s) = APositionEvent <$> (s & _Lot %%~ f)
+  _Lot f (AWashing s) = AWashing <$> (s & _Lot %%~ f)
 
 parseJournalEntries :: FilePath -> IO [Annotated Entry]
 parseJournalEntries = parseEntries

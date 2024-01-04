@@ -305,6 +305,10 @@ positionsFromEvent m = go
 instance Printable PositionEvent where
   printItem = printEvent
 
+instance HasLot PositionEvent where
+  _Lot f (Open s) = Open <$> (s & posLot %%~ f)
+  _Lot f (Close s) = Close <$> (s & closingLot %%~ f)
+
 printEvent :: PositionEvent -> TL.Text
 printEvent = \case
   Open pos -> printPosition pos
