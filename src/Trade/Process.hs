@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -42,6 +43,12 @@ instance HasLot ProcessedEntry where
   _Lot f (APositionEvent s) = APositionEvent <$> (s & _Lot %%~ f)
   _Lot f (AWashing s) = AWashing <$> (s & _Lot %%~ f)
 
+data ProcessingEnvironment = ProcessingEnvironment
+  { lotCalculationMethod :: !(Calculation (Annotated PositionEvent)),
+    washSales :: !Bool
+  }
+  deriving (Show)
+
 parseJournalEntries :: FilePath -> IO [Annotated Entry]
 parseJournalEntries = parseEntries
 
@@ -62,15 +69,14 @@ washPositionEvents ::
 washPositionEvents = washSaleRule id
 
 processJournal ::
-  Calculation (Annotated PositionEvent) ->
-  Bool ->
+  ProcessingEnvironment ->
   [Annotated Entry] ->
   ( [Annotated ProcessedEntry],
     Map T.Text (IntMap (Annotated PositionEvent))
   )
-processJournal calc washSales (entries :: [Annotated Entry]) =
+processJournal ProcessingEnvironment {..} (entries :: [Annotated Entry]) =
   let (events :: [[Annotated PositionEvent]], positions) =
-        processPositionEvents calc entries
+        processPositionEvents lotCalculationMethod entries
       processedEvents :: [Annotated ProcessedEntry] =
         map combine (meld entries events)
    in ( if washSales

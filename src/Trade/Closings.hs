@@ -91,6 +91,11 @@ makePrisms ''PositionEvent
 
 data Calculation a = FIFO | LIFO | forall b. Ord b => Custom !(a -> b)
 
+instance Show (Calculation a) where
+  show FIFO = "FIFO"
+  show LIFO = "LIFO"
+  show (Custom _) = "Custom"
+
 data BasicState a m = BasicState
   { _calc :: !(Calculation a),
     _nextId :: !Int,

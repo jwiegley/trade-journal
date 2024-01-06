@@ -13,11 +13,11 @@ import Data.Map (Map)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy.IO as TL
 import GHC.Generics hiding (to)
-import qualified Trade.Closings as Closings
 import qualified Options
-import Trade.Process
+import qualified Trade.Closings as Closings
 import Trade.Journal.Print
 import Trade.Journal.Types
+import Trade.Process
 import Trade.Provider.ThinkOrSwim hiding (_account)
 
 data Config = Config
@@ -59,5 +59,10 @@ main = do
         putStrLn $ "Reading journal " ++ path
         entries <- parseJournalEntries path
         let (processedEntries, _openPositions) =
-                  processJournal Closings.FIFO True entries
+              processJournal
+                ProcessingEnvironment
+                  { lotCalculationMethod = Closings.FIFO,
+                    washSales = True
+                  }
+                entries
         mapM_ TL.putStrLn $ printEntries processedEntries

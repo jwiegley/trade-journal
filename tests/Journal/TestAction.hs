@@ -322,5 +322,9 @@ checkJournal' washSales f =
             _ -> entriesLeft
         )
         . f
-        . processJournal FIFO washSales
+        . processJournal
+          ProcessingEnvironment
+            { lotCalculationMethod = FIFO,
+              washSales = washSales
+            }
     )
