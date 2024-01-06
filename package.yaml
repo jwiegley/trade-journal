@@ -53,6 +53,7 @@ library:
     - Trade.Ledger.Render
     - Trade.Process
     - Trade.Provider.ThinkOrSwim
+    - Trade.Provider.Coinmetro
     - Trade.Taxes.USA.WashSaleRule
 
 tests:
@@ -71,6 +72,18 @@ tests:
   thinkorswim-tests:
     main: Main.hs
     source-dirs: tests/Provider/ThinkOrSwim
+    dependencies:
+      - HUnit
+      - hedgehog
+      - here
+      - tasty
+      - tasty-hedgehog
+      - tasty-hunit
+      - trade-journal
+
+  coinmetro-tests:
+    main: Main.hs
+    source-dirs: tests/Provider/Coinmetro
     dependencies:
       - HUnit
       - hedgehog

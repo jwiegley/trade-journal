@@ -8,7 +8,7 @@ import Control.Lens hiding (argument)
 import Data.Data (Data)
 import Data.Typeable (Typeable)
 import GHC.Generics
-import Options.Applicative
+import Options.Applicative as OA
 
 version :: String
 version = "0.0.1"
@@ -24,22 +24,22 @@ tradeJournalSummary =
     ++ copyright
     ++ " John Wiegley"
 
+data Command
+  = Coinmetro !FilePath
+  | ThinkOrSwim !FilePath
+  | Journal !FilePath
+  deriving (Data, Show, Eq, Typeable, Generic)
+
+makeLenses ''Command
+
 data Options = Options
-  { _verbose :: Bool,
-    _totals :: Bool,
-    _files :: [FilePath]
+  { _verbose :: !Bool,
+    _totals :: !Bool,
+    _command :: !Command
   }
   deriving (Data, Show, Eq, Typeable, Generic)
 
 makeLenses ''Options
-
-newOptions :: Options
-newOptions =
-  Options
-    { _verbose = False,
-      _totals = False,
-      _files = []
-    }
 
 tradeJournalOpts :: Parser Options
 tradeJournalOpts =
@@ -53,7 +53,40 @@ tradeJournalOpts =
       ( long "totals"
           <> help "Show calculated totals for entries"
       )
-    <*> some (argument str (metavar "FILE"))
+    <*> hsubparser (coinmetroCommand <> thinkOrSwimCommand <> journalCommand)
+  where
+    coinmetroCommand :: Mod CommandFields Command
+    coinmetroCommand =
+      OA.command
+        "coinmetro"
+        (info coinmetroOptions (progDesc "Process Coinmetro CSV file"))
+      where
+        coinmetroOptions :: Parser Command
+        coinmetroOptions =
+          Coinmetro
+            <$> strArgument (metavar "FILE" <> help "CSV file to read")
+
+    thinkOrSwimCommand :: Mod CommandFields Command
+    thinkOrSwimCommand =
+      OA.command
+        "thinkorswim"
+        (info thinkOrSwimOptions (progDesc "Process ThinkOrSwim export file"))
+      where
+        thinkOrSwimOptions :: Parser Command
+        thinkOrSwimOptions =
+          ThinkOrSwim
+            <$> strArgument (metavar "FILE" <> help "Export file to read")
+
+    journalCommand :: Mod CommandFields Command
+    journalCommand =
+      OA.command
+        "journal"
+        (info journalOptions (progDesc "Process trade-journal file"))
+      where
+        journalOptions :: Parser Command
+        journalOptions =
+          Journal
+            <$> strArgument (metavar "FILE" <> help "Journal file to read")
 
 optionsDefinition :: ParserInfo Options
 optionsDefinition =

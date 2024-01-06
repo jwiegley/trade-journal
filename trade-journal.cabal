@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 60985b3c3567ec8a392a11ab75f3b3dc777148d217a6462e01b69329e2d26a8a
+-- hash: b181bab0ee05df852456580f86b6afe4d45a62bf99ec4aa4b144c5a7b69c271b
 
 name:           trade-journal
 version:        0.0.2
@@ -32,6 +32,7 @@ library
       Trade.Ledger.Render
       Trade.Process
       Trade.Provider.ThinkOrSwim
+      Trade.Provider.Coinmetro
       Trade.Taxes.USA.WashSaleRule
   other-modules:
       Trade.Journal.Entry.Deposit
@@ -42,6 +43,9 @@ library
       Trade.Journal.Types.Annotated
       Trade.Journal.Types.Entry
       Trade.Journal.Types.Lot
+      Trade.Provider.Coinmetro.Parser
+      Trade.Provider.Coinmetro.Process
+      Trade.Provider.Coinmetro.Types
       Trade.Provider.ThinkOrSwim.Parser
       Trade.Provider.ThinkOrSwim.Process
       Trade.Provider.ThinkOrSwim.Types
@@ -104,6 +108,49 @@ executable trade-journal
     , semigroupoids
     , simple-amount >=0.2.0
     , split
+    , text
+    , time
+    , trade-journal
+    , transformers
+    , unordered-containers
+    , vector
+  default-language: Haskell2010
+
+test-suite coinmetro-tests
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Coinmetro
+      Paths_trade_journal
+  hs-source-dirs:
+      tests/Provider/Coinmetro
+  ghc-options: -Wall -Wno-missing-home-modules
+  build-depends:
+      HUnit
+    , aeson
+    , base >=4.5
+    , bytestring
+    , cassava
+    , comonad
+    , constraints
+    , containers
+    , data-default
+    , free
+    , hedgehog
+    , here
+    , lens
+    , megaparsec
+    , mtl
+    , pretty
+    , pretty-show
+    , profunctors
+    , row-types
+    , semigroupoids
+    , simple-amount >=0.2.0
+    , split
+    , tasty
+    , tasty-hedgehog
+    , tasty-hunit
     , text
     , time
     , trade-journal

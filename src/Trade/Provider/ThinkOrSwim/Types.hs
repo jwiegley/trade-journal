@@ -42,11 +42,11 @@ readAmount s = case readMaybe (filter (`notElem` [',', '$', ')']) s) of
 instance Csv.FromNamedRecord Transaction where
   parseNamedRecord m =
     Transaction
-      <$> m .: "DATE"
-      <*> m .: "TIME"
-      <*> m .: "TYPE"
-      <*> m .: "REF #"
-      <*> m .: "DESCRIPTION"
+      <$> (m .: "DATE")
+      <*> (m .: "TIME")
+      <*> (m .: "TYPE")
+      <*> (m .: "REF #")
+      <*> (m .: "DESCRIPTION")
       <*> (readAmount <$> m .: "Misc Fees")
       <*> (readAmount <$> m .: "Commissions & Fees")
       <*> (readAmount <$> m .: "AMOUNT")
@@ -71,16 +71,26 @@ data Future = Future
 instance Csv.FromNamedRecord Future where
   parseNamedRecord m =
     Future
-      <$> m .: "Trade Date"
-      <*> m .: "Exec Date"
-      <*> m .: "Exec Time"
-      <*> m .: "Type"
-      <*> m .: "Ref #"
-      <*> m .: "Description"
-      <*> m .: "Misc Fees"
-      <*> m .: "Commissions & Fees"
-      <*> m .: "Amount"
-      <*> m .: "Balance"
+      <$> m
+      .: "Trade Date"
+      <*> m
+      .: "Exec Date"
+      <*> m
+      .: "Exec Time"
+      <*> m
+      .: "Type"
+      <*> m
+      .: "Ref #"
+      <*> m
+      .: "Description"
+      <*> m
+      .: "Misc Fees"
+      <*> m
+      .: "Commissions & Fees"
+      <*> m
+      .: "Amount"
+      <*> m
+      .: "Balance"
 
 makeLenses ''Future
 
@@ -100,15 +110,24 @@ data Forex = Forex
 instance Csv.FromNamedRecord Forex where
   parseNamedRecord m =
     Forex
-      <$> m .: "Date"
-      <*> m .: "Time"
-      <*> m .: "Type"
-      <*> m .: "Ref #"
-      <*> m .: "Description"
-      <*> m .: "Commissions & Fees"
-      <*> m .: "Amount"
-      <*> m .: "Amount(USD)"
-      <*> m .: "Balance"
+      <$> m
+      .: "Date"
+      <*> m
+      .: "Time"
+      <*> m
+      .: "Type"
+      <*> m
+      .: "Ref #"
+      <*> m
+      .: "Description"
+      <*> m
+      .: "Commissions & Fees"
+      <*> m
+      .: "Amount"
+      <*> m
+      .: "Amount(USD)"
+      <*> m
+      .: "Balance"
 
 makeLenses ''Forex
 
@@ -133,20 +152,34 @@ data Order = Order
 instance Csv.FromNamedRecord Order where
   parseNamedRecord m =
     Order
-      <$> m .: "Notes"
-      <*> m .: "Time Placed"
-      <*> m .: "Order ID"
-      <*> m .: "Spread"
-      <*> m .: "Side"
-      <*> m .: "Qty"
-      <*> m .: "Pos Effect"
-      <*> m .: "Symbol"
-      <*> m .: "Exp"
-      <*> m .: "Strike"
-      <*> m .: "Type"
-      <*> m .: "PRICE"
-      <*> m .: "TIF"
-      <*> m .: "Status"
+      <$> m
+      .: "Notes"
+      <*> m
+      .: "Time Placed"
+      <*> m
+      .: "Order ID"
+      <*> m
+      .: "Spread"
+      <*> m
+      .: "Side"
+      <*> m
+      .: "Qty"
+      <*> m
+      .: "Pos Effect"
+      <*> m
+      .: "Symbol"
+      <*> m
+      .: "Exp"
+      <*> m
+      .: "Strike"
+      <*> m
+      .: "Type"
+      <*> m
+      .: "PRICE"
+      <*> m
+      .: "TIF"
+      <*> m
+      .: "Status"
 
 makeLenses ''Order
 
@@ -170,19 +203,32 @@ data Trade = Trade
 instance Csv.FromNamedRecord Trade where
   parseNamedRecord m =
     Trade
-      <$> m .: "Exec Time"
-      <*> m .: "Order ID"
-      <*> m .: "Spread"
-      <*> m .: "Side"
-      <*> m .: "Qty"
-      <*> m .: "Pos Effect"
-      <*> m .: "Symbol"
-      <*> m .: "Exp"
-      <*> m .: "Strike"
-      <*> m .: "Type"
-      <*> m .: "Price"
-      <*> m .: "Net Price"
-      <*> m .: "Order Type"
+      <$> m
+      .: "Exec Time"
+      <*> m
+      .: "Order ID"
+      <*> m
+      .: "Spread"
+      <*> m
+      .: "Side"
+      <*> m
+      .: "Qty"
+      <*> m
+      .: "Pos Effect"
+      <*> m
+      .: "Symbol"
+      <*> m
+      .: "Exp"
+      <*> m
+      .: "Strike"
+      <*> m
+      .: "Type"
+      <*> m
+      .: "Price"
+      <*> m
+      .: "Net Price"
+      <*> m
+      .: "Order Type"
 
 makeLenses ''Trade
 
@@ -199,12 +245,18 @@ data Equity = Equity
 instance Csv.FromNamedRecord Equity where
   parseNamedRecord m =
     Equity
-      <$> m .: "Symbol"
-      <*> m .: "Description"
-      <*> m .: "Qty"
-      <*> m .: "Trade Price"
-      <*> m .: "Mark"
-      <*> m .: "Mark Value"
+      <$> m
+      .: "Symbol"
+      <*> m
+      .: "Description"
+      <*> m
+      .: "Qty"
+      <*> m
+      .: "Trade Price"
+      <*> m
+      .: "Mark"
+      <*> m
+      .: "Mark Value"
 
 makeLenses ''Equity
 
@@ -224,15 +276,24 @@ data FuturesOption = FuturesOption
 instance Csv.FromNamedRecord FuturesOption where
   parseNamedRecord m =
     FuturesOption
-      <$> m .: "Symbol"
-      <*> m .: "Option Code"
-      <*> m .: "Exp"
-      <*> m .: "Strike"
-      <*> m .: "Type"
-      <*> m .: "Qty"
-      <*> m .: "Trade Price"
-      <*> m .: "Mark"
-      <*> m .: "Mark Value"
+      <$> m
+      .: "Symbol"
+      <*> m
+      .: "Option Code"
+      <*> m
+      .: "Exp"
+      <*> m
+      .: "Strike"
+      <*> m
+      .: "Type"
+      <*> m
+      .: "Qty"
+      <*> m
+      .: "Trade Price"
+      <*> m
+      .: "Mark"
+      <*> m
+      .: "Mark Value"
 
 makeLenses ''FuturesOption
 
@@ -252,15 +313,24 @@ data Option = Option
 instance Csv.FromNamedRecord Option where
   parseNamedRecord m =
     Option
-      <$> m .: "Symbol"
-      <*> m .: "Option Code"
-      <*> m .: "Exp"
-      <*> m .: "Strike"
-      <*> m .: "Type"
-      <*> m .: "Qty"
-      <*> m .: "Trade Price"
-      <*> m .: "Mark"
-      <*> m .: "Mark Value"
+      <$> m
+      .: "Symbol"
+      <*> m
+      .: "Option Code"
+      <*> m
+      .: "Exp"
+      <*> m
+      .: "Strike"
+      <*> m
+      .: "Type"
+      <*> m
+      .: "Qty"
+      <*> m
+      .: "Trade Price"
+      <*> m
+      .: "Mark"
+      <*> m
+      .: "Mark Value"
 
 makeLenses ''Option
 
@@ -280,15 +350,24 @@ data ProfitAndLoss = ProfitAndLoss
 instance Csv.FromNamedRecord ProfitAndLoss where
   parseNamedRecord m =
     ProfitAndLoss
-      <$> m .: "Symbol"
-      <*> m .: "Description"
-      <*> m .: "P/L Open"
-      <*> m .: "P/L %"
-      <*> m .: "P/L Day"
-      <*> m .: "P/L YTD"
-      <*> m .: "P/L Diff"
-      <*> m .: "Margin Req"
-      <*> m .: "Mark Value"
+      <$> m
+      .: "Symbol"
+      <*> m
+      .: "Description"
+      <*> m
+      .: "P/L Open"
+      <*> m
+      .: "P/L %"
+      <*> m
+      .: "P/L Day"
+      <*> m
+      .: "P/L YTD"
+      <*> m
+      .: "P/L Diff"
+      <*> m
+      .: "Margin Req"
+      <*> m
+      .: "Mark Value"
 
 makeLenses ''ProfitAndLoss
 

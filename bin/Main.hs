@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -11,14 +12,15 @@ import Data.Foldable (forM_)
 import Data.List (isSuffixOf)
 import Data.Map (Map)
 import Data.Text.Lazy (Text)
-import qualified Data.Text.Lazy.IO as TL
+import Data.Text.Lazy.IO qualified as TL
 import GHC.Generics hiding (to)
-import qualified Options
-import qualified Trade.Closings as Closings
+import Options qualified
+import Trade.Closings qualified as Closings
 import Trade.Journal.Print
 import Trade.Journal.Types
 import Trade.Process
-import Trade.Provider.ThinkOrSwim hiding (_account)
+import Trade.Provider.Coinmetro qualified as Coinmetro
+import Trade.Provider.ThinkOrSwim qualified as ThinkOrSwim
 
 data Config = Config
   { splits :: !(Map Text [Amount 6]),
@@ -36,33 +38,49 @@ newConfig =
 main :: IO ()
 main = do
   opts <- Options.getOptions
-  forM_ (opts ^. Options.files) $ \path ->
-    if ".csv" `isSuffixOf` path
-      then do
-        putStrLn $ "Reading ThinkOrSwim CSV export " ++ path
-        etos <- readCsv path
-        case etos of
-          Left err -> error $ "Error " ++ show err
-          Right tos ->
-            mapM_
-              TL.putStrLn
-              ( printEntries
-                  ( thinkOrSwimEntries
-                      Context
-                        { _account = "",
-                          _currency = ""
-                        }
-                      tos
-                  )
-              )
-      else do
-        putStrLn $ "Reading journal " ++ path
-        entries <- parseJournalEntries path
-        let (processedEntries, _openPositions) =
-              processJournal
-                ProcessingEnvironment
-                  { lotCalculationMethod = Closings.FIFO,
-                    washSales = True
-                  }
-                entries
-        mapM_ TL.putStrLn $ printEntries processedEntries
+  case opts ^. Options.command of
+    Options.ThinkOrSwim path -> do
+      putStrLn $ "Reading ThinkOrSwim CSV export " ++ path
+      etos <- ThinkOrSwim.readCsv path
+      case etos of
+        Left err -> error $ "Error " ++ show err
+        Right tos ->
+          mapM_
+            TL.putStrLn
+            ( printEntries
+                ( ThinkOrSwim.thinkOrSwimEntries
+                    Context
+                      { _account = "",
+                        _currency = ""
+                      }
+                    tos
+                )
+            )
+    Options.Coinmetro path -> do
+      putStrLn $ "Reading Coinmetro CSV export " ++ path
+      ecm <- Coinmetro.readCsv path
+      case ecm of
+        Left err -> error $ "Error " ++ show err
+        Right cm ->
+          mapM_
+            TL.putStrLn
+            ( printEntries
+                ( Coinmetro.coinmetroEntries
+                    Context
+                      { _account = "",
+                        _currency = ""
+                      }
+                    cm
+                )
+            )
+    Options.Journal path -> do
+      putStrLn $ "Reading journal " ++ path
+      entries <- parseJournalEntries path
+      let (processedEntries, _openPositions) =
+            processJournal
+              ProcessingEnvironment
+                { lotCalculationMethod = Closings.FIFO,
+                  washSales = True
+                }
+              entries
+      mapM_ TL.putStrLn $ printEntries processedEntries
