@@ -8,8 +8,6 @@ module Main where
 
 import Amount
 import Control.Lens hiding (Context)
-import Data.Foldable (forM_)
-import Data.List (isSuffixOf)
 import Data.Map (Map)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.IO qualified as TL

@@ -9,7 +9,7 @@ import Amount
 import Control.Lens
 import Data.Csv ((.:))
 import qualified Data.Csv as Csv
-import Data.Text.Lazy (Text)
+import Data.Text (Text)
 import GHC.Generics
 import GHC.TypeLits (KnownNat)
 import Text.Read (readMaybe)
