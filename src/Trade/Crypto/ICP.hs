@@ -7,6 +7,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -16,11 +17,20 @@ module Trade.Crypto.ICP where
 import Amount
 import Control.Applicative
 import Control.Lens
+import qualified Data.ByteString.Lazy as BL
+import Data.Csv ((.:))
+import qualified Data.Csv as Csv
+import Data.Foldable
 import Data.Int
 import Data.Text (Text)
 import qualified Data.Text.Lazy as TL
+import Data.Time
+import Data.Time.Format.ISO8601
+import qualified Data.Vector as V
 import GHC.Generics hiding (to)
+import GHC.TypeLits (KnownNat)
 import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Read (readMaybe)
 import Text.Show.Pretty
 import Trade.Journal.Parse
 import Trade.Journal.Print
@@ -165,3 +175,31 @@ _NeuronEntryLedgerRepr f ann =
     Disburse _amt -> undefined
     Split _n2 -> undefined
     Merge _n2 -> undefined
+
+data ICPPrice = ICPPrice
+  { icpDate :: !Day,
+    icpPrice :: !(Amount 6)
+  }
+  deriving (Generic, Eq, Show)
+
+readAmount :: KnownNat n => String -> Amount n
+readAmount "" = 0
+readAmount ('(' : xs) = -(readAmount xs)
+readAmount s = case readMaybe (filter (`notElem` [',', '$', ')']) s) of
+  Nothing -> error $ "Failed to read amount: " ++ s
+  Just x -> x
+
+instance Csv.FromNamedRecord ICPPrice where
+  parseNamedRecord m =
+    ICPPrice
+      <$> (iso8601ParseM =<< m .: "Date")
+      <*> (readAmount <$> m .: "Price")
+
+readICPPrices :: FilePath -> IO ()
+readICPPrices path = do
+  putStrLn $ "Reading ICP prices from " ++ path
+  eres <- Csv.decodeByName <$> BL.readFile path
+  case eres of
+    Left err -> error $ "Error " ++ show err
+    Right (_header, prices :: V.Vector ICPPrice) ->
+      forM_ (V.toList prices) print

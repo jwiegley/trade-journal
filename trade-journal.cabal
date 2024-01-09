@@ -37,7 +37,7 @@ library
       Trade.Journal.Entry.Deposit
       Trade.Journal.Entry.Fees
       Trade.Journal.Entry.Income
-      Trade.Journal.Entry.Options
+      Trade.Journal.Entry.OptionTrade
       Trade.Journal.Entry.Trade
       Trade.Journal.Types.Annotated
       Trade.Journal.Types.Entry

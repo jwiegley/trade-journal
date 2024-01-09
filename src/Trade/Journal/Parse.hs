@@ -194,11 +194,14 @@ parseTrade = do
           )
   pure Trade {..}
 
-parseOptions :: Parser Options
-parseOptions =
-  keyword "exercise" *> (Exercise <$> parseLot)
-    <|> keyword "assign" *> (Assign <$> parseLot)
-    <|> keyword "expire" *> (Expire <$> parseLot)
+parseOptionTrade :: Parser OptionTrade
+parseOptionTrade = do
+  _optionTradeAction <-
+    Exercise <$ keyword "exercise"
+      <|> Assign <$ keyword "assign"
+      <|> Expire <$ keyword "expire"
+  _optionTradeLot <- parseLot
+  pure OptionTrade {..}
 
 parseIncome :: Parser Income
 parseIncome =
@@ -214,6 +217,6 @@ parseIncome =
 parseEntry :: Parser Entry
 parseEntry =
   (TradeEntry <$> parseTrade)
-    <|> (OptionsEntry <$> parseOptions)
+    <|> (OptionTradeEntry <$> parseOptionTrade)
     <|> (IncomeEntry <$> parseIncome)
     <|> (DepositEntry <$> parseDeposit)

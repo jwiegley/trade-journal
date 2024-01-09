@@ -98,8 +98,10 @@ tradeTransaction :: Annotated Trade -> Transaction (Annotated Trade) 6
 tradeTransaction ann = case ann ^. item of
   Trade {..} -> undefined
 
-optionsTransaction :: Annotated Options -> Transaction (Annotated Options) 6
-optionsTransaction ann = case ann ^. item of
+optionTradeTransaction ::
+  Annotated OptionTrade ->
+  Transaction (Annotated OptionTrade) 6
+optionTradeTransaction ann = case ann ^. item of
   _ -> undefined
 
 incomeTransaction :: Annotated Income -> Transaction (Annotated Income) 6
@@ -112,9 +114,9 @@ entryTransaction entry =
     TradeEntry trade ->
       tradeTransaction (trade <$ entry)
         & provenance %~ fmap TradeEntry
-    OptionsEntry options ->
-      optionsTransaction (options <$ entry)
-        & provenance %~ fmap OptionsEntry
+    OptionTradeEntry optionTrade ->
+      optionTradeTransaction (optionTrade <$ entry)
+        & provenance %~ fmap OptionTradeEntry
     IncomeEntry income ->
       incomeTransaction (income <$ entry)
         & provenance %~ fmap IncomeEntry
