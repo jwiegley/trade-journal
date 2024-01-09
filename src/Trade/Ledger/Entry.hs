@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Trade.Ledger.Entry where
 
@@ -14,8 +15,7 @@ import Trade.Journal.Types hiding (_account, _amount, _price, _symbol)
 import Trade.Ledger hiding (account, amount, price)
 import Prelude hiding (Double, Float)
 
-depositTransaction ::
-  Annotated Deposit -> Transaction (Annotated Deposit) 6
+depositTransaction :: Annotated Deposit -> Transaction (Annotated Deposit) 6
 depositTransaction ann = case ann ^. item of
   Deposit amt acct ->
     Transaction
@@ -94,12 +94,30 @@ depositTransaction ann = case ann ^. item of
         _provenance = ann
       }
 
+tradeTransaction :: Annotated Trade -> Transaction (Annotated Trade) 6
+tradeTransaction ann = case ann ^. item of
+  Trade {..} -> undefined
+
+optionsTransaction :: Annotated Options -> Transaction (Annotated Options) 6
+optionsTransaction ann = case ann ^. item of
+  _ -> undefined
+
+incomeTransaction :: Annotated Income -> Transaction (Annotated Income) 6
+incomeTransaction ann = case ann ^. item of
+  _ -> undefined
+
 entryTransaction :: Annotated Entry -> Transaction (Annotated Entry) 6
 entryTransaction entry =
   entry ^. item & \case
-    TradeEntry _trade -> undefined
-    OptionsEntry _options -> undefined
-    IncomeEntry _income -> undefined
+    TradeEntry trade ->
+      tradeTransaction (trade <$ entry)
+        & provenance %~ fmap TradeEntry
+    OptionsEntry options ->
+      optionsTransaction (options <$ entry)
+        & provenance %~ fmap OptionsEntry
+    IncomeEntry income ->
+      incomeTransaction (income <$ entry)
+        & provenance %~ fmap IncomeEntry
     DepositEntry deposit ->
       depositTransaction (deposit <$ entry)
         & provenance %~ fmap DepositEntry
