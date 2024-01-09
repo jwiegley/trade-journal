@@ -49,7 +49,6 @@ data Annotated a = Annotated
   { _item :: !a,
     _time :: !UTCTime,
     _context :: !Context,
-    -- | All annotations that relate to lot shares are expressed "per share".
     _details :: ![Annotation]
   }
   deriving (Show, PrettyVal, Eq, Generic, Functor, Traversable, Foldable, Data)

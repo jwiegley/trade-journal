@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b181bab0ee05df852456580f86b6afe4d45a62bf99ec4aa4b144c5a7b69c271b
+-- hash: d533696e2ff61a3613f6595f28db1643b9a2bc89412cfdc4a005d46297f89662
 
 name:           trade-journal
 version:        0.0.2
@@ -28,7 +28,6 @@ library
       Trade.Journal.Types
       Trade.Journal.Utils
       Trade.Ledger
-      Trade.Ledger.Entry
       Trade.Ledger.Render
       Trade.Process
       Trade.Provider.ThinkOrSwim

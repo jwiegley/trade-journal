@@ -22,15 +22,11 @@ import Data.Data
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
-import Data.Time
 import GHC.Generics hiding (to)
 import Text.Show.Pretty
 import Trade.Journal.Print
-import Trade.Journal.Types.Annotated
 import Trade.Journal.Types.Entry
 import Trade.Journal.Types.Lot
-import Trade.Ledger hiding (account, amount, price)
-import Trade.Ledger.Entry ()
 import Prelude hiding (Double, Float)
 
 -- | An Event represents "internal events" that occur within an account,
@@ -95,84 +91,3 @@ printDeposit = \case
 
 instance Printable Deposit where
   printItem = printDeposit
-
-_ICPLedgerRepr ::
-  Fold (Annotated Deposit) (Transaction (Annotated Deposit) 8)
-_ICPLedgerRepr f ann =
-  fmap (error "Never reached") . f $ case ann ^. item of
-    Deposit amt acct ->
-      Transaction
-        { _actualDate = ann ^. time . to utctDay,
-          _effectiveDate = Nothing,
-          _code = "XFER",
-          _payee =
-            if amt < 0
-              then "Withdraw from account"
-              else "Deposit into account",
-          _postings =
-            [ Posting
-                { _account = Other ("Assets:" <> ann ^. context . account),
-                  _isVirtual = False,
-                  _isBalancing = True,
-                  _amount =
-                    CommodityAmount
-                      CommodityLot
-                        { _instrument = Miscellaneous,
-                          _quantity = amt ^. coerced,
-                          _symbol = "$",
-                          _cost = Nothing,
-                          _purchaseDate = Nothing,
-                          _note = Nothing,
-                          _price = Nothing
-                        },
-                  _postMetadata = mempty
-                },
-              Posting
-                { _account = Other acct,
-                  _isVirtual = False,
-                  _isBalancing = True,
-                  _amount = NullAmount,
-                  _postMetadata = mempty
-                }
-            ],
-          _xactMetadata = mempty,
-          _provenance = ann
-        }
-    Transfer lot acct ->
-      Transaction
-        { _actualDate = ann ^. time . to utctDay,
-          _effectiveDate = Nothing,
-          _code = "XFER",
-          _payee =
-            if lot ^. amount < 0
-              then "Transfer from account"
-              else "Transfer into account",
-          _postings =
-            [ Posting
-                { _account = Other ("Assets:" <> ann ^. context . account),
-                  _isVirtual = False,
-                  _isBalancing = True,
-                  _amount =
-                    CommodityAmount
-                      CommodityLot
-                        { _instrument = Miscellaneous,
-                          _quantity = lot ^. amount . coerced,
-                          _symbol = ann ^. context . currency,
-                          _cost = Nothing,
-                          _purchaseDate = Nothing,
-                          _note = Nothing,
-                          _price = Just (lot ^. price . coerced)
-                        },
-                  _postMetadata = mempty
-                },
-              Posting
-                { _account = Other acct,
-                  _isVirtual = False,
-                  _isBalancing = True,
-                  _amount = NullAmount,
-                  _postMetadata = mempty
-                }
-            ],
-          _xactMetadata = mempty,
-          _provenance = ann
-        }

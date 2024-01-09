@@ -34,13 +34,13 @@ data Instrument
 makePrisms ''Instrument
 
 data CommodityLot n = CommodityLot
-  { _instrument :: Instrument,
-    _quantity :: Amount n,
-    _symbol :: Text,
-    _cost :: Maybe (Amount n),
-    _purchaseDate :: Maybe Day,
-    _note :: Maybe Text,
-    _price :: Maybe (Amount n)
+  { _instrument :: !Instrument,
+    _quantity :: !(Amount n),
+    _symbol :: !Text,
+    _cost :: !(Maybe (Amount n)),
+    _purchaseDate :: !(Maybe Day),
+    _note :: !(Maybe Text),
+    _price :: !(Maybe (Amount n))
   }
   deriving (Eq, Ord, Show)
 
@@ -60,22 +60,22 @@ newCommodityLot =
 
 data PostingAmount n
   = NullAmount
-  | DollarAmount (Amount 2)
-  | CommodityAmount (CommodityLot n)
+  | DollarAmount !(Amount 2)
+  | CommodityAmount !(CommodityLot n)
   | MetadataOnly
   deriving (Eq, Ord, Show)
 
 makePrisms ''PostingAmount
 
 data Account
-  = Equities Text
-  | Futures Text
-  | Options Text
-  | FuturesOptions Text
-  | Forex Text
-  | Cash Text
-  | Bonds Text
-  | MoneyMarkets Text
+  = Equities !Text
+  | Futures !Text
+  | Options !Text
+  | FuturesOptions !Text
+  | Forex !Text
+  | Cash !Text
+  | Bonds !Text
+  | MoneyMarkets !Text
   | Fees
   | Charges
   | Commissions
@@ -89,18 +89,18 @@ data Account
   | CapitalWashLossDeferred
   | RoundingError
   | OpeningBalances
-  | Other Text
+  | Other !Text
   | Unknown
   deriving (Eq, Ord, Show)
 
 makePrisms ''Account
 
 data Posting n = Posting
-  { _account :: Account,
-    _isVirtual :: Bool,
-    _isBalancing :: Bool,
-    _amount :: PostingAmount n,
-    _postMetadata :: Map Text Text
+  { _account :: !Account,
+    _isVirtual :: !Bool,
+    _isBalancing :: !Bool,
+    _amount :: !(PostingAmount n),
+    _postMetadata :: !(Map Text Text)
   }
   deriving (Eq, Ord, Show)
 
@@ -117,13 +117,13 @@ newPosting a b m =
     }
 
 data Transaction o n = Transaction
-  { _actualDate :: Day,
-    _effectiveDate :: Maybe Day,
-    _code :: Text,
-    _payee :: Text,
-    _postings :: [Posting n],
-    _xactMetadata :: Map Text Text,
-    _provenance :: o
+  { _actualDate :: !Day,
+    _effectiveDate :: !(Maybe Day),
+    _code :: !Text,
+    _payee :: !Text,
+    _postings :: ![Posting n],
+    _xactMetadata :: !(Map Text Text),
+    _provenance :: !o
   }
   deriving (Eq, Ord, Show)
 
