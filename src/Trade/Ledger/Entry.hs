@@ -123,7 +123,7 @@ tradeTransaction ann = case ann ^. item of
                 _postMetadata = mempty
               },
             Posting
-              { _account = Other (ann ^. context.account),
+              { _account = Other (ann ^. context . account),
                 _isVirtual = False,
                 _isBalancing = True,
                 _amount = NullAmount,
