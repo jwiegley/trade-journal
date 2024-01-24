@@ -74,7 +74,7 @@ instance HasLot Washing where
 -- basis of the open.
 washSaleRule ::
   forall a.
-  Prism' a PositionEvent ->
+  Fold a PositionEvent ->
   [Annotated a] ->
   [Annotated (Either a Washing)]
 washSaleRule p =

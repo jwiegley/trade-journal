@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -9,10 +10,11 @@ import Amount
 import Control.Applicative
 import Control.Lens
 import Control.Monad
+import Data.Text qualified as T
 import Data.Time
 import Trade.Journal.Entry hiding (_amount, _price, _symbol)
 import Trade.Journal.Types hiding (_account, _amount, _price, _symbol)
-import Trade.Ledger hiding (account, amount, price)
+import Trade.Ledger hiding (account, amount, price, symbol)
 import Prelude hiding (Double, Float)
 
 depositTransaction :: Annotated Deposit -> Transaction (Annotated Deposit) 6
@@ -96,7 +98,41 @@ depositTransaction ann = case ann ^. item of
 
 tradeTransaction :: Annotated Trade -> Transaction (Annotated Trade) 6
 tradeTransaction ann = case ann ^. item of
-  Trade {..} -> undefined
+  Trade {..} ->
+    Transaction
+      { _actualDate = ann ^. time . to utctDay,
+        _effectiveDate = Nothing,
+        _code = "DEP",
+        _payee = T.pack (show _tradeAction) <> " " <> (_tradeLot ^. symbol),
+        _postings =
+          [ Posting
+              { _account = Other ("Assets:" <> ann ^. context . account),
+                _isVirtual = False,
+                _isBalancing = True,
+                _amount =
+                  CommodityAmount
+                    CommodityLot
+                      { _instrument = Miscellaneous,
+                        _quantity = _tradeLot ^. amount,
+                        _symbol = _tradeLot ^. symbol,
+                        _cost = Nothing,
+                        _purchaseDate = Just (ann ^. time . to utctDay),
+                        _note = Nothing,
+                        _price = Just (_tradeLot ^. price)
+                      },
+                _postMetadata = mempty
+              },
+            Posting
+              { _account = Other (ann ^. context.account),
+                _isVirtual = False,
+                _isBalancing = True,
+                _amount = NullAmount,
+                _postMetadata = mempty
+              }
+          ],
+        _xactMetadata = mempty,
+        _provenance = ann
+      }
 
 optionTradeTransaction ::
   Annotated OptionTrade ->

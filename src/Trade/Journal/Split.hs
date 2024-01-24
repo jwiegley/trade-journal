@@ -28,14 +28,14 @@ data Split a
   | None a
   deriving (Eq, Ord, Show)
 
+makePrisms ''Split
+
 class (Num n, Ord n) => Splittable n a | a -> n where
   howmuch :: Lens' a n
 
 instance Splittable Int Int where howmuch = id
 
 instance Splittable Integer Integer where howmuch = id
-
-makePrisms ''Split
 
 instance Functor Split where
   fmap f (Some u k) = Some (f u) (f k)
@@ -107,6 +107,11 @@ align x y
 
 data Remainder a = Remainder a | Finished
   deriving (Show, Eq, Generic, Functor, Foldable, Traversable)
+
+eitherRemainder :: Remainder (Either a b) -> Remainder b
+eitherRemainder (Remainder (Right b)) = Remainder b
+eitherRemainder (Remainder (Left _)) = Finished
+eitherRemainder Finished = Finished
 
 alignedA ::
   forall n a b x y z m.

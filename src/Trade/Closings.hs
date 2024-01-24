@@ -131,7 +131,7 @@ localState instrument f s =
 --   trades.
 closings ::
   Calculation (Annotated PositionEvent) ->
-  Prism' a Trade ->
+  Fold a Trade ->
   [Annotated a] ->
   ( [[Annotated PositionEvent]],
     Map Text (IntMap (Annotated PositionEvent))
@@ -190,7 +190,7 @@ handle ann@(preview item -> Just trade) = do
               Buy -> Short -> do
             events . at (open ^?! item . _Open . posIdent) .= Nothing
             closePosition open ann
-      _ -> (,Finished) . (: []) <$> openPosition ann
+      _ -> (, Finished) . (: []) <$> openPosition ann
 handle _ = pure ([], Finished)
 
 -- | Open a new position.
@@ -259,10 +259,7 @@ alignForClose ::
   m ([x], Remainder z)
 alignForClose l r f g h =
   alignedA l r f g h
-    <&> fromMaybe []
-      *** \case
-        Remainder (Right r') -> Remainder r'
-        _ -> Finished
+    <&> fromMaybe [] *** eitherRemainder
 
 positions ::
   [Annotated PositionEvent] ->
