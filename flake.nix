@@ -22,7 +22,7 @@
             final.haskell-nix.project' {
               src = ./.;
               supportHpack = true;
-              compiler-nix-name = "ghc982";
+              compiler-nix-name = "ghc96";
               shell.tools = {
                 cabal = {};
                 haskell-language-server = {};
