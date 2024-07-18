@@ -22,11 +22,11 @@
             final.haskell-nix.project' {
               src = ./.;
               supportHpack = true;
-              compiler-nix-name = "ghc96";
+              compiler-nix-name = "ghc910";
               shell.tools = {
                 cabal = {};
                 haskell-language-server = {};
-                hlint = {};
+                # hlint = {};
               };
               shell.buildInputs = with pkgs; [
                 pkg-config
