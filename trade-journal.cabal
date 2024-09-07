@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.2.
+-- This file has been generated from package.yaml by hpack version 0.36.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d533696e2ff61a3613f6595f28db1643b9a2bc89412cfdc4a005d46297f89662
+-- hash: 78cc176fd8cd3f1c4eeaf1331e7175d859650e24d994d07a20fcb5bbebe923bc
 
 name:           trade-journal
 version:        0.0.2
@@ -28,11 +28,13 @@ library
       Trade.Journal.Types
       Trade.Journal.Utils
       Trade.Ledger
+      Trade.Ledger.Entry
       Trade.Ledger.Render
       Trade.Process
       Trade.Provider.ThinkOrSwim
       Trade.Provider.Coinmetro
       Trade.Taxes.USA.WashSaleRule
+      Trade.Taxes.USA.WashSaleRule2
   other-modules:
       Trade.Journal.Entry.Deposit
       Trade.Journal.Entry.Fees
@@ -166,6 +168,7 @@ test-suite journal-tests
       TestAction
       TestClosings
       TestWashSaleRule
+      TestWashSaleRule2
       Paths_trade_journal
   hs-source-dirs:
       tests/Journal

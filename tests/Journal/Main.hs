@@ -12,12 +12,12 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Hedgehog
 import TestClosings
-import Trade.Data.Zipper
-
 -- import Examples
 -- import Gains
 -- import GainsKeeper
 -- import TestWashSaleRule
+import TestWashSaleRule2
+import Trade.Data.Zipper
 
 main :: IO ()
 main =
@@ -44,8 +44,9 @@ main =
                 unzipper
                 (runIdentity (zipperM (pure . even) xs)),
         --
-        testClosings
+        testClosings,
         -- testWashSaleRule
+        testWashSaleRule2
         -- testGains,
         -- testGainsKeeper,
         -- testExamples

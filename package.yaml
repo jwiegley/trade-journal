@@ -55,6 +55,7 @@ library:
     - Trade.Provider.ThinkOrSwim
     - Trade.Provider.Coinmetro
     - Trade.Taxes.USA.WashSaleRule
+    - Trade.Taxes.USA.WashSaleRule2
 
 tests:
   journal-tests:
