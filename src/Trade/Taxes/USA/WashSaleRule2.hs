@@ -4,13 +4,8 @@
 module Trade.Taxes.USA.WashSaleRule2 where
 
 import Amount
--- import Control.Lens
-
--- import Control.Arrow ((***))
-
--- import Data.Maybe (fromMaybe)
-
 import Control.Exception (assert)
+import Control.Lens
 import Data.Coerce (coerce)
 import Data.Map (Map)
 import Data.Time
@@ -22,11 +17,17 @@ data Lot = Lot
   }
   deriving (Eq, Show)
 
+absLot :: Lot -> Lot
+absLot (Lot amt p d) = Lot (abs amt) p d
+
+negLot :: Lot -> Lot
+negLot (Lot amt p d) = Lot (-amt) p d
+
 data LotChange
-  = TwoLots Lot Lot
+  = AppendLots Lot Lot
   | IncreaseLot Lot
-  | ReduceLot Lot (Amount 2)
-  | ReplaceLot Lot (Amount 2)
+  | ReduceLot Lot Lot (Amount 2)
+  | ReplaceLot Lot Lot (Amount 2)
   | CloseLot (Amount 2)
   deriving (Eq, Show)
 
@@ -39,20 +40,15 @@ addLot x@(Lot xn xp xd) y@(Lot yn yp yd)
        in ( if n == 0
               then CloseLot
               else
-                ( if abs xn > abs yn
-                    then ReduceLot
-                    else ReplaceLot
-                )
-                  ( if abs xn > abs yn
-                      then Lot (xn + yn) xp xd
-                      else Lot (xn + yn) yp yd
-                  )
+                if abs xn > abs yn
+                  then ReduceLot (Lot (xn + yn) xp xd) (Lot (-yn) xp xd)
+                  else ReplaceLot (Lot (xn + yn) yp yd) (Lot xn xp xd)
           )
             ((if xn < 0 then -s else s) * coerce d)
   | xp == yp && xd == yd =
       IncreaseLot (Lot (xn + yn) xp xd)
   | otherwise =
-      TwoLots x y
+      AppendLots x y
 
 data Strategy
   = LIFO
@@ -62,24 +58,28 @@ data Strategy
 data Position
   = Open Lot
   | Closed Lot (Amount 2)
-  | PartialClose Lot Lot (Amount 2)
   deriving (Eq, Show)
 
-addToLots :: Strategy -> Lot -> [Lot] -> [Position]
-addToLots s x xs = go x $ case s of
-  LIFO -> reverse xs
-  FIFO -> xs
+addToPositions :: Strategy -> Lot -> [Position] -> [Position]
+addToPositions s x xs = strategy s (go x (strategy s xs))
   where
+    strategy LIFO = reverse
+    strategy FIFO = id
+
     go y [] = [Open y]
-    go y (z : zs) = case z `addLot` y of
-      TwoLots z' y' -> assert (y == y') $ Open z' : go y' zs
-      IncreaseLot w -> Open w : map Open zs
-      ReduceLot w gain -> PartialClose z w gain : map Open zs
-      ReplaceLot w gain -> Closed z gain : go w zs
-      CloseLot gain -> Closed z gain : map Open zs
+    go y (Open z : zs) = case z `addLot` y of
+      AppendLots z' y' -> assert (y == y') $ Open z' : go y' zs
+      IncreaseLot w -> Open w : zs
+      ReduceLot w z' gain -> Closed z' gain : Open w : zs
+      ReplaceLot w z' gain -> Closed z' gain : go w zs
+      CloseLot gain -> Closed z gain : zs
+    go y (c : zs) = c : go y zs
 
-identifyTrade :: Map a [Lot] -> Lot -> Map a [Lot]
-identifyTrade _ps _l = undefined
+identifyTrade :: (Ord a) => Map a [Position] -> a -> Lot -> Map a [Position]
+identifyTrade m sym lot = m & at sym %~ Just . go
+  where
+    go Nothing = [Open lot]
+    go (Just ps) = addToPositions FIFO lot ps
 
-identifyTrades :: (Ord a) => [Lot] -> Map a [Lot]
-identifyTrades = foldl' identifyTrade mempty
+identifyTrades :: (Ord a) => [(a, Lot)] -> Map a [Position]
+identifyTrades = foldl' (uncurry . identifyTrade) mempty
