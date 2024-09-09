@@ -14,7 +14,6 @@ import Control.Exception (assert)
 import Control.Lens
 import Control.Monad
 import Data.Default
-import Data.List (foldl')
 import Data.Maybe (isNothing)
 import Data.Traversable
 import GHC.Generics
@@ -58,7 +57,7 @@ _SplitKept _ (All u) = pure $ All u
 _SplitKept f (None k) = None <$> f k
 
 split ::
-  Splittable n a =>
+  (Splittable n a) =>
   a ->
   n ->
   (Split a, n)
@@ -142,7 +141,7 @@ alignment ::
   (Maybe (a, b), Remainder (Either a b))
 alignment a b = runIdentity $ alignedA a b (curry pure) pure pure
 
-untilDone :: Monad m => (a -> m ([b], Remainder a)) -> a -> m [b]
+untilDone :: (Monad m) => (a -> m ([b], Remainder a)) -> a -> m [b]
 untilDone f = go
   where
     go =
@@ -160,10 +159,10 @@ data Applied v a b = Applied
 
 makeLenses ''Applied
 
-nothingApplied :: Default v => a -> b -> Applied v a b
+nothingApplied :: (Default v) => a -> b -> Applied v a b
 nothingApplied x y = Applied def (None x) (None y)
 
-splits :: Default v => Split a -> Split b -> Applied v a b
+splits :: (Default v) => Split a -> Split b -> Applied v a b
 splits = Applied def
 
 data Considered a b c = Considered
@@ -246,7 +245,7 @@ consider f mk lst el =
 
 -- Given a list of items that each have a splittable quantity, take only N of
 -- that quantity and return the resulting lists.
-splitN :: Splittable n a => [a] -> n -> ([a], ([a], n))
+splitN :: (Splittable n a) => [a] -> n -> ([a], ([a], n))
 splitN = (first reverse .) . go []
   where
     go acc [] n = (acc, ([], n))
@@ -255,8 +254,8 @@ splitN = (first reverse .) . go []
       (All x', n') -> go (x' : acc) xs n'
       (Some x'u x'k, n') -> assert (n' == 0) (x'u : acc, (x'k : xs, n'))
 
-takeN :: Splittable n a => [a] -> n -> [a]
+takeN :: (Splittable n a) => [a] -> n -> [a]
 takeN = (fst .) . splitN
 
-dropN :: Splittable n a => [a] -> n -> ([a], n)
+dropN :: (Splittable n a) => [a] -> n -> ([a], n)
 dropN = (snd .) . splitN

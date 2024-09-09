@@ -37,7 +37,7 @@ import Trade.Provider.ThinkOrSwim.Types
 
 type Parser = ParsecT Void Text Identity
 
-parseSection :: Csv.FromNamedRecord a => Parser [a]
+parseSection :: (Csv.FromNamedRecord a) => Parser [a]
 parseSection = do
   text <-
     manyTill
@@ -259,21 +259,24 @@ parseTrade' amount = do
     case strategy of
       Nothing ->
         try (Just . SingleFuturesOption <$> parseFuturesOption)
-          <|> Just . SingleOption <$> parseOption'
-          <|> pure Nothing
+          <|> Just
+          . SingleOption
+          <$> parseOption'
+            <|> pure Nothing
       Just strat ->
         try (Just . FuturesOptionStrategy strat <$> parseFuturesOptionStrategy)
           <|> try (Just . OptionStrategy strat <$> parseOptionStrategy)
   tdPrice <-
-    char '@' *> parseAmount
-      <|> ( amount / coerce tdQuantity
-              <$ ( symbol "UPON BUY TRADE"
-                     <|> symbol "UPON SELL TRADE"
-                     <|> symbol "UPON TRADE CORRECTION"
-                     <|> symbol "UPON OPTION ASSIGNMENT"
-                     <|> symbol "UPON BONDS - REDEMPTION"
-                 )
-          )
+    char '@'
+      *> parseAmount
+        <|> ( amount / coerce tdQuantity
+                <$ ( symbol "UPON BUY TRADE"
+                       <|> symbol "UPON SELL TRADE"
+                       <|> symbol "UPON TRADE CORRECTION"
+                       <|> symbol "UPON OPTION ASSIGNMENT"
+                       <|> symbol "UPON BONDS - REDEMPTION"
+                   )
+            )
   tdExchange <- optional parseExchange
   pure Trade' {..}
 
@@ -449,17 +452,17 @@ parseDevice =
         )
     <|> pure Desktop
 
-parseAmount :: KnownNat n => Parser (Amount n)
+parseAmount :: (KnownNat n) => Parser (Amount n)
 parseAmount = do
   _ <- optional $ char '+'
   str <- some $ satisfy $ \c -> isDigit c || c `elem` ['.', '-', ',']
   whiteSpace
-  case ( if head str == '.'
-           then '0' : str
-           else str
+  case ( case str of
+           ('.' : _) -> '0' : str
+           _ -> str
        )
     ^.. folded
-    . filtered (/= ',')
+      . filtered (/= ',')
     ^? _Amount of
     Nothing -> fail $ "Could not parse amount: " ++ str
     Just n -> pure n
@@ -590,7 +593,7 @@ test path = do
   contents <- TL.readFile path
   forM_ (TL.lines contents) $ parseTest (parseEntry 0)
 
-parseFile :: Show a => Parser a -> FilePath -> IO ()
+parseFile :: (Show a) => Parser a -> FilePath -> IO ()
 parseFile parser = parseTest parser <=< TL.readFile
 
 readCsv :: FilePath -> IO (Either (ParseErrorBundle Text Void) ThinkOrSwim)
