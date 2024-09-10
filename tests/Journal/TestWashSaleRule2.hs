@@ -31,106 +31,91 @@ testWashSaleRule2 =
       testIdentifyTrades
     ]
 
+now50 :: TimePrice
+now50 = TimePrice 50.0 (UTCTime (ModifiedJulianDay 0) 0)
+
+now100 :: TimePrice
+now100 = TimePrice 100.0 (UTCTime (ModifiedJulianDay 0) 0)
+
+now200 :: TimePrice
+now200 = TimePrice 200.0 (UTCTime (ModifiedJulianDay 0) 0)
+
 testAddLot :: TestTree
 testAddLot =
   testGroup
     "addLot"
     [ testCase "add-lot-pos-pos=-price==" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot 10.0 100.0 now)
-          @?= IncreaseLot (Lot 20.0 100.0 now),
+        addLot (Lot 10.0 now100) (Lot 10.0 now100)
+          @?= Just (AddLot (Lot 20.0 now100)),
       testCase "add-lot-pos-pos=-price<" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot 10.0 50.0 now)
-          @?= AppendLots (Lot 10.0 100.0 now) (Lot 10.0 50.0 now),
+        addLot (Lot 10.0 now100) (Lot 10.0 now50)
+          @?= Nothing,
       testCase "add-lot-pos-pos=-price>" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot 10.0 200.0 now)
-          @?= AppendLots (Lot 10.0 100.0 now) (Lot 10.0 200.0 now),
+        addLot (Lot 10.0 now100) (Lot 10.0 now200)
+          @?= Nothing,
       testCase "add-lot-neg-neg=-price==" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot (-10.0) 100.0 now)
-          @?= IncreaseLot (Lot (-20.0) 100.0 now),
+        addLot (Lot (-10.0) now100) (Lot (-10.0) now100)
+          @?= Just (AddLot (Lot (-20.0) now100)),
       testCase "add-lot-neg-neg=-price<" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot (-10.0) 50.0 now)
-          @?= AppendLots (Lot (-10.0) 100.0 now) (Lot (-10.0) 50.0 now),
+        addLot (Lot (-10.0) now100) (Lot (-10.0) now50)
+          @?= Nothing,
       testCase "add-lot-neg-neg=-price>" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot (-10.0) 200.0 now)
-          @?= AppendLots (Lot (-10.0) 100.0 now) (Lot (-10.0) 200.0 now),
+        addLot (Lot (-10.0) now100) (Lot (-10.0) now200)
+          @?= Nothing,
       testCase "add-lot-pos-neg=-price==" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-10.0) 100.0 now)
-          @?= CloseLot 0,
+        addLot (Lot 10.0 now100) (Lot (-10.0) now100)
+          @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-pos-neg=-price<" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-10.0) 50.0 now)
-          @?= CloseLot (-500),
+        addLot (Lot 10.0 now100) (Lot (-10.0) now50)
+          @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-pos-neg=-price>" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-10.0) 200.0 now)
-          @?= CloseLot 1000,
+        addLot (Lot 10.0 now100) (Lot (-10.0) now200)
+          @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-pos-neg<-price==" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-5.0) 100.0 now)
-          @?= ReduceLot (Lot 5.0 100.0 now) (Lot 5.0 100.0 now) 0,
+        addLot (Lot 10.0 now100) (Lot (-5.0) now100)
+          @?= Just (ReduceLot (Left (Lot 5.0 now100))),
       testCase "add-lot-pos-neg<-price<" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-5.0) 50.0 now)
-          @?= ReduceLot (Lot 5.0 100.0 now) (Lot 5.0 100.0 now) (-250),
+        addLot (Lot 10.0 now100) (Lot (-5.0) now50)
+          @?= Just (ReduceLot (Left (Lot 5.0 now100))),
       testCase "add-lot-pos-neg<-price>" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-5.0) 200.0 now)
-          @?= ReduceLot (Lot 5.0 100.0 now) (Lot 5.0 100.0 now) 500,
+        addLot (Lot 10.0 now100) (Lot (-5.0) now200)
+          @?= Just (ReduceLot (Left (Lot 5.0 now100))),
       testCase "add-lot-pos-neg>-price==" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-20.0) 100.0 now)
-          @?= ReplaceLot (Lot (-10.0) 100.0 now) (Lot 10.0 100.0 now) 0,
+        addLot (Lot 10.0 now100) (Lot (-20.0) now100)
+          @?= Just (ReduceLot (Right (Lot (-10.0) now100))),
       testCase "add-lot-pos-neg>-price<" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-20.0) 50.0 now)
-          @?= ReplaceLot (Lot (-10.0) 50.0 now) (Lot 10.0 100.0 now) (-500),
+        addLot (Lot 10.0 now100) (Lot (-20.0) now50)
+          @?= Just (ReduceLot (Right (Lot (-10.0) now50))),
       testCase "add-lot-pos-neg>-price>" do
-        now <- getCurrentTime
-        addLot (Lot 10.0 100.0 now) (Lot (-20.0) 200.0 now)
-          @?= ReplaceLot (Lot (-10.0) 200.0 now) (Lot 10.0 100.0 now) 1000,
+        addLot (Lot 10.0 now100) (Lot (-20.0) now200)
+          @?= Just (ReduceLot (Right (Lot (-10.0) now200))),
       testCase "add-lot-neg-pos=-price==" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 10.0 100.0 now)
-          @?= CloseLot 0,
+        addLot (Lot (-10.0) now100) (Lot 10.0 now100)
+          @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-neg-pos=-price<" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 10.0 50.0 now)
-          @?= CloseLot 500,
+        addLot (Lot (-10.0) now100) (Lot 10.0 now50)
+          @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-neg-pos=-price>" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 10.0 200.0 now)
-          @?= CloseLot (-1000),
+        addLot (Lot (-10.0) now100) (Lot 10.0 now200)
+          @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-neg-pos<-price==" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 5.0 100.0 now)
-          @?= ReduceLot (Lot (-5.0) 100.0 now) (Lot (-5.0) 100.0 now) 0,
+        addLot (Lot (-10.0) now100) (Lot 5.0 now100)
+          @?= Just (ReduceLot (Left (Lot (-5.0) now100))),
       testCase "add-lot-neg-pos<-price<" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 5.0 50.0 now)
-          @?= ReduceLot (Lot (-5.0) 100.0 now) (Lot (-5.0) 100.0 now) 250,
+        addLot (Lot (-10.0) now100) (Lot 5.0 now50)
+          @?= Just (ReduceLot (Left (Lot (-5.0) now100))),
       testCase "add-lot-neg-pos<-price>" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 5.0 200.0 now)
-          @?= ReduceLot (Lot (-5.0) 100.0 now) (Lot (-5.0) 100.0 now) (-500),
+        addLot (Lot (-10.0) now100) (Lot 5.0 now200)
+          @?= Just (ReduceLot (Left (Lot (-5.0) now100))),
       testCase "add-lot-neg-pos>-price==" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 20.0 100.0 now)
-          @?= ReplaceLot (Lot 10.0 100.0 now) (Lot (-10.0) 100.0 now) 0,
+        addLot (Lot (-10.0) now100) (Lot 20.0 now100)
+          @?= Just (ReduceLot (Right (Lot 10.0 now100))),
       testCase "add-lot-neg-pos>-price<" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 20.0 50.0 now)
-          @?= ReplaceLot (Lot 10.0 50.0 now) (Lot (-10.0) 100.0 now) 500,
+        addLot (Lot (-10.0) now100) (Lot 20.0 now50)
+          @?= Just (ReduceLot (Right (Lot 10.0 now50))),
       testCase "add-lot-neg-pos>-price>" do
-        now <- getCurrentTime
-        addLot (Lot (-10.0) 100.0 now) (Lot 20.0 200.0 now)
-          @?= ReplaceLot (Lot 10.0 200.0 now) (Lot (-10.0) 100.0 now) (-1000)
+        addLot (Lot (-10.0) now100) (Lot 20.0 now200)
+          @?= Just (ReduceLot (Right (Lot 10.0 now200)))
     ]
 
 testAddToLots :: TestTree
@@ -138,47 +123,43 @@ testAddToLots =
   testGroup
     "addToLots"
     [ testCase "add-to-lots-pos-pos=-price==" do
-        now <- getCurrentTime
         addToPositions
-          FIFO
-          (Lot 10.0 100.0 now)
-          [Open (Lot 10.0 100.0 now)]
-          @?= [Open (Lot 20.00 100.00 now)],
+          id
+          (Lot 10.0 now100)
+          [Open (Lot 10.0 now100)]
+          @?= [Open (Lot 20.00 now100)],
       testCase "add-to-lots-pos-many" do
-        now <- getCurrentTime
         addToPositions
-          FIFO
-          (Lot (-100.0) 200.0 now)
-          [ Open (Lot 10.0 100.0 now),
-            Open (Lot 20.0 100.0 now)
+          id
+          (Lot (-100.0) now200)
+          [ Open (Lot 10.0 now100),
+            Open (Lot 20.0 now100)
           ]
-          @?= [ Closed (Lot 10.00 100.00 now) 1000.00,
-                Closed (Lot 20.00 100.00 now) 2000.00,
-                Open (Lot (-70.00) 200.00 now)
+          @?= [ Closed (Lot 10.00 now100) now200,
+                Closed (Lot 20.00 now100) now200,
+                Open (Lot (-70.00) now200)
               ],
       testCase "add-to-lots-pos-few-fifo" do
-        now <- getCurrentTime
         addToPositions
-          FIFO
-          (Lot (-5) 200.0 now)
-          [ Open (Lot 10.0 100.0 now),
-            Open (Lot 20.0 100.0 now)
+          id
+          (Lot (-5) now200)
+          [ Open (Lot 10.0 now100),
+            Open (Lot 20.0 now100)
           ]
-          @?= [ Closed (Lot 5.00 100.00 now) 500.00,
-                Open (Lot 5.00 100.00 now),
-                Open (Lot 20.00 100.00 now)
+          @?= [ Open (Lot 5.00 now100),
+                Closed (Lot 5.00 now100) now200,
+                Open (Lot 20.00 now100)
               ],
       testCase "add-to-lots-pos-few-lifo" do
-        now <- getCurrentTime
         addToPositions
-          LIFO
-          (Lot (-5) 200.0 now)
-          [ Open (Lot 10.0 100.0 now),
-            Open (Lot 20.0 100.0 now)
+          reverse
+          (Lot (-5) now200)
+          [ Open (Lot 10.0 now100),
+            Open (Lot 20.0 now100)
           ]
-          @?= [ Open (Lot 10.00 100.00 now),
-                Open (Lot 15.00 100.00 now),
-                Closed (Lot 5.00 100.00 now) 500.00
+          @?= [ Open (Lot 10.00 now100),
+                Closed (Lot 5.00 now100) now200,
+                Open (Lot 15.00 now100)
               ]
     ]
 
@@ -187,7 +168,6 @@ testIdentifyTrades =
   testGroup
     "identifyTrades"
     [ testCase "identify-trades-smoke" do
-        now <- getCurrentTime
-        identifyTrades [("AAPL", Lot 10.0 100.0 now)]
-          @?= M.fromList [("AAPL", [Open (Lot 10.0 100.0 now)])]
+        identifyTrades mempty [("AAPL", Lot 10.0 now100)]
+          @?= M.fromList [("AAPL", [Open (Lot 10.0 now100)])]
     ]

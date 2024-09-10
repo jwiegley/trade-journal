@@ -4,82 +4,89 @@
 module Trade.Taxes.USA.WashSaleRule2 where
 
 import Amount
-import Control.Exception (assert)
 import Control.Lens
-import Data.Coerce (coerce)
 import Data.Map (Map)
 import Data.Time
 
+data TimePrice = TimePrice
+  { price :: Amount 6,
+    time :: UTCTime
+  }
+  deriving (Eq, Show)
+
 data Lot = Lot
-  { _lotAmount :: Amount 2,
-    _lotPrice :: Amount 6,
-    _lotDate :: UTCTime
+  { lotAmount :: Amount 2,
+    lotDetail :: TimePrice
   }
   deriving (Eq, Show)
 
 absLot :: Lot -> Lot
-absLot (Lot amt p d) = Lot (abs amt) p d
+absLot (Lot amt d) = Lot (abs amt) d
 
 negLot :: Lot -> Lot
-negLot (Lot amt p d) = Lot (-amt) p d
+negLot (Lot amt d) = Lot (-amt) d
 
 data LotChange
-  = AppendLots Lot Lot
-  | IncreaseLot Lot
-  | ReduceLot Lot Lot (Amount 2)
-  | ReplaceLot Lot Lot (Amount 2)
-  | CloseLot (Amount 2)
+  = AddLot Lot
+  | ReduceLot (Either Lot Lot)
   deriving (Eq, Show)
 
-addLot :: Lot -> Lot -> LotChange
-addLot x@(Lot xn xp xd) y@(Lot yn yp yd)
+addLot :: Lot -> Lot -> Maybe LotChange
+addLot (Lot xn xd) (Lot yn yd)
   | xn > 0 && yn < 0 || xn < 0 && yn > 0 =
-      let n = xn + yn
-          s = min (abs xn) (abs yn)
-          d = yp - xp
-       in ( if n == 0
-              then CloseLot
-              else
-                if abs xn > abs yn
-                  then ReduceLot (Lot (xn + yn) xp xd) (Lot (-yn) xp xd)
-                  else ReplaceLot (Lot (xn + yn) yp yd) (Lot xn xp xd)
-          )
-            ((if xn < 0 then -s else s) * coerce d)
-  | xp == yp && xd == yd =
-      IncreaseLot (Lot (xn + yn) xp xd)
-  | otherwise =
-      AppendLots x y
-
-data Strategy
-  = LIFO
-  | FIFO
-  deriving (Eq, Show)
+      Just
+        ( ReduceLot
+            ( if abs xn >= abs yn
+                then Left (Lot (xn + yn) xd)
+                else Right (Lot (xn + yn) yd)
+            )
+        )
+  | xd == yd = Just (AddLot (Lot (xn + yn) xd))
+  | otherwise = Nothing
 
 data Position
   = Open Lot
-  | Closed Lot (Amount 2)
+  | Closed
+      { closedLot :: Lot,
+        closedDetail :: TimePrice
+      }
   deriving (Eq, Show)
 
-addToPositions :: Strategy -> Lot -> [Position] -> [Position]
-addToPositions s x xs = strategy s (go x (strategy s xs))
-  where
-    strategy LIFO = reverse
-    strategy FIFO = id
+-- This must be an involutive (@f . f = id@) function that reorders
+-- transactions according to the order they should be closed in, and undoes
+-- that ordering if called again.
+type Strategy = [Position] -> [Position]
 
+addToPositions :: Strategy -> Lot -> [Position] -> [Position]
+addToPositions strategy x xs = strategy (go x (strategy xs))
+  where
     go y [] = [Open y]
-    go y (Open z : zs) = case z `addLot` y of
-      AppendLots z' y' -> assert (y == y') $ Open z' : go y' zs
-      IncreaseLot w -> Open w : zs
-      ReduceLot w z' gain -> Closed z' gain : Open w : zs
-      ReplaceLot w z' gain -> Closed z' gain : go w zs
-      CloseLot gain -> Closed z gain : zs
+    go y@(Lot _yn yd) (Open z@(Lot zn _zd) : zs) =
+      case z `addLot` y of
+        Nothing -> Open z : go y zs
+        Just (AddLot w) -> Open w : zs
+        Just (ReduceLot (Left z'@(Lot zn' zd'))) ->
+          Open z' : Closed (Lot (zn - zn') zd') yd : zs
+        Just (ReduceLot (Right w)) ->
+          Closed z yd : go w zs
     go y (c : zs) = c : go y zs
 
-identifyTrade :: (Ord a) => Map a [Position] -> a -> Lot -> Map a [Position]
-identifyTrade m sym lot = m & at sym %~ Just . go
+identifyTrade ::
+  (Ord a) =>
+  Strategy ->
+  Map a [Position] ->
+  a ->
+  Lot ->
+  Map a [Position]
+identifyTrade strategy m sym lot = m & at sym %~ Just . go
   where
     go Nothing = [Open lot]
-    go (Just ps) = addToPositions FIFO lot ps
+    go (Just ps) = addToPositions strategy lot ps
 
-identifyTrades :: (Ord a) => [(a, Lot)] -> Map a [Position]
-identifyTrades = foldl' (uncurry . identifyTrade) mempty
+identifyTrades ::
+  (Ord a) =>
+  Strategy ->
+  Map a [Position] ->
+  [(a, Lot)] ->
+  Map a [Position]
+identifyTrades strategy = foldl' (uncurry . identifyTrade strategy)
