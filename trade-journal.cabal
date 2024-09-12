@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 78cc176fd8cd3f1c4eeaf1331e7175d859650e24d994d07a20fcb5bbebe923bc
+-- hash: eb62b18a08b6544d03dd60c57754b7aa1313f28c6d6a05be66aca42ba8f5bcaa
 
 name:           trade-journal
 version:        0.0.2
@@ -73,6 +73,7 @@ library
     , row-types
     , semigroupoids
     , simple-amount >=0.2.0
+    , singletons
     , split
     , text
     , time
@@ -108,6 +109,7 @@ executable trade-journal
     , row-types
     , semigroupoids
     , simple-amount >=0.2.0
+    , singletons
     , split
     , text
     , time
@@ -148,6 +150,7 @@ test-suite coinmetro-tests
     , row-types
     , semigroupoids
     , simple-amount >=0.2.0
+    , singletons
     , split
     , tasty
     , tasty-hedgehog
@@ -195,6 +198,7 @@ test-suite journal-tests
     , row-types
     , semigroupoids
     , simple-amount >=0.2.0
+    , singletons
     , split
     , tasty
     , tasty-hedgehog
@@ -238,6 +242,7 @@ test-suite thinkorswim-tests
     , row-types
     , semigroupoids
     , simple-amount >=0.2.0
+    , singletons
     , split
     , tasty
     , tasty-hedgehog

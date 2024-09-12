@@ -126,40 +126,40 @@ testAddToLots =
         addToPositions
           id
           (Lot 10.0 now100)
-          [Open (Lot 10.0 now100)]
-          @?= [Open (Lot 20.00 now100)],
+          [Open (Lot 10.0 now100) Nothing]
+          @?= [Open (Lot 20.00 now100) Nothing],
       testCase "add-to-lots-pos-many" do
         addToPositions
           id
           (Lot (-100.0) now200)
-          [ Open (Lot 10.0 now100),
-            Open (Lot 20.0 now100)
+          [ Open (Lot 10.0 now100) Nothing,
+            Open (Lot 20.0 now100) Nothing
           ]
-          @?= [ Closed (Lot 10.00 now100) now200,
-                Closed (Lot 20.00 now100) now200,
-                Open (Lot (-70.00) now200)
+          @?= [ Closed (Lot 10.00 now100) now200 True,
+                Closed (Lot 20.00 now100) now200 True,
+                Open (Lot (-70.00) now200) Nothing
               ],
       testCase "add-to-lots-pos-few-fifo" do
         addToPositions
           id
           (Lot (-5) now200)
-          [ Open (Lot 10.0 now100),
-            Open (Lot 20.0 now100)
+          [ Open (Lot 10.0 now100) Nothing,
+            Open (Lot 20.0 now100) Nothing
           ]
-          @?= [ Open (Lot 5.00 now100),
-                Closed (Lot 5.00 now100) now200,
-                Open (Lot 20.00 now100)
+          @?= [ Open (Lot 5.00 now100) Nothing,
+                Closed (Lot 5.00 now100) now200 True,
+                Open (Lot 20.00 now100) Nothing
               ],
       testCase "add-to-lots-pos-few-lifo" do
         addToPositions
           reverse
           (Lot (-5) now200)
-          [ Open (Lot 10.0 now100),
-            Open (Lot 20.0 now100)
+          [ Open (Lot 10.0 now100) Nothing,
+            Open (Lot 20.0 now100) Nothing
           ]
-          @?= [ Open (Lot 10.00 now100),
-                Closed (Lot 5.00 now100) now200,
-                Open (Lot 15.00 now100)
+          @?= [ Open (Lot 10.00 now100) Nothing,
+                Closed (Lot 5.00 now100) now200 True,
+                Open (Lot 15.00 now100) Nothing
               ]
     ]
 
@@ -168,6 +168,6 @@ testIdentifyTrades =
   testGroup
     "identifyTrades"
     [ testCase "identify-trades-smoke" do
-        identifyTrades mempty [("AAPL", Lot 10.0 now100)]
-          @?= M.fromList [("AAPL", [Open (Lot 10.0 now100)])]
+        identifyTrades id mempty [("AAPL", Lot 10.0 now100)]
+          @?= M.fromList [("AAPL", [Open (Lot 10.0 now100) Nothing])]
     ]
