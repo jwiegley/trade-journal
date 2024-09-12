@@ -22,14 +22,6 @@ data Lot = Lot
   }
   deriving (Eq, Show)
 
-data LotChange
-  = AddLot Lot
-  | -- | When reducing a lot, either some of lot 'x' is reduced by lot 'y',
-    --   left a 'Left' remainder, or all of 'x' is reduced and we have part of
-    --   'y' as a 'Right' remainder.
-    ReduceLot (Either Lot Lot)
-  deriving (Eq, Show)
-
 data Position
   = Open
       { openLot :: Lot,
@@ -47,27 +39,13 @@ data Position
 -- that ordering if called again.
 type Strategy = [Position] -> [Position]
 
-addLot :: Lot -> Lot -> Maybe LotChange
-addLot (Lot xn xd) (Lot yn yd)
-  | xn > 0 && yn < 0 || xn < 0 && yn > 0 =
-      Just
-        ( ReduceLot
-            ( if abs xn >= abs yn
-                then Left (Lot (xn + yn) xd)
-                else Right (Lot (xn + yn) yd)
-            )
-        )
-  | xd == yd = Just (AddLot (Lot (xn + yn) xd))
-  | otherwise = Nothing
-
-withinDays :: Integer -> UTCTime -> UTCTime -> Bool
-withinDays days x y = x `diffUTCTime` y < fromIntegral days * 86400
-
--- | A Closing represents a gain or loss depends on the difference between the
---   cost of the lot and the price of the sale. The difference in time
---   indicates either a long term (> 1 year) or short term capital gain.
-isLongTermGain :: Lot -> TimePrice -> Bool
-isLongTermGain (Lot _ (TimePrice _ x)) (TimePrice _ y) = withinDays 365 y x
+data LotChange
+  = AddLot Lot
+  | -- | When reducing a lot, either some of lot 'x' is reduced by lot 'y',
+    --   left a 'Left' remainder, or all of 'x' is reduced and we have part of
+    --   'y' as a 'Right' remainder.
+    ReduceLot (Either Lot Lot)
+  deriving (Eq, Show)
 
 addToPositions :: Strategy -> Lot -> [Position] -> [Position]
 addToPositions strategy x xs = strategy (go x (strategy xs))
@@ -85,17 +63,18 @@ addToPositions strategy x xs = strategy (go x (strategy xs))
           Closed z yd True : go w zs
     go y (c : zs) = c : go y zs
 
-identifyTrade ::
-  (Ord a) =>
-  Strategy ->
-  Map a [Position] ->
-  a ->
-  Lot ->
-  Map a [Position]
-identifyTrade strategy m sym lot = m & at sym %~ Just . go
-  where
-    go Nothing = [Open lot Nothing]
-    go (Just ps) = addToPositions strategy lot ps
+    addLot :: Lot -> Lot -> Maybe LotChange
+    addLot (Lot xn xd) (Lot yn yd)
+      | xn > 0 && yn < 0 || xn < 0 && yn > 0 =
+          Just
+            ( ReduceLot
+                ( if abs xn >= abs yn
+                    then Left (Lot (xn + yn) xd)
+                    else Right (Lot (xn + yn) yd)
+                )
+            )
+      | xd == yd = Just (AddLot (Lot (xn + yn) xd))
+      | otherwise = Nothing
 
 identifyTrades ::
   (Ord a) =>
@@ -103,7 +82,12 @@ identifyTrades ::
   Map a [Position] ->
   [(a, Lot)] ->
   Map a [Position]
-identifyTrades strategy = foldl' (uncurry . identifyTrade strategy)
+identifyTrades strategy = foldl' (uncurry . identifyTrade)
+  where
+    identifyTrade m sym lot = m & at sym %~ Just . go
+      where
+        go Nothing = [Open lot Nothing]
+        go (Just ps) = addToPositions strategy lot ps
 
 -- | A wash sale happens when you sell a security at a loss and buy a
 --   “substantially identical” security within 30 days before or after the
@@ -149,3 +133,12 @@ washSales = survey go
     eligibleNewOpen d (Open (Lot _ (TimePrice _ d')) Nothing) =
       d /= d' && withinDays 30 d d'
     eligibleNewOpen _ _ = False
+
+withinDays :: Integer -> UTCTime -> UTCTime -> Bool
+withinDays days x y = x `diffUTCTime` y < fromIntegral days * 86400
+
+-- | A Closing represents a gain or loss depends on the difference between the
+--   cost of the lot and the price of the sale. The difference in time
+--   indicates either a long term (> 1 year) or short term capital gain.
+isLongTermGain :: Lot -> TimePrice -> Bool
+isLongTermGain (Lot _ (TimePrice _ x)) (TimePrice _ y) = withinDays 365 y x
