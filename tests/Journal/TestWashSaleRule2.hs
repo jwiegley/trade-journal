@@ -181,8 +181,7 @@ testWashSales =
   testGroup
     "washSales"
     [ testCase "wash-sales-noop" do
-        washSales [Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing]
-          @?= [Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing],
+        washSales [open 10 100 0 Nothing] @?= [open 10 100 0 Nothing],
       testCase "wash-sales-buy-sell-buy" do
         washSales
           [ open 10 100 0 Nothing,
