@@ -47,6 +47,19 @@ data LotChange
     ReduceLot (Either Lot Lot)
   deriving (Eq, Show)
 
+addLot :: Lot -> Lot -> Maybe LotChange
+addLot (Lot xn xd) (Lot yn yd)
+  | xn > 0 && yn < 0 || xn < 0 && yn > 0 =
+      Just
+        ( ReduceLot
+            ( if abs xn >= abs yn
+                then Left (Lot (xn + yn) xd)
+                else Right (Lot (xn + yn) yd)
+            )
+        )
+  | xd == yd = Just (AddLot (Lot (xn + yn) xd))
+  | otherwise = Nothing
+
 addToPositions :: Strategy -> Lot -> [Position] -> [Position]
 addToPositions strategy x xs = strategy (go x (strategy xs))
   where
@@ -62,19 +75,6 @@ addToPositions strategy x xs = strategy (go x (strategy xs))
         Just (ReduceLot (Right w)) ->
           Closed z yd True : go w zs
     go y (c : zs) = c : go y zs
-
-    addLot :: Lot -> Lot -> Maybe LotChange
-    addLot (Lot xn xd) (Lot yn yd)
-      | xn > 0 && yn < 0 || xn < 0 && yn > 0 =
-          Just
-            ( ReduceLot
-                ( if abs xn >= abs yn
-                    then Left (Lot (xn + yn) xd)
-                    else Right (Lot (xn + yn) yd)
-                )
-            )
-      | xd == yd = Just (AddLot (Lot (xn + yn) xd))
-      | otherwise = Nothing
 
 identifyTrades ::
   (Ord a) =>
@@ -111,18 +111,30 @@ identifyTrades strategy = foldl' (uncurry . identifyTrade)
 washSales :: [Position] -> [Position]
 washSales = survey go
   where
-    go (MkZipper before event@(Closed l pd@(TimePrice p d) True) after)
-      | eligibleLosingClose event = case break (eligibleNewOpen d) before of
-          (xpre, Open x Nothing : xpost) ->
-            MkZipper (xpre ++ Open x (Just p) : xpost) closed after
-          _ -> case break (eligibleNewOpen d) after of
-            (ypre, Open y Nothing : ypost) ->
-              MkZipper before closed (ypre ++ Open y (Just p) : ypost)
-            _ -> justClosed
-      | otherwise = justClosed
-      where
-        closed = Closed l pd False
-        justClosed = MkZipper before closed after
+    go
+      ( MkZipper
+          before
+          event@( Closed
+                    l@(Lot _ (TimePrice b d))
+                    pd@(TimePrice p _)
+                    True
+                  )
+          after
+        )
+        | eligibleLosingClose event =
+            case break (eligibleNewOpen d) before of
+              (xpre, Open x Nothing : xpost) ->
+                MkZipper (xpre ++ adjusted x : xpost) closed after
+              _ -> case break (eligibleNewOpen d) after of
+                (ypre, Open y Nothing : ypost) ->
+                  MkZipper before closed (ypre ++ adjusted y : ypost)
+                _ -> justClosed
+        | otherwise = justClosed
+        where
+          adjusted x@(Lot _ (TimePrice o _)) =
+            Open x (Just (o + (b - p)))
+          closed = Closed l pd False
+          justClosed = MkZipper before closed after
     go z = z
 
     eligibleLosingClose

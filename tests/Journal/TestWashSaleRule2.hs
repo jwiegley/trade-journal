@@ -28,94 +28,98 @@ testWashSaleRule2 =
     "wash-sale-rule"
     [ testAddLot,
       testAddToLots,
-      testIdentifyTrades
+      testIdentifyTrades,
+      testWashSales
     ]
 
+sometime :: DiffTime -> UTCTime
+sometime = UTCTime (ModifiedJulianDay 0)
+
 now50 :: TimePrice
-now50 = TimePrice 50.0 (UTCTime (ModifiedJulianDay 0) 0)
+now50 = TimePrice 50 (UTCTime (ModifiedJulianDay 0) 0)
 
 now100 :: TimePrice
-now100 = TimePrice 100.0 (UTCTime (ModifiedJulianDay 0) 0)
+now100 = TimePrice 100 (UTCTime (ModifiedJulianDay 0) 0)
 
 now200 :: TimePrice
-now200 = TimePrice 200.0 (UTCTime (ModifiedJulianDay 0) 0)
+now200 = TimePrice 200 (UTCTime (ModifiedJulianDay 0) 0)
 
 testAddLot :: TestTree
 testAddLot =
   testGroup
     "addLot"
     [ testCase "add-lot-pos-pos=-price==" do
-        addLot (Lot 10.0 now100) (Lot 10.0 now100)
-          @?= Just (AddLot (Lot 20.0 now100)),
+        addLot (Lot 10 now100) (Lot 10 now100)
+          @?= Just (AddLot (Lot 20 now100)),
       testCase "add-lot-pos-pos=-price<" do
-        addLot (Lot 10.0 now100) (Lot 10.0 now50)
+        addLot (Lot 10 now100) (Lot 10 now50)
           @?= Nothing,
       testCase "add-lot-pos-pos=-price>" do
-        addLot (Lot 10.0 now100) (Lot 10.0 now200)
+        addLot (Lot 10 now100) (Lot 10 now200)
           @?= Nothing,
       testCase "add-lot-neg-neg=-price==" do
-        addLot (Lot (-10.0) now100) (Lot (-10.0) now100)
-          @?= Just (AddLot (Lot (-20.0) now100)),
+        addLot (Lot (-10) now100) (Lot (-10) now100)
+          @?= Just (AddLot (Lot (-20) now100)),
       testCase "add-lot-neg-neg=-price<" do
-        addLot (Lot (-10.0) now100) (Lot (-10.0) now50)
+        addLot (Lot (-10) now100) (Lot (-10) now50)
           @?= Nothing,
       testCase "add-lot-neg-neg=-price>" do
-        addLot (Lot (-10.0) now100) (Lot (-10.0) now200)
+        addLot (Lot (-10) now100) (Lot (-10) now200)
           @?= Nothing,
       testCase "add-lot-pos-neg=-price==" do
-        addLot (Lot 10.0 now100) (Lot (-10.0) now100)
+        addLot (Lot 10 now100) (Lot (-10) now100)
           @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-pos-neg=-price<" do
-        addLot (Lot 10.0 now100) (Lot (-10.0) now50)
+        addLot (Lot 10 now100) (Lot (-10) now50)
           @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-pos-neg=-price>" do
-        addLot (Lot 10.0 now100) (Lot (-10.0) now200)
+        addLot (Lot 10 now100) (Lot (-10) now200)
           @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-pos-neg<-price==" do
-        addLot (Lot 10.0 now100) (Lot (-5.0) now100)
-          @?= Just (ReduceLot (Left (Lot 5.0 now100))),
+        addLot (Lot 10 now100) (Lot (-5) now100)
+          @?= Just (ReduceLot (Left (Lot 5 now100))),
       testCase "add-lot-pos-neg<-price<" do
-        addLot (Lot 10.0 now100) (Lot (-5.0) now50)
-          @?= Just (ReduceLot (Left (Lot 5.0 now100))),
+        addLot (Lot 10 now100) (Lot (-5) now50)
+          @?= Just (ReduceLot (Left (Lot 5 now100))),
       testCase "add-lot-pos-neg<-price>" do
-        addLot (Lot 10.0 now100) (Lot (-5.0) now200)
-          @?= Just (ReduceLot (Left (Lot 5.0 now100))),
+        addLot (Lot 10 now100) (Lot (-5) now200)
+          @?= Just (ReduceLot (Left (Lot 5 now100))),
       testCase "add-lot-pos-neg>-price==" do
-        addLot (Lot 10.0 now100) (Lot (-20.0) now100)
-          @?= Just (ReduceLot (Right (Lot (-10.0) now100))),
+        addLot (Lot 10 now100) (Lot (-20) now100)
+          @?= Just (ReduceLot (Right (Lot (-10) now100))),
       testCase "add-lot-pos-neg>-price<" do
-        addLot (Lot 10.0 now100) (Lot (-20.0) now50)
-          @?= Just (ReduceLot (Right (Lot (-10.0) now50))),
+        addLot (Lot 10 now100) (Lot (-20) now50)
+          @?= Just (ReduceLot (Right (Lot (-10) now50))),
       testCase "add-lot-pos-neg>-price>" do
-        addLot (Lot 10.0 now100) (Lot (-20.0) now200)
-          @?= Just (ReduceLot (Right (Lot (-10.0) now200))),
+        addLot (Lot 10 now100) (Lot (-20) now200)
+          @?= Just (ReduceLot (Right (Lot (-10) now200))),
       testCase "add-lot-neg-pos=-price==" do
-        addLot (Lot (-10.0) now100) (Lot 10.0 now100)
+        addLot (Lot (-10) now100) (Lot 10 now100)
           @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-neg-pos=-price<" do
-        addLot (Lot (-10.0) now100) (Lot 10.0 now50)
+        addLot (Lot (-10) now100) (Lot 10 now50)
           @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-neg-pos=-price>" do
-        addLot (Lot (-10.0) now100) (Lot 10.0 now200)
+        addLot (Lot (-10) now100) (Lot 10 now200)
           @?= Just (ReduceLot (Left (Lot 0 now100))),
       testCase "add-lot-neg-pos<-price==" do
-        addLot (Lot (-10.0) now100) (Lot 5.0 now100)
-          @?= Just (ReduceLot (Left (Lot (-5.0) now100))),
+        addLot (Lot (-10) now100) (Lot 5 now100)
+          @?= Just (ReduceLot (Left (Lot (-5) now100))),
       testCase "add-lot-neg-pos<-price<" do
-        addLot (Lot (-10.0) now100) (Lot 5.0 now50)
-          @?= Just (ReduceLot (Left (Lot (-5.0) now100))),
+        addLot (Lot (-10) now100) (Lot 5 now50)
+          @?= Just (ReduceLot (Left (Lot (-5) now100))),
       testCase "add-lot-neg-pos<-price>" do
-        addLot (Lot (-10.0) now100) (Lot 5.0 now200)
-          @?= Just (ReduceLot (Left (Lot (-5.0) now100))),
+        addLot (Lot (-10) now100) (Lot 5 now200)
+          @?= Just (ReduceLot (Left (Lot (-5) now100))),
       testCase "add-lot-neg-pos>-price==" do
-        addLot (Lot (-10.0) now100) (Lot 20.0 now100)
-          @?= Just (ReduceLot (Right (Lot 10.0 now100))),
+        addLot (Lot (-10) now100) (Lot 20 now100)
+          @?= Just (ReduceLot (Right (Lot 10 now100))),
       testCase "add-lot-neg-pos>-price<" do
-        addLot (Lot (-10.0) now100) (Lot 20.0 now50)
-          @?= Just (ReduceLot (Right (Lot 10.0 now50))),
+        addLot (Lot (-10) now100) (Lot 20 now50)
+          @?= Just (ReduceLot (Right (Lot 10 now50))),
       testCase "add-lot-neg-pos>-price>" do
-        addLot (Lot (-10.0) now100) (Lot 20.0 now200)
-          @?= Just (ReduceLot (Right (Lot 10.0 now200)))
+        addLot (Lot (-10) now100) (Lot 20 now200)
+          @?= Just (ReduceLot (Right (Lot 10 now200)))
     ]
 
 testAddToLots :: TestTree
@@ -125,41 +129,41 @@ testAddToLots =
     [ testCase "add-to-lots-pos-pos=-price==" do
         addToPositions
           id
-          (Lot 10.0 now100)
-          [Open (Lot 10.0 now100) Nothing]
-          @?= [Open (Lot 20.00 now100) Nothing],
+          (Lot 10 now100)
+          [Open (Lot 10 now100) Nothing]
+          @?= [Open (Lot 20 now100) Nothing],
       testCase "add-to-lots-pos-many" do
         addToPositions
           id
-          (Lot (-100.0) now200)
-          [ Open (Lot 10.0 now100) Nothing,
-            Open (Lot 20.0 now100) Nothing
+          (Lot (-100) now200)
+          [ Open (Lot 10 now100) Nothing,
+            Open (Lot 20 now100) Nothing
           ]
-          @?= [ Closed (Lot 10.00 now100) now200 True,
-                Closed (Lot 20.00 now100) now200 True,
-                Open (Lot (-70.00) now200) Nothing
+          @?= [ Closed (Lot 10 now100) now200 True,
+                Closed (Lot 20 now100) now200 True,
+                Open (Lot (-70) now200) Nothing
               ],
       testCase "add-to-lots-pos-few-fifo" do
         addToPositions
           id
           (Lot (-5) now200)
-          [ Open (Lot 10.0 now100) Nothing,
-            Open (Lot 20.0 now100) Nothing
+          [ Open (Lot 10 now100) Nothing,
+            Open (Lot 20 now100) Nothing
           ]
-          @?= [ Open (Lot 5.00 now100) Nothing,
-                Closed (Lot 5.00 now100) now200 True,
-                Open (Lot 20.00 now100) Nothing
+          @?= [ Open (Lot 5 now100) Nothing,
+                Closed (Lot 5 now100) now200 True,
+                Open (Lot 20 now100) Nothing
               ],
       testCase "add-to-lots-pos-few-lifo" do
         addToPositions
           reverse
           (Lot (-5) now200)
-          [ Open (Lot 10.0 now100) Nothing,
-            Open (Lot 20.0 now100) Nothing
+          [ Open (Lot 10 now100) Nothing,
+            Open (Lot 20 now100) Nothing
           ]
-          @?= [ Open (Lot 10.00 now100) Nothing,
-                Closed (Lot 5.00 now100) now200 True,
-                Open (Lot 15.00 now100) Nothing
+          @?= [ Open (Lot 10 now100) Nothing,
+                Closed (Lot 5 now100) now200 True,
+                Open (Lot 15 now100) Nothing
               ]
     ]
 
@@ -168,6 +172,39 @@ testIdentifyTrades =
   testGroup
     "identifyTrades"
     [ testCase "identify-trades-smoke" do
-        identifyTrades id mempty [("AAPL", Lot 10.0 now100)]
-          @?= M.fromList [("AAPL", [Open (Lot 10.0 now100) Nothing])]
+        identifyTrades id mempty [("AAPL", Lot 10 now100)]
+          @?= M.fromList [("AAPL", [Open (Lot 10 now100) Nothing])]
+    ]
+
+testWashSales :: TestTree
+testWashSales =
+  testGroup
+    "washSales"
+    [ testCase "wash-sales-noop" do
+        washSales [Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing]
+          @?= [Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing],
+      testCase "wash-sales-buy-sell-buy" do
+        washSales
+          [ Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing,
+            Closed
+              ( Lot
+                  10.0
+                  (TimePrice 100 (sometime 0))
+              )
+              (TimePrice 50 (sometime 10))
+              True,
+            Open (Lot 10 (TimePrice 70 (sometime 20))) Nothing
+          ]
+          @?= [ Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing,
+                Closed
+                  ( Lot
+                      10.0
+                      (TimePrice 100 (sometime 0))
+                  )
+                  (TimePrice 50 (sometime 10))
+                  False,
+                Open
+                  (Lot 10 (TimePrice 70 (sometime 20)))
+                  (Just (70 + 50))
+              ]
     ]
