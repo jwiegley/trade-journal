@@ -115,7 +115,7 @@ washSales = survey go
       ( MkZipper
           before
           event@( Closed
-                    l@(Lot _ (TimePrice b d))
+                    l@(Lot n (TimePrice b d))
                     pd@(TimePrice p _)
                     True
                   )
@@ -131,8 +131,10 @@ washSales = survey go
                 _ -> justClosed
         | otherwise = justClosed
         where
-          adjusted x@(Lot _ (TimePrice o _)) =
-            Open x (Just (o + (b - p)))
+          totalLoss :: Amount 6
+          totalLoss = coerce n * (b - p)
+          adjusted x@(Lot m (TimePrice o _)) =
+            Open x (Just (o + totalLoss / coerce m))
           closed = Closed l pd False
           justClosed = MkZipper before closed after
     go z = z

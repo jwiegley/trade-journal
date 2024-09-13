@@ -185,26 +185,29 @@ testWashSales =
           @?= [Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing],
       testCase "wash-sales-buy-sell-buy" do
         washSales
-          [ Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing,
-            Closed
-              ( Lot
-                  10.0
-                  (TimePrice 100 (sometime 0))
-              )
-              (TimePrice 50 (sometime 10))
-              True,
-            Open (Lot 10 (TimePrice 70 (sometime 20))) Nothing
+          [ open 10 100 0 Nothing,
+            closed 10 100 0 50 10 True,
+            open 10 70 20 Nothing
           ]
-          @?= [ Open (Lot 10 (TimePrice 100 (sometime 0))) Nothing,
-                Closed
-                  ( Lot
-                      10.0
-                      (TimePrice 100 (sometime 0))
-                  )
-                  (TimePrice 50 (sometime 10))
-                  False,
-                Open
-                  (Lot 10 (TimePrice 70 (sometime 20)))
-                  (Just (70 + 50))
+          @?= [ open 10 100 0 Nothing,
+                closed 10 100 0 50 10 False,
+                open 10 70 20 (Just (70 + 50))
+              ],
+      testCase "wash-sales-buy-buy-sell" do
+        washSales
+          [ open 10 100 0 Nothing,
+            open 10 70 10 Nothing,
+            closed 5 100 0 50 20 True
+          ]
+          @?= [ open 10 100 0 Nothing,
+                open 10 70 10 (Just (70 + (5 * (100 - 50)) / 10)),
+                closed 5 100 0 50 20 False
               ]
     ]
+  where
+    open n p d =
+      Open (Lot n (TimePrice p (sometime d)))
+    closed n p d p' d' =
+      Closed
+        (Lot n (TimePrice p (sometime d)))
+        (TimePrice p' (sometime d'))
