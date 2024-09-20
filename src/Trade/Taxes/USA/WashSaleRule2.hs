@@ -1,17 +1,14 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Trade.Taxes.USA.WashSaleRule2 where
 
 import Amount
-import Control.Lens
-import Data.Coerce (coerce)
-import Data.Map (Map)
+import Data.Map (Map, alter)
 import Data.Time
 import Trade.Data.Zipper
 
 data TimePrice = TimePrice
-  { price :: Amount 6,
+  { price :: Amount 2,
     time :: UTCTime
   }
   deriving (Eq, Show)
@@ -25,7 +22,7 @@ data Lot = Lot
 data Position
   = Open
       { openLot :: Lot,
-        openBasis :: Maybe (Amount 6) -- if present, overrides lot price
+        openBasis :: Maybe (Amount 2) -- if present, overrides lot price
       }
   | Closed
       { closingLot :: Lot,
@@ -40,39 +37,34 @@ data Position
 type Strategy = [Position] -> [Position]
 
 data LotChange
-  = AddLot Lot
-  | -- | When reducing a lot, either some of lot 'x' is reduced by lot 'y',
-    --   left a 'Left' remainder, or all of 'x' is reduced and we have part of
-    --   'y' as a 'Right' remainder.
-    ReduceLot (Either Lot Lot)
+  = NoChange
+  | AddLot Lot
+  | ReduceLot Lot
+  | ReplaceLot Lot
   deriving (Eq, Show)
 
-addLot :: Lot -> Lot -> Maybe LotChange
+addLot :: Lot -> Lot -> LotChange
 addLot (Lot xn xd) (Lot yn yd)
   | xn > 0 && yn < 0 || xn < 0 && yn > 0 =
-      Just
-        ( ReduceLot
-            ( if abs xn >= abs yn
-                then Left (Lot (xn + yn) xd)
-                else Right (Lot (xn + yn) yd)
-            )
-        )
-  | xd == yd = Just (AddLot (Lot (xn + yn) xd))
-  | otherwise = Nothing
+      if abs xn >= abs yn
+        then ReduceLot (Lot (xn + yn) xd)
+        else ReplaceLot (Lot (xn + yn) yd)
+  | xd == yd = AddLot (Lot (xn + yn) xd)
+  | otherwise = NoChange
 
 addToPositions :: Strategy -> Lot -> [Position] -> [Position]
-addToPositions strategy x xs = strategy (go x (strategy xs))
+addToPositions strategy x = strategy . go x . strategy
   where
     go y [] = [Open y Nothing]
     go y@(Lot _yn yd) (Open z@(Lot zn _zd) wash : zs) =
       case z `addLot` y of
-        Nothing -> Open z wash : go y zs
-        Just (AddLot w) -> Open w wash : zs
-        Just (ReduceLot (Left z'@(Lot zn' zd'))) ->
-          Open z' wash
-            : Closed (Lot (zn - zn') zd') yd True
-            : zs
-        Just (ReduceLot (Right w)) ->
+        NoChange ->
+          Open z wash : go y zs
+        AddLot w ->
+          Open w wash : zs
+        ReduceLot z'@(Lot zn' zd') ->
+          Open z' wash : Closed (Lot (zn - zn') zd') yd True : zs
+        ReplaceLot w ->
           Closed z yd True : go w zs
     go y (c : zs) = c : go y zs
 
@@ -84,7 +76,7 @@ identifyTrades ::
   Map a [Position]
 identifyTrades strategy = foldl' (uncurry . identifyTrade)
   where
-    identifyTrade m sym lot = m & at sym %~ Just . go
+    identifyTrade m sym lot = alter (Just . go) sym m
       where
         go Nothing = [Open lot Nothing]
         go (Just ps) = addToPositions strategy lot ps
@@ -97,13 +89,13 @@ identifyTrades strategy = foldl' (uncurry . identifyTrade)
 --   within 30 days of each other:
 --
 --     Open A --> Open B --> Close A at loss
---                ^---- wash
+--                ^--------- WASH
 --
 --     Open B --> Open A --> Close A at loss
---          ^---------- wash
+--     ^-------------------- WASH
 --
 --     Open A --> Close A at loss --> Open B
---                                ----^ wash
+--                WASH ---------------^
 --
 --   In both cases, the position A is no longer open, the closing of A is
 --   considered "washed", and the opening of B has had its cost basis
@@ -131,17 +123,16 @@ washSales = survey go
                 _ -> justClosed
         | otherwise = justClosed
         where
-          totalLoss :: Amount 6
-          totalLoss = coerce n * (b - p)
-          adjusted x@(Lot m (TimePrice o _)) =
-            Open x (Just (o + totalLoss / coerce m))
+          totalLoss = n * (b - p)
           closed = Closed l pd False
           justClosed = MkZipper before closed after
+          adjusted x@(Lot m (TimePrice o _)) =
+            Open x (Just (o + totalLoss / m))
     go z = z
 
     eligibleLosingClose
       (Closed (Lot n (TimePrice p _)) (TimePrice p' _) True) =
-        coerce n * (p' - p) < 0
+        n * (p' - p) < 0
     eligibleLosingClose _ = False
 
     eligibleNewOpen d (Open (Lot _ (TimePrice _ d')) Nothing) =

@@ -50,76 +50,76 @@ testAddLot =
     "addLot"
     [ testCase "add-lot-pos-pos=-price==" do
         addLot (Lot 10 now100) (Lot 10 now100)
-          @?= Just (AddLot (Lot 20 now100)),
+          @?= AddLot (Lot 20 now100),
       testCase "add-lot-pos-pos=-price<" do
         addLot (Lot 10 now100) (Lot 10 now50)
-          @?= Nothing,
+          @?= NoChange,
       testCase "add-lot-pos-pos=-price>" do
         addLot (Lot 10 now100) (Lot 10 now200)
-          @?= Nothing,
+          @?= NoChange,
       testCase "add-lot-neg-neg=-price==" do
         addLot (Lot (-10) now100) (Lot (-10) now100)
-          @?= Just (AddLot (Lot (-20) now100)),
+          @?= AddLot (Lot (-20) now100),
       testCase "add-lot-neg-neg=-price<" do
         addLot (Lot (-10) now100) (Lot (-10) now50)
-          @?= Nothing,
+          @?= NoChange,
       testCase "add-lot-neg-neg=-price>" do
         addLot (Lot (-10) now100) (Lot (-10) now200)
-          @?= Nothing,
+          @?= NoChange,
       testCase "add-lot-pos-neg=-price==" do
         addLot (Lot 10 now100) (Lot (-10) now100)
-          @?= Just (ReduceLot (Left (Lot 0 now100))),
+          @?= ReduceLot (Lot 0 now100),
       testCase "add-lot-pos-neg=-price<" do
         addLot (Lot 10 now100) (Lot (-10) now50)
-          @?= Just (ReduceLot (Left (Lot 0 now100))),
+          @?= ReduceLot (Lot 0 now100),
       testCase "add-lot-pos-neg=-price>" do
         addLot (Lot 10 now100) (Lot (-10) now200)
-          @?= Just (ReduceLot (Left (Lot 0 now100))),
+          @?= ReduceLot (Lot 0 now100),
       testCase "add-lot-pos-neg<-price==" do
         addLot (Lot 10 now100) (Lot (-5) now100)
-          @?= Just (ReduceLot (Left (Lot 5 now100))),
+          @?= ReduceLot (Lot 5 now100),
       testCase "add-lot-pos-neg<-price<" do
         addLot (Lot 10 now100) (Lot (-5) now50)
-          @?= Just (ReduceLot (Left (Lot 5 now100))),
+          @?= ReduceLot (Lot 5 now100),
       testCase "add-lot-pos-neg<-price>" do
         addLot (Lot 10 now100) (Lot (-5) now200)
-          @?= Just (ReduceLot (Left (Lot 5 now100))),
+          @?= ReduceLot (Lot 5 now100),
       testCase "add-lot-pos-neg>-price==" do
         addLot (Lot 10 now100) (Lot (-20) now100)
-          @?= Just (ReduceLot (Right (Lot (-10) now100))),
+          @?= ReplaceLot (Lot (-10) now100),
       testCase "add-lot-pos-neg>-price<" do
         addLot (Lot 10 now100) (Lot (-20) now50)
-          @?= Just (ReduceLot (Right (Lot (-10) now50))),
+          @?= ReplaceLot (Lot (-10) now50),
       testCase "add-lot-pos-neg>-price>" do
         addLot (Lot 10 now100) (Lot (-20) now200)
-          @?= Just (ReduceLot (Right (Lot (-10) now200))),
+          @?= ReplaceLot (Lot (-10) now200),
       testCase "add-lot-neg-pos=-price==" do
         addLot (Lot (-10) now100) (Lot 10 now100)
-          @?= Just (ReduceLot (Left (Lot 0 now100))),
+          @?= ReduceLot (Lot 0 now100),
       testCase "add-lot-neg-pos=-price<" do
         addLot (Lot (-10) now100) (Lot 10 now50)
-          @?= Just (ReduceLot (Left (Lot 0 now100))),
+          @?= ReduceLot (Lot 0 now100),
       testCase "add-lot-neg-pos=-price>" do
         addLot (Lot (-10) now100) (Lot 10 now200)
-          @?= Just (ReduceLot (Left (Lot 0 now100))),
+          @?= ReduceLot (Lot 0 now100),
       testCase "add-lot-neg-pos<-price==" do
         addLot (Lot (-10) now100) (Lot 5 now100)
-          @?= Just (ReduceLot (Left (Lot (-5) now100))),
+          @?= ReduceLot (Lot (-5) now100),
       testCase "add-lot-neg-pos<-price<" do
         addLot (Lot (-10) now100) (Lot 5 now50)
-          @?= Just (ReduceLot (Left (Lot (-5) now100))),
+          @?= ReduceLot (Lot (-5) now100),
       testCase "add-lot-neg-pos<-price>" do
         addLot (Lot (-10) now100) (Lot 5 now200)
-          @?= Just (ReduceLot (Left (Lot (-5) now100))),
+          @?= ReduceLot (Lot (-5) now100),
       testCase "add-lot-neg-pos>-price==" do
         addLot (Lot (-10) now100) (Lot 20 now100)
-          @?= Just (ReduceLot (Right (Lot 10 now100))),
+          @?= ReplaceLot (Lot 10 now100),
       testCase "add-lot-neg-pos>-price<" do
         addLot (Lot (-10) now100) (Lot 20 now50)
-          @?= Just (ReduceLot (Right (Lot 10 now50))),
+          @?= ReplaceLot (Lot 10 now50),
       testCase "add-lot-neg-pos>-price>" do
         addLot (Lot (-10) now100) (Lot 20 now200)
-          @?= Just (ReduceLot (Right (Lot 10 now200)))
+          @?= ReplaceLot (Lot 10 now200)
     ]
 
 testAddToLots :: TestTree
