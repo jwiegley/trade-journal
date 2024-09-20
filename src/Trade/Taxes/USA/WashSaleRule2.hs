@@ -141,9 +141,3 @@ washSales = survey go
 
 withinDays :: Integer -> UTCTime -> UTCTime -> Bool
 withinDays days x y = x `diffUTCTime` y < fromIntegral days * 86400
-
--- | A Closing represents a gain or loss depends on the difference between the
---   cost of the lot and the price of the sale. The difference in time
---   indicates either a long term (> 1 year) or short term capital gain.
-isLongTermGain :: Lot -> TimePrice -> Bool
-isLongTermGain (Lot _ (TimePrice _ x)) (TimePrice _ y) = withinDays 365 y x
