@@ -125,7 +125,7 @@ testAddLot =
 testAddToLots :: TestTree
 testAddToLots =
   testGroup
-    "addToLots"
+    "addToPositions"
     [ testCase "add-to-lots-pos-pos=-price==" do
         addToPositions
           id
