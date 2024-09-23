@@ -63,10 +63,17 @@ addToPositions strategy x = strategy . go x . strategy
         AddLot w ->
           Open w wash : zs
         ReduceLot z'@(Lot zn' zd') ->
-          Open z' wash : Closed (Lot (zn - zn') zd') yd True : zs
+          ( if zn' == 0
+              then id
+              else (Open z' wash :)
+          )
+            $ Closed (Lot (zn - zn') zd') yd True : zs
         ReplaceLot w ->
           Closed z yd True : go w zs
     go y (c : zs) = c : go y zs
+
+addManyToPositions :: Strategy -> [Lot] -> [Position] -> [Position]
+addManyToPositions = flip . foldl' . flip . addToPositions
 
 identifyTrades ::
   (Ord a) =>
@@ -107,37 +114,54 @@ washSales = survey go
       ( MkZipper
           before
           event@( Closed
-                    l@(Lot n (TimePrice b d))
-                    pd@(TimePrice p _)
+                    l@(Lot n (TimePrice lp ld))
+                    (TimePrice cp cd)
                     True
                   )
           after
         )
         | eligibleLosingClose event =
-            case break (eligibleNewOpen d) before of
+            case break (eligibleNewOpen ld) before of
               (xpre, Open x Nothing : xpost) ->
-                MkZipper (xpre ++ adjusted x : xpost) closed after
-              _ -> case break (eligibleNewOpen d) after of
+                MkZipper
+                  (xpre ++ adjusted x : xpost)
+                  (Closed l (TimePrice lp cd) False)
+                  after
+              _ -> case break (eligibleNewOpen ld) after of
                 (ypre, Open y Nothing : ypost) ->
-                  MkZipper before closed (ypre ++ adjusted y : ypost)
+                  MkZipper
+                    before
+                    (Closed l (TimePrice lp cd) False)
+                    (ypre ++ adjusted y : ypost)
                 _ -> justClosed
         | otherwise = justClosed
         where
-          totalLoss = n * (b - p)
-          closed = Closed l pd False
-          justClosed = MkZipper before closed after
+          totalLoss = n * (lp - cp)
+          justClosed = MkZipper before (Closed l (TimePrice cp cd) False) after
           adjusted x@(Lot m (TimePrice o _)) =
             Open x (Just (o + totalLoss / m))
     go z = z
 
     eligibleLosingClose
-      (Closed (Lot n (TimePrice p _)) (TimePrice p' _) True) =
-        n * (p' - p) < 0
+      (Closed (Lot n (TimePrice cp _)) (TimePrice cp' _) True) =
+        n * (cp' - cp) < 0
     eligibleLosingClose _ = False
 
-    eligibleNewOpen d (Open (Lot _ (TimePrice _ d')) Nothing) =
-      d /= d' && withinDays 30 d d'
+    eligibleNewOpen ld (Open (Lot _ (TimePrice _ ld')) Nothing) =
+      ld /= ld' && withinDays 30 ld ld'
     eligibleNewOpen _ _ = False
 
 withinDays :: Integer -> UTCTime -> UTCTime -> Bool
 withinDays days x y = x `diffUTCTime` y < fromIntegral days * 86400
+
+gainLoss :: [Position] -> [(Position, Amount 2)]
+gainLoss
+  ( p@( Closed
+          (Lot n (TimePrice basis _openTime))
+          (TimePrice sale _closeTime)
+          _
+        )
+      : ps
+    ) = (p, n * (sale - basis)) : gainLoss ps
+gainLoss [] = []
+gainLoss (_ : ps) = gainLoss ps
