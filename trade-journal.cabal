@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: eb62b18a08b6544d03dd60c57754b7aa1313f28c6d6a05be66aca42ba8f5bcaa
+-- hash: f9f0a6820f9df49a4a4fbfe42cad4fe256954c08ea27a34adf4b63b6f9dc5798
 
 name:           trade-journal
 version:        0.0.2
@@ -17,39 +17,14 @@ build-type:     Simple
 
 library
   exposed-modules:
-      Trade.Closings
-      Trade.Crypto.ICP
-      Trade.Data.Zipper
-      Trade.Journal.Entry
-      Trade.Journal.Parse
-      Trade.Journal.Pipes
-      Trade.Journal.Print
-      Trade.Journal.Split
       Trade.Journal.Types
-      Trade.Journal.Utils
-      Trade.Ledger
-      Trade.Ledger.Entry
-      Trade.Ledger.Render
-      Trade.Process
-      Trade.Provider.ThinkOrSwim
-      Trade.Provider.Coinmetro
-      Trade.Taxes.USA.WashSaleRule
-      Trade.Taxes.USA.WashSaleRule2
+      Trade.Journal.Parse
+      Trade.Journal.Process
+      Trade.Journal.Zipper
+      Ledger
+      Ledger.Entry
+      Ledger.Render
   other-modules:
-      Trade.Journal.Entry.Deposit
-      Trade.Journal.Entry.Fees
-      Trade.Journal.Entry.Income
-      Trade.Journal.Entry.OptionTrade
-      Trade.Journal.Entry.Trade
-      Trade.Journal.Types.Annotated
-      Trade.Journal.Types.Entry
-      Trade.Journal.Types.Lot
-      Trade.Provider.Coinmetro.Parser
-      Trade.Provider.Coinmetro.Process
-      Trade.Provider.Coinmetro.Types
-      Trade.Provider.ThinkOrSwim.Parser
-      Trade.Provider.ThinkOrSwim.Process
-      Trade.Provider.ThinkOrSwim.Types
       Paths_trade_journal
   hs-source-dirs:
       src
@@ -73,7 +48,6 @@ library
     , row-types
     , semigroupoids
     , simple-amount >=0.2.0
-    , singletons
     , split
     , text
     , time
@@ -109,144 +83,7 @@ executable trade-journal
     , row-types
     , semigroupoids
     , simple-amount >=0.2.0
-    , singletons
     , split
-    , text
-    , time
-    , trade-journal
-    , transformers
-    , unordered-containers
-    , vector
-  default-language: Haskell2010
-
-test-suite coinmetro-tests
-  type: exitcode-stdio-1.0
-  main-is: Main.hs
-  other-modules:
-      Coinmetro
-      Paths_trade_journal
-  hs-source-dirs:
-      tests/Provider/Coinmetro
-  ghc-options: -Wall -Wno-missing-home-modules
-  build-depends:
-      HUnit
-    , aeson
-    , base >=4.5
-    , bytestring
-    , cassava
-    , comonad
-    , constraints
-    , containers
-    , data-default
-    , free
-    , hedgehog
-    , here
-    , lens
-    , megaparsec
-    , mtl
-    , pretty
-    , pretty-show
-    , profunctors
-    , row-types
-    , semigroupoids
-    , simple-amount >=0.2.0
-    , singletons
-    , split
-    , tasty
-    , tasty-hedgehog
-    , tasty-hunit
-    , text
-    , time
-    , trade-journal
-    , transformers
-    , unordered-containers
-    , vector
-  default-language: Haskell2010
-
-test-suite journal-tests
-  type: exitcode-stdio-1.0
-  main-is: Main.hs
-  other-modules:
-      Examples
-      TestAction
-      TestClosings
-      TestWashSaleRule
-      TestWashSaleRule2
-      Paths_trade_journal
-  hs-source-dirs:
-      tests/Journal
-  ghc-options: -Wall -Wno-missing-home-modules
-  build-depends:
-      HUnit
-    , aeson
-    , base >=4.5
-    , bytestring
-    , cassava
-    , comonad
-    , constraints
-    , containers
-    , data-default
-    , free
-    , hedgehog
-    , here
-    , lens
-    , megaparsec
-    , mtl
-    , pretty
-    , pretty-show
-    , profunctors
-    , row-types
-    , semigroupoids
-    , simple-amount >=0.2.0
-    , singletons
-    , split
-    , tasty
-    , tasty-hedgehog
-    , tasty-hunit
-    , text
-    , time
-    , trade-journal
-    , transformers
-    , unordered-containers
-    , vector
-  default-language: Haskell2010
-
-test-suite thinkorswim-tests
-  type: exitcode-stdio-1.0
-  main-is: Main.hs
-  other-modules:
-      ThinkOrSwim
-      Paths_trade_journal
-  hs-source-dirs:
-      tests/Provider/ThinkOrSwim
-  ghc-options: -Wall -Wno-missing-home-modules
-  build-depends:
-      HUnit
-    , aeson
-    , base >=4.5
-    , bytestring
-    , cassava
-    , comonad
-    , constraints
-    , containers
-    , data-default
-    , free
-    , hedgehog
-    , here
-    , lens
-    , megaparsec
-    , mtl
-    , pretty
-    , pretty-show
-    , profunctors
-    , row-types
-    , semigroupoids
-    , simple-amount >=0.2.0
-    , singletons
-    , split
-    , tasty
-    , tasty-hedgehog
-    , tasty-hunit
     , text
     , time
     , trade-journal

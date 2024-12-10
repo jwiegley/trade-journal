@@ -1,40 +1,13 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
-module Trade.Taxes.USA.WashSaleRule2 where
+module Trade.Journal.Process where
 
 import Amount
-import Data.Map (Map, alter)
+import Data.Map qualified as M
 import Data.Time
-import Trade.Data.Zipper
-
-data TimePrice = TimePrice
-  { price :: Amount 2,
-    time :: UTCTime
-  }
-  deriving (Eq, Show)
-
-data Lot = Lot
-  { lotAmount :: Amount 2,
-    lotDetail :: TimePrice
-  }
-  deriving (Eq, Show)
-
-data Position
-  = Open
-      { openLot :: Lot,
-        openBasis :: Maybe (Amount 2) -- if present, overrides lot price
-      }
-  | Closed
-      { closingLot :: Lot,
-        closingDetail :: TimePrice,
-        closingWashable :: Bool -- if True, closing can be washed
-      }
-  deriving (Eq, Show)
-
--- This must be an involutive (@f . f = id@) function that reorders
--- transactions according to the order they should be closed in, and undoes
--- that ordering if called again.
-type Strategy = [Position] -> [Position]
+import Trade.Journal.Types
+import Trade.Journal.Zipper
 
 data LotChange
   = NoChange
@@ -52,8 +25,8 @@ addLot (Lot xn xd) (Lot yn yd)
   | xd == yd = AddLot (Lot (xn + yn) xd)
   | otherwise = NoChange
 
-addToPositions :: Strategy -> Lot -> [Position] -> [Position]
-addToPositions strategy x = strategy . go x . strategy
+addToPositions :: Lot -> [Position] -> [Position]
+addToPositions = go
   where
     go y [] = [Open y Nothing]
     go y@(Lot _yn yd) (Open z@(Lot zn _zd) wash : zs) =
@@ -72,28 +45,15 @@ addToPositions strategy x = strategy . go x . strategy
           Closed z yd True : go w zs
     go y (c : zs) = c : go y zs
 
-addManyToPositions :: Strategy -> [Lot] -> [Position] -> [Position]
-addManyToPositions = flip . foldl' . flip . addToPositions
-
-identifyTrades ::
-  (Ord a) =>
-  Strategy ->
-  Map a [Position] ->
-  [(a, Lot)] ->
-  Map a [Position]
-identifyTrades strategy = foldl' (uncurry . identifyTrade)
-  where
-    identifyTrade m sym lot = alter (Just . go) sym m
-      where
-        go Nothing = [Open lot Nothing]
-        go (Just ps) = addToPositions strategy lot ps
+addManyToPositions :: [Lot] -> [Position] -> [Position]
+addManyToPositions = flip (foldl' (flip addToPositions))
 
 -- | A wash sale happens when you sell a security at a loss and buy a
 --   “substantially identical” security within 30 days before or after the
 --   sale.
 --
---   The two basic scenarios are as follows, where opening B and closing A are
---   within 30 days of each other:
+--   The three basic scenarios are as follows, where opening B and closing A
+--   are within 30 days of each other:
 --
 --     Open A --> Open B --> Close A at loss
 --                ^--------- WASH
@@ -154,14 +114,28 @@ washSales = survey go
 withinDays :: Integer -> UTCTime -> UTCTime -> Bool
 withinDays days x y = x `diffUTCTime` y < fromIntegral days * 86400
 
-gainLoss :: [Position] -> [(Position, Amount 2)]
+gainLoss :: Position -> Maybe (Amount 2)
 gainLoss
-  ( p@( Closed
-          (Lot n (TimePrice basis _openTime))
-          (TimePrice sale _closeTime)
-          _
-        )
-      : ps
-    ) = (p, n * (sale - basis)) : gainLoss ps
-gainLoss [] = []
-gainLoss (_ : ps) = gainLoss ps
+  ( Closed
+      (Lot n (TimePrice basis _openTime))
+      (TimePrice sale _closeTime)
+      _
+    ) =
+    Just (n * (sale - basis))
+gainLoss _ = Nothing
+
+processJournal :: (Ord a) => Ledger a -> Journal a -> Ledger a
+processJournal (Ledger poss) (Journal lots) =
+  Ledger (foldl' identifyTrade poss lots)
+  where
+    identifyTrade m (sym, lot) = M.alter (Just . go) sym m
+      where
+        go Nothing = [Open lot Nothing]
+        go (Just ps) = addToPositions lot ps
+
+processLedger ::
+  (Ord a) =>
+  (a -> [Position] -> [Position]) ->
+  Ledger a ->
+  Ledger a
+processLedger f (Ledger poss) = Ledger (M.mapWithKey f poss)

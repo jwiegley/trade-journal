@@ -1,4 +1,4 @@
-module src.Data.Zipper where
+module Trade.Journal.Zipper where
 
 open import Agda.Builtin.Equality
 open import Data.Nat

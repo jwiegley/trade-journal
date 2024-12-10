@@ -38,61 +38,68 @@ dependencies:
 library:
   source-dirs: src
   exposed-modules:
-    - Trade.Closings
-    - Trade.Crypto.ICP
-    - Trade.Data.Zipper
-    - Trade.Journal.Entry
-    - Trade.Journal.Parse
-    - Trade.Journal.Pipes
-    - Trade.Journal.Print
-    - Trade.Journal.Split
     - Trade.Journal.Types
-    - Trade.Journal.Utils
-    - Trade.Ledger
-    - Trade.Ledger.Entry
-    - Trade.Ledger.Render
-    - Trade.Process
-    - Trade.Provider.ThinkOrSwim
-    - Trade.Provider.Coinmetro
-    - Trade.Taxes.USA.WashSaleRule
-    - Trade.Taxes.USA.WashSaleRule2
+    - Trade.Journal.Parse
+    - Trade.Journal.Process
+    - Trade.Journal.Zipper
+    - Ledger
+    - Ledger.Entry
+    - Ledger.Render
+    # - Trade.Closings
+    # - Trade.Crypto.ICP
+    # - Trade.Data.Zipper
+    # - Trade.Journal.Entry
+    # - Trade.Journal.Parse
+    # - Trade.Journal.Pipes
+    # - Trade.Journal.Print
+    # - Trade.Journal.Split
+    # - Trade.Journal.Types
+    # - Trade.Journal.Utils
+    # - Trade.Ledger
+    # - Trade.Ledger.Entry
+    # - Trade.Ledger.Render
+    # - Trade.Process
+    # - Trade.Provider.ThinkOrSwim
+    # - Trade.Provider.Coinmetro
+    # - Trade.Taxes.USA.WashSaleRule
+    # - Trade.Taxes.USA.WashSaleRule2
 
-tests:
-  journal-tests:
-    main: Main.hs
-    source-dirs: tests/Journal
-    dependencies:
-      - HUnit
-      - hedgehog
-      - here
-      - tasty
-      - tasty-hedgehog
-      - tasty-hunit
-      - trade-journal
+# tests:
+#   journal-tests:
+#     main: Main.hs
+#     source-dirs: tests/Journal
+#     dependencies:
+#       - HUnit
+#       - hedgehog
+#       - here
+#       - tasty
+#       - tasty-hedgehog
+#       - tasty-hunit
+#       - trade-journal
 
-  thinkorswim-tests:
-    main: Main.hs
-    source-dirs: tests/Provider/ThinkOrSwim
-    dependencies:
-      - HUnit
-      - hedgehog
-      - here
-      - tasty
-      - tasty-hedgehog
-      - tasty-hunit
-      - trade-journal
+#   thinkorswim-tests:
+#     main: Main.hs
+#     source-dirs: tests/Provider/ThinkOrSwim
+#     dependencies:
+#       - HUnit
+#       - hedgehog
+#       - here
+#       - tasty
+#       - tasty-hedgehog
+#       - tasty-hunit
+#       - trade-journal
 
-  coinmetro-tests:
-    main: Main.hs
-    source-dirs: tests/Provider/Coinmetro
-    dependencies:
-      - HUnit
-      - hedgehog
-      - here
-      - tasty
-      - tasty-hedgehog
-      - tasty-hunit
-      - trade-journal
+#   coinmetro-tests:
+#     main: Main.hs
+#     source-dirs: tests/Provider/Coinmetro
+#     dependencies:
+#       - HUnit
+#       - hedgehog
+#       - here
+#       - tasty
+#       - tasty-hedgehog
+#       - tasty-hunit
+#       - trade-journal
 
 executables:
   trade-journal:

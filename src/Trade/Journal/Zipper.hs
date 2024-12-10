@@ -7,7 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Trade.Data.Zipper where
+module Trade.Journal.Zipper where
 
 import Control.Arrow (first)
 import Control.Comonad
@@ -23,11 +23,11 @@ import GHC.Generics
 
 data Zipper a = MkZipper {prefix :: [a], focus :: a, suffix :: [a]}
 
-deriving instance Show a => Show (Zipper a)
+deriving instance (Show a) => Show (Zipper a)
 
-deriving instance Eq a => Eq (Zipper a)
+deriving instance (Eq a) => Eq (Zipper a)
 
-deriving instance Generic a => Generic (Zipper a)
+deriving instance (Generic a) => Generic (Zipper a)
 
 deriving instance Functor Zipper
 
@@ -71,8 +71,8 @@ instance Traversable1 Zipper where
   traverse1 f (MkZipper (lh : lt) x (rh : rt)) =
     (\l' x' r' -> MkZipper (toList l') x' (toList r'))
       <$> traverse1 f (lh :| lt)
-      <.> f x
-      <.> traverse1 f (rh :| rt)
+        <.> f x
+        <.> traverse1 f (rh :| rt)
 
 instance Extend Zipper where
   duplicated z =
@@ -105,14 +105,14 @@ overlay (MkZipper xs _ (z : zs)) [] = Just (MkZipper xs z zs)
 overlay (MkZipper xs _ zs) (w : ws) =
   Just (MkZipper xs w (ws ++ zs))
 
-zipper :: MonadPlus f => (a -> Bool) -> [a] -> f (Zipper a)
+zipper :: (MonadPlus f) => (a -> Bool) -> [a] -> f (Zipper a)
 zipper f xs =
   case break f xs of
     (ys, z : zs) -> return (MkZipper (reverse ys) z zs)
     _ -> mzero
 
 spanM ::
-  Monad m => MonadPlus f => (a -> m Bool) -> [a] -> m (f a, [a])
+  (Monad m) => (MonadPlus f) => (a -> m Bool) -> [a] -> m (f a, [a])
 spanM _ [] = return (mzero, [])
 spanM p (x : xs) =
   p x
@@ -124,11 +124,11 @@ spanM p (x : xs) =
       False -> return (mzero, x : xs)
 
 breakM ::
-  Monad m => MonadPlus f => (a -> m Bool) -> [a] -> m (f a, [a])
+  (Monad m) => (MonadPlus f) => (a -> m Bool) -> [a] -> m (f a, [a])
 breakM p = spanM $ return . not <=< p
 
 zipperM ::
-  Monad m => MonadPlus f => (a -> m Bool) -> [a] -> m (f (Zipper a))
+  (Monad m) => (MonadPlus f) => (a -> m Bool) -> [a] -> m (f (Zipper a))
 zipperM k xs =
   breakM k xs
     <&> \case
@@ -154,7 +154,7 @@ survey f = maybe [] go . fromList
     go :: Zipper a -> [a]
     go z = maybe (unzipper (f z)) go (right (f z))
 
-surveyM :: forall m a. Monad m => (Zipper a -> m (Zipper a)) -> [a] -> m [a]
+surveyM :: forall m a. (Monad m) => (Zipper a -> m (Zipper a)) -> [a] -> m [a]
 surveyM f = maybe (return []) go . fromList
   where
     go :: Zipper a -> m [a]

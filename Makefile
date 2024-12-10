@@ -1,6 +1,6 @@
-all: src/Data/Zipper.hs
+all: src/Trade/Journal/Zipper.hs
 
-src/Data/Zipper.hs: src/Data/Zipper.agda
+src/Trade/Journal/Zipper.hs: src/Trade/Journal/Zipper.agda
 	rm -f agda2hs
 	cp $$(which agda) ./agda2hs
 	sed -i -e 's%/nix/store.*/bin/agda%agda2hs%' agda2hs
