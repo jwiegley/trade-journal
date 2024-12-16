@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f9f0a6820f9df49a4a4fbfe42cad4fe256954c08ea27a34adf4b63b6f9dc5798
+-- hash: 1cd7aa8a3562d17d40597f638db3b7dbb7fa46206eb84a27abec2f1bd4573b58
 
 name:           trade-journal
 version:        0.0.2
@@ -56,7 +56,7 @@ library
     , vector
   default-language: Haskell2010
 
-executable trade-journal
+executable trade
   main-is: Main.hs
   other-modules:
       Options

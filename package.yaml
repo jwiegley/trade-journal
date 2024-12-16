@@ -102,7 +102,7 @@ library:
 #       - trade-journal
 
 executables:
-  trade-journal:
+  trade:
     main: Main.hs
     source-dirs: bin
     other-modules:
