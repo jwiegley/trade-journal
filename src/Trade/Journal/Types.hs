@@ -18,16 +18,22 @@ data Lot = Lot
   }
   deriving (Eq, Show)
 
+data OpenPosition = OpenPosition
+  { openLot :: Lot,
+    openBasis :: Maybe (Amount 2) -- if present, overrides lot price
+  }
+  deriving (Eq, Show)
+
+data ClosedPosition = ClosedPosition
+  { closingLot :: Lot,
+    closingDetail :: TimePrice,
+    closingWashable :: Bool -- if True, closing can be washed
+  }
+  deriving (Eq, Show)
+
 data Position
-  = Open
-      { openLot :: Lot,
-        openBasis :: Maybe (Amount 2) -- if present, overrides lot price
-      }
-  | Closed
-      { closingLot :: Lot,
-        closingDetail :: TimePrice,
-        closingWashable :: Bool -- if True, closing can be washed
-      }
+  = Open OpenPosition
+  | Closed ClosedPosition
   deriving (Eq, Show)
 
 -- This must be an involutive (@f . f = id@) function that reorders

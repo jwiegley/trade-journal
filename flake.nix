@@ -35,7 +35,7 @@
         })
       ];
     in {
-      packages.default = flake.packages."trade-journal:exe:trade-journal";
+      packages.default = flake.packages."trade-journal:exe:trade";
       devShell = flake.devShell // {
         withHoogle = true;
       };

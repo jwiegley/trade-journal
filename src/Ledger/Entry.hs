@@ -120,7 +120,7 @@ entryTransaction entry =
 
 tradeTransaction :: Text -> Text -> Text -> Position -> Transaction Position 2
 tradeTransaction cashAccount equitiesAccount symbol = \case
-  pos@Open {..} ->
+  pos@(Open (OpenPosition {..})) ->
     Transaction
       { _actualDate = utctDay (time (lotDetail openLot)),
         _effectiveDate = Nothing,
@@ -162,7 +162,7 @@ tradeTransaction cashAccount equitiesAccount symbol = \case
         _xactMetadata = mempty,
         _provenance = pos
       }
-  pos@Closed {..} ->
+  pos@(Closed (ClosedPosition {..})) ->
     Transaction
       { _actualDate = utctDay (time (lotDetail closingLot)),
         _effectiveDate = Nothing,
