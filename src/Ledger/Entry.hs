@@ -9,6 +9,7 @@ module Ledger.Entry where
 import Data.Text (Text)
 import Data.Time
 import Ledger hiding (account, price, symbol)
+import Trade.Journal.Process
 import Trade.Journal.Types
 
 {-
@@ -204,3 +205,112 @@ tradeTransaction cashAccount equitiesAccount symbol = \case
         _xactMetadata = mempty,
         _provenance = pos
       }
+
+transactionFromChanges ::
+  Text ->
+  Text ->
+  Text ->
+  Lot ->
+  [PositionChange] ->
+  Transaction (Lot, [PositionChange]) 2
+transactionFromChanges cashAccount equitiesAccount symbol lot changes =
+  Transaction
+    { _actualDate = utctDay (time (lotDetail lot)),
+      _effectiveDate = Nothing,
+      _code = "TRADE",
+      _payee =
+        ( if lotAmount lot < 0
+            then "Sell "
+            else "Buy "
+        )
+          <> symbol,
+      _postings = concatMap go changes,
+      _xactMetadata = mempty,
+      _provenance = (lot, changes)
+    }
+  where
+    go :: PositionChange -> [Posting 2]
+    go = \case
+      PositionUnchanged _ -> []
+      PositionOpen openLot ->
+        [ Posting
+            { _account = Equities equitiesAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount =
+                CommodityAmount
+                  CommodityLot
+                    { _instrument = Miscellaneous,
+                      _quantity = lotAmount openLot,
+                      _symbol = symbol,
+                      _cost = Nothing,
+                      _purchaseDate =
+                        Just (utctDay (time (lotDetail openLot))),
+                      _note = Nothing,
+                      _price = Just (price (lotDetail openLot))
+                    },
+              _postMetadata = mempty
+            },
+          Posting
+            { _account = Cash cashAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount = NullAmount,
+              _postMetadata = mempty
+            }
+        ]
+      PositionIncrease _op _n -> []
+      PositionPartialClose _op closingLot ->
+        [ Posting
+            { _account = Cash cashAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount =
+                CommodityAmount
+                  CommodityLot
+                    { _instrument = Miscellaneous,
+                      _quantity = lotAmount closingLot,
+                      _symbol = symbol,
+                      _cost = Nothing,
+                      _purchaseDate =
+                        Just (utctDay (time (lotDetail closingLot))),
+                      _note = Nothing,
+                      _price = Just (price (lotDetail closingLot))
+                    },
+              _postMetadata = mempty
+            },
+          Posting
+            { _account = Equities equitiesAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount = NullAmount,
+              _postMetadata = mempty
+            }
+        ]
+      PositionClose (OpenPosition closingLot costBasis) tp ->
+        [ Posting
+            { _account = Cash cashAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount =
+                CommodityAmount
+                  CommodityLot
+                    { _instrument = Miscellaneous,
+                      _quantity = lotAmount closingLot,
+                      _symbol = symbol,
+                      _cost = costBasis,
+                      _purchaseDate =
+                        Just (utctDay (time (lotDetail closingLot))),
+                      _note = Nothing,
+                      _price = Just (price tp)
+                    },
+              _postMetadata = mempty
+            },
+          Posting
+            { _account = Equities equitiesAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount = NullAmount,
+              _postMetadata = mempty
+            }
+        ]

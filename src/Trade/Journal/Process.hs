@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE MultiWayIf #-}
 
 module Trade.Journal.Process where
 
@@ -21,23 +22,29 @@ data LotChange
 addLot :: Lot -> Lot -> LotChange
 addLot (Lot xn xd) (Lot yn yd)
   | xn > 0 && yn < 0 || xn < 0 && yn > 0 =
-      let diff = abs xn - abs yn
-       in if diff == 0
-            then CloseLot
-            else
-              if diff > 0
-                then ReduceLot
-                else ReplaceLot (xn + yn)
+      if
+        | diff == 0 -> CloseLot
+        | diff > 0 -> ReduceLot
+        | otherwise -> ReplaceLot (xn + yn)
   | xd == yd = AddLot
   | otherwise = NoChange
+  where
+    diff = abs xn - abs yn
 
 data PositionChange
-  = PositionUnchanged Position
-  | PositionOpen Lot
-  | PositionIncrease OpenPosition (Amount 2)
-  | -- | @lotAmount lot < lotAmount (openLot pos)
+  = -- | Position not changed by considered lot.
+    PositionUnchanged Position
+  | -- | Lot opened an entirely new position.
+    PositionOpen Lot
+  | -- | Lot resulted in increase the amount of an existing, open position by
+    -- the given amount.
+    PositionIncrease OpenPosition (Amount 2)
+  | -- | Lot resulted in partially closing an existing, open position.
     PositionPartialClose OpenPosition Lot
-  | PositionClose OpenPosition TimePrice
+  | -- | Lot resulted in fully closing an existing, open position. Note that
+    --   if the size of the lot was larger than the position, there will be an
+    --   additional value of 'PositionOpen' in the resulting list.
+    PositionClose OpenPosition TimePrice
   deriving (Eq, Show)
 
 applyLot :: Lot -> [Position] -> [PositionChange]
@@ -64,8 +71,8 @@ changedPositions (x : xs) = case x of
     Open (OpenPosition (Lot (n + m) tpo) wash) : ys
   PositionPartialClose (OpenPosition (Lot n tpo) wash) (Lot m tpc)
     | m < n ->
-        Closed (ClosedPosition (Lot m tpo) tpc (isNothing wash))
-          : Open (OpenPosition (Lot (n - m) tpo) wash)
+        Closed (ClosedPosition (Lot (-m) tpo) tpc (isNothing wash))
+          : Open (OpenPosition (Lot (n + m) tpo) wash)
           : ys
     | otherwise ->
         error "Partially closing position with too large an amount"
@@ -76,26 +83,6 @@ changedPositions (x : xs) = case x of
 
 addToPositions :: Lot -> [Position] -> [Position]
 addToPositions = (changedPositions .) . applyLot
-
-{-
-  where
-    go y [] = [Open y Nothing]
-    go y@(Lot _yn yd) (Open z@(Lot zn _zd) wash : zs) =
-      case z `addLot` y of
-        NoChange ->
-          Open z wash : go y zs
-        AddLot w ->
-          Open w wash : zs
-        ReduceLot z'@(Lot zn' zd') ->
-          ( if zn' == 0
-              then id
-              else (Open z' wash :)
-          )
-            $ Closed (Lot (zn - zn') zd') yd True : zs
-        ReplaceLot w ->
-          Closed z yd True : go w zs
-    go y (c : zs) = c : go y zs
--}
 
 addManyToPositions :: [Lot] -> [Position] -> [Position]
 addManyToPositions = flip (foldl' (flip addToPositions))
@@ -194,10 +181,8 @@ processJournal :: (Ord a) => Ledger a -> Journal a -> Ledger a
 processJournal (Ledger poss) (Journal lots) =
   Ledger (foldl' identifyTrade poss lots)
   where
-    identifyTrade m (sym, lot) = M.alter (Just . go) sym m
-      where
-        go Nothing = [Open (OpenPosition lot Nothing)]
-        go (Just ps) = addToPositions lot ps
+    identifyTrade m (sym, lot) =
+      M.alter (Just . addToPositions lot . concat) sym m
 
 processLedger ::
   (Ord a) =>
