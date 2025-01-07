@@ -68,7 +68,8 @@ data PostingAmount n
 makePrisms ''PostingAmount
 
 data Account
-  = Equities !Text
+  = Account !Text
+  | Equities !Text
   | Futures !Text
   | Options !Text
   | FuturesOptions !Text

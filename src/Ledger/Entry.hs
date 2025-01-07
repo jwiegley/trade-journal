@@ -12,7 +12,6 @@ import Data.Time
 -- import Text.Show.Pretty (ppShow)
 -- import Debug.Trace (trace)
 import Ledger hiding (account, price, symbol)
-import Trade.Journal.Process
 import Trade.Journal.Types
 
 {-
@@ -214,121 +213,146 @@ transactionFromChanges ::
   Text ->
   Text ->
   Text ->
-  Lot ->
+  Trade ->
   [PositionChange] ->
-  Transaction (Lot, [PositionChange]) 2
-transactionFromChanges cashAccount equitiesAccount symbol lot changes =
-  Transaction
-    { _actualDate = utctDay (time (lotDetail lot)),
-      _effectiveDate = Nothing,
-      _code = "TRADE",
-      _payee =
-        ( if lotAmount lot < 0
-            then "Sell "
-            else "Buy "
-        )
-          <> symbol,
-      _postings = concatMap go changes,
-      _xactMetadata = mempty,
-      _provenance = (lot, changes)
-    }
-  where
-    go :: PositionChange -> [Posting 2]
-    go = \case
-      PositionUnchanged _ -> []
-      PositionOpen openLot ->
-        openPosition openLot (lotAmount openLot)
-      PositionIncrease (OpenPosition openLot _costBasis) n ->
-        openPosition openLot n
-      PositionPartialClose (OpenPosition openLot costBasis) closingLot ->
-        -- trace ("openLot = " ++ ppShow openLot) $
-        --   trace ("costBasis = " ++ ppShow costBasis) $
-        --     trace ("closingLot = " ++ ppShow closingLot) $
-        closePosition
-          openLot
-          costBasis
-          (lotAmount closingLot)
-          (lotDetail closingLot)
-      PositionClose (OpenPosition openLot costBasis) tp ->
-        closePosition openLot costBasis (lotAmount openLot) tp
+  Transaction (Trade, [PositionChange]) 2
+transactionFromChanges
+  cashAccount
+  equitiesAccount
+  symbol
+  trade@(Trade lot fees commissions)
+  changes =
+    Transaction
+      { _actualDate = utctDay (time (lotDetail lot)),
+        _effectiveDate = Nothing,
+        _code = "TRADE",
+        _payee =
+          ( if lotAmount lot < 0
+              then "Sell "
+              else "Buy "
+          )
+            <> symbol,
+        _postings = concatMap go changes ++ feePostings,
+        _xactMetadata = mempty,
+        _provenance = (trade, changes)
+      }
+    where
+      go :: PositionChange -> [Posting 2]
+      go = \case
+        PositionUnchanged _ -> []
+        PositionOpen openLot ->
+          openPostings openLot (lotAmount openLot)
+        PositionIncrease (OpenPosition openLot _costBasis) n ->
+          openPostings openLot n
+        PositionPartialClose (OpenPosition openLot costBasis) closingLot ->
+          -- trace ("openLot = " ++ ppShow openLot) $
+          --   trace ("costBasis = " ++ ppShow costBasis) $
+          --     trace ("closingLot = " ++ ppShow closingLot) $
+          closePostings
+            openLot
+            costBasis
+            (lotAmount closingLot)
+            (lotDetail closingLot)
+        PositionClose (OpenPosition openLot costBasis) tp ->
+          closePostings openLot costBasis (lotAmount openLot) tp
 
-    openPosition openLot n =
-      [ Posting
-          { _account = Equities equitiesAccount,
-            _isVirtual = False,
-            _isBalancing = True,
-            _amount =
-              CommodityAmount
-                CommodityLot
-                  { _instrument = Miscellaneous,
-                    _quantity = n,
-                    _symbol = symbol,
-                    _cost = Nothing,
-                    _purchaseDate = Nothing,
-                    _note = Nothing,
-                    _price = Just (price (lotDetail openLot))
-                  },
-            _postMetadata = mempty
-          },
-        Posting
-          { _account = Cash cashAccount,
-            _isVirtual = False,
-            _isBalancing = True,
-            _amount =
-              DollarAmount
-                (-price (lotDetail openLot) * n),
-            _postMetadata = mempty
-          }
-      ]
+      feePostings =
+        [ Posting
+            { _account = Fees,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount = DollarAmount fees,
+              _postMetadata = mempty
+            }
+          | fees > 0
+        ]
+          ++ [ Posting
+                 { _account = Commissions,
+                   _isVirtual = False,
+                   _isBalancing = True,
+                   _amount = DollarAmount commissions,
+                   _postMetadata = mempty
+                 }
+               | commissions > 0
+             ]
 
-    closePosition openLot costBasis n tp =
-      [ Posting
-          { _account = Equities equitiesAccount,
-            _isVirtual = False,
-            _isBalancing = True,
-            _amount =
-              CommodityAmount
-                CommodityLot
-                  { _instrument = Miscellaneous,
-                    _quantity = n,
-                    _symbol = symbol,
-                    _cost =
-                      Just
-                        ( fromMaybe
-                            (price (lotDetail openLot))
-                            costBasis
-                        ),
-                    _purchaseDate =
-                      Just (utctDay (time (lotDetail openLot))),
-                    _note = Nothing,
-                    _price = Just (price tp)
-                  },
-            _postMetadata = mempty
-          },
-        Posting
-          { _account = Cash cashAccount,
-            _isVirtual = False,
-            _isBalancing = True,
-            _amount = DollarAmount (-price tp * n),
-            _postMetadata = mempty
-          },
-        Posting
-          { _account =
-              if time tp `diffUTCTime` time (lotDetail openLot)
-                < 365 * 24 * 3600
-                then
-                  if diff < 0
-                    then CapitalGainShort
-                    else CapitalLossShort
-                else
-                  if diff < 0
-                    then CapitalGainLong
-                    else CapitalLossLong,
-            _isVirtual = False,
-            _isBalancing = True,
-            _amount = DollarAmount (-diff * n),
-            _postMetadata = mempty
-          }
-      ]
-      where
-        diff = price (lotDetail openLot) - price tp
+      openPostings openLot n =
+        [ Posting
+            { _account = Account equitiesAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount =
+                CommodityAmount
+                  CommodityLot
+                    { _instrument = Miscellaneous,
+                      _quantity = n,
+                      _symbol = symbol,
+                      _cost = Nothing,
+                      _purchaseDate = Nothing,
+                      _note = Nothing,
+                      _price = Just (price (lotDetail openLot))
+                    },
+              _postMetadata = mempty
+            },
+          Posting
+            { _account = Cash cashAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount =
+                DollarAmount
+                  (-price (lotDetail openLot) * n - fees - commissions),
+              _postMetadata = mempty
+            }
+        ]
+
+      closePostings openLot costBasis n tp =
+        [ Posting
+            { _account = Account equitiesAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount =
+                CommodityAmount
+                  CommodityLot
+                    { _instrument = Miscellaneous,
+                      _quantity = n,
+                      _symbol = symbol,
+                      _cost =
+                        Just
+                          ( fromMaybe
+                              (price (lotDetail openLot))
+                              costBasis
+                          ),
+                      _purchaseDate =
+                        Just (utctDay (time (lotDetail openLot))),
+                      _note = Nothing,
+                      _price = Just (price tp)
+                    },
+              _postMetadata = mempty
+            },
+          Posting
+            { _account = Cash cashAccount,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount = DollarAmount (-price tp * n),
+              _postMetadata = mempty
+            },
+          Posting
+            { _account =
+                if time tp `diffUTCTime` time (lotDetail openLot)
+                  < 365 * 24 * 3600
+                  then
+                    if diff < 0
+                      then CapitalGainShort
+                      else CapitalLossShort
+                  else
+                    if diff < 0
+                      then CapitalGainLong
+                      else CapitalLossLong,
+              _isVirtual = False,
+              _isBalancing = True,
+              _amount = DollarAmount (-diff * n),
+              _postMetadata = mempty
+            }
+        ]
+        where
+          diff = price (lotDetail openLot) - price tp

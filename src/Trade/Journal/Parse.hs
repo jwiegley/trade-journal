@@ -15,6 +15,7 @@ import Control.Lens hiding (Context, each, noneOf)
 import Control.Monad.IO.Class
 import Data.Char
 import Data.Functor
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
@@ -47,22 +48,21 @@ lexeme p = p <* whiteSpace
 keyword :: Text -> Parser Text
 keyword = lexeme . string
 
-parseJournal ::
-  (MonadFail m, MonadIO m) =>
-  FilePath ->
-  m (Journal T.Text)
+parseJournal :: (MonadFail m, MonadIO m) => FilePath -> m (Journal T.Text)
 parseJournal path = do
   input <- liftIO $ TL.readFile path
   parseJournalFromText path input
 
-parseJournalFromText ::
-  (MonadFail m) =>
-  FilePath ->
-  Text ->
-  m (Journal T.Text)
+parseJournalFromText :: (MonadFail m) => FilePath -> Text -> m (Journal T.Text)
 parseJournalFromText path input =
   case parse
-    ( many (whiteSpace *> parseTrade)
+    ( many
+        ( do
+            trade <- parseTrade
+            skipMany hspace1
+            _ <- newline
+            pure trade
+        )
         <* eof
     )
     path
@@ -115,7 +115,7 @@ parseTime = do
 
 parseAmount :: (KnownNat n) => Parser (Amount n)
 parseAmount =
-  read <$> some (digitChar <|> char '.') <* whiteSpace
+  read <$> some (digitChar <|> char '.') <* skipMany hspace1
 
 parseSymbol :: Parser Text
 parseSymbol =
@@ -123,8 +123,8 @@ parseSymbol =
     <$> some (satisfy (\c -> isAlphaNum c || c `elem` ['.', '/']))
     <* whiteSpace
 
-parseTrade :: Parser (T.Text, Lot)
-parseTrade = do
+parseLot :: Parser (T.Text, Lot)
+parseLot = do
   tm <- Trade.Journal.Parse.parseTime
   action <- (True <$ keyword "buy") <|> (False <$ keyword "sell")
   amt <- (if action then id else negate) <$> parseAmount
@@ -132,3 +132,10 @@ parseTrade = do
   _ <- char '@' <* whiteSpace
   pr <- parseAmount
   pure (sym, Lot amt (TimePrice pr tm))
+
+parseTrade :: Parser (T.Text, Trade)
+parseTrade = do
+  (sym, lot) <- parseLot
+  fees <- fromMaybe 0 <$> optional (keyword "fees" *> parseAmount)
+  commissions <- fromMaybe 0 <$> optional (keyword "commissions" *> parseAmount)
+  pure (sym, Trade lot fees commissions)

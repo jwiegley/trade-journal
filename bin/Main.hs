@@ -5,11 +5,14 @@ module Main where
 
 import Control.Monad
 import Data.Map.Strict qualified as M
-import Data.Text.IO qualified as TL
+-- import Text.Show.Pretty
+
+import Data.Maybe (fromMaybe)
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import Ledger.Entry
 import Ledger.Render
 import Options qualified
--- import Text.Show.Pretty
 import Trade.Journal.Parse
 import Trade.Journal.Process
 import Trade.Journal.Types
@@ -22,7 +25,7 @@ main = do
   -- pPrint journal
 
   ledger <- (\f -> foldM f newLedger (getJournal journal)) $
-    \(Ledger ledger) (sym, lot) ->
+    \(Ledger ledger) (sym, trade@(Trade lot _ _)) ->
       fmap Ledger $ (\f -> M.alterF f sym ledger) $ \mposs -> do
         -- putStrLn "----------------------------------------"
         -- pPrint mposs
@@ -31,15 +34,15 @@ main = do
         -- pPrint changes
         let xact =
               transactionFromChanges
-                "Accounts:Cash"
-                "Equity"
+                ""
+                (T.pack (fromMaybe "" (Options.account opts)))
                 sym
-                lot
+                trade
                 changes
         -- pPrint xact
-        mapM_ TL.putStrLn $
-          renderTransaction "Foo" xact
-        TL.putStrLn ""
+        mapM_ T.putStrLn $
+          renderTransaction (T.pack (Options.broker opts)) xact
+        T.putStrLn ""
         pure $ Just $ changedPositions changes
 
   -- pPrint ledger

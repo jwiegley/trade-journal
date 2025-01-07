@@ -31,22 +31,6 @@ addLot (Lot xn xd) (Lot yn yd)
   where
     diff = abs xn - abs yn
 
-data PositionChange
-  = -- | Position not changed by considered lot.
-    PositionUnchanged Position
-  | -- | Lot opened an entirely new position.
-    PositionOpen Lot
-  | -- | Lot resulted in increase the amount of an existing, open position by
-    -- the given amount.
-    PositionIncrease OpenPosition (Amount 2)
-  | -- | Lot resulted in partially closing an existing, open position.
-    PositionPartialClose OpenPosition Lot
-  | -- | Lot resulted in fully closing an existing, open position. Note that
-    --   if the size of the lot was larger than the position, there will be an
-    --   additional value of 'PositionOpen' in the resulting list.
-    PositionClose OpenPosition TimePrice
-  deriving (Eq, Show)
-
 applyLot :: Lot -> [Position] -> [PositionChange]
 applyLot = go
   where
@@ -176,13 +160,6 @@ gainLoss
     ) =
     Just (n * (sale - basis))
 gainLoss _ = Nothing
-
-processJournal :: (Ord a) => Ledger a -> Journal a -> Ledger a
-processJournal (Ledger poss) (Journal lots) =
-  Ledger (foldl' identifyTrade poss lots)
-  where
-    identifyTrade m (sym, lot) =
-      M.alter (Just . addToPositions lot . concat) sym m
 
 processLedger ::
   (Ord a) =>

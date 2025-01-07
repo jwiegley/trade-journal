@@ -52,13 +52,23 @@ renderPostingAmount (CommodityAmount CommodityLot {..}) =
 
 renderAccount :: Text -> Account -> Text
 renderAccount name = \case
+  Account "" -> "Assets:" <> name
+  Account actId -> "Assets:" <> name <> ":" <> actId
+  Equities "" -> "Assets:" <> name <> ":Equities"
   Equities actId -> "Assets:" <> name <> ":" <> actId <> ":Equities"
+  Futures "" -> "Assets:" <> name <> ":Futures"
   Futures actId -> "Assets:" <> name <> ":" <> actId <> ":Futures"
+  Options "" -> "Assets:" <> name <> ":Options"
   Options actId -> "Assets:" <> name <> ":" <> actId <> ":Options"
+  FuturesOptions "" -> "Assets:" <> name <> ":Futures:Options"
   FuturesOptions actId -> "Assets:" <> name <> ":" <> actId <> ":Futures:Options"
+  Forex "" -> "Assets:" <> name <> ":Forex"
   Forex actId -> "Assets:" <> name <> ":" <> actId <> ":Forex"
+  Cash "" -> "Assets:" <> name <> ":Cash"
   Cash actId -> "Assets:" <> name <> ":" <> actId <> ":Cash"
+  Bonds "" -> "Assets:" <> name <> ":Bonds"
   Bonds actId -> "Assets:" <> name <> ":" <> actId <> ":Bonds"
+  MoneyMarkets "" -> "Assets:" <> name <> ":MoneyMarkets"
   MoneyMarkets actId -> "Assets:" <> name <> ":" <> actId <> ":MoneyMarkets"
   Fees -> "Expenses:" <> name <> ":Fees"
   Charges -> "Expenses:" <> name <> ":Charges"

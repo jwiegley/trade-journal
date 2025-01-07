@@ -19,6 +19,8 @@ tradeJournalSummary =
 data Options = Options
   { verbose :: !Bool,
     journalFile :: !FilePath,
+    broker :: !String,
+    account :: !(Maybe String),
     command :: !String
   }
   deriving (Show, Eq)
@@ -35,6 +37,18 @@ tradeJournalOpts =
       ( short 'f'
           <> long "file"
           <> help "Path to journal file"
+      )
+    <*> strOption
+      ( short 'b'
+          <> long "broker"
+          <> help "Name of brokerage account"
+      )
+    <*> optional
+      ( strOption
+          ( short 'a'
+              <> long "account"
+              <> help "Name of account at the brokerage"
+          )
       )
     <*> strArgument (help "Command to execute")
 

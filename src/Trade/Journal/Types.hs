@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Trade.Journal.Types where
 
@@ -18,6 +19,13 @@ data Lot = Lot
   }
   deriving (Eq, Show)
 
+data Trade = Trade
+  { tradeLot :: Lot,
+    tradeFees :: Amount 2,
+    tradeCommission :: Amount 2
+  }
+  deriving (Eq, Show)
+
 data OpenPosition = OpenPosition
   { openLot :: Lot,
     openBasis :: Maybe (Amount 2) -- if present, overrides lot price
@@ -31,10 +39,39 @@ data ClosedPosition = ClosedPosition
   }
   deriving (Eq, Show)
 
+-- | Position is basically Either an open or closed position.
 data Position
   = Open OpenPosition
   | Closed ClosedPosition
   deriving (Eq, Show)
+
+data PositionChange
+  = -- | Position not changed by considered lot.
+    PositionUnchanged Position
+  | -- | Lot opened an entirely new position.
+    PositionOpen Lot
+  | -- | Lot resulted in increase the amount of an existing, open position by
+    --   the given amount. NOTE: Lot details must match exactly (same basis
+    --   price and date), otherwise it represents a new position.
+    PositionIncrease OpenPosition (Amount 2)
+  | -- | Lot resulted in partially closing an existing, open position. NOTE:
+    --   Lot amount must be less than the size of the open position.
+    PositionPartialClose OpenPosition Lot
+  | -- | Lot resulted in fully closing an existing, open position. Note that
+    --   if the size of the lot was larger than the position, there will be an
+    --   additional value of 'PositionOpen' in the resulting list. NOTE: Lot
+    --   amount must exactly match size of open position.
+    PositionClose OpenPosition TimePrice
+  deriving (Eq, Show)
+
+validPositionChange :: PositionChange -> Bool
+validPositionChange = \case
+  PositionUnchanged {} -> True
+  PositionOpen {} -> True
+  PositionIncrease {} -> True
+  PositionPartialClose (OpenPosition x _) y ->
+    lotAmount y < lotAmount x
+  PositionClose {} -> True
 
 -- This must be an involutive (@f . f = id@) function that reorders
 -- transactions according to the order they should be closed in, and undoes
@@ -42,7 +79,7 @@ data Position
 -- `reverse`.
 type Strategy = [Position] -> [Position]
 
-newtype Journal a = Journal {getJournal :: [(a, Lot)]}
+newtype Journal a = Journal {getJournal :: [(a, Trade)]}
   deriving (Eq, Show)
 
 newJournal :: Journal a
