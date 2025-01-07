@@ -6,8 +6,11 @@
 
 module Ledger.Entry where
 
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time
+-- import Text.Show.Pretty (ppShow)
+-- import Debug.Trace (trace)
 import Ledger hiding (account, price, symbol)
 import Trade.Journal.Process
 import Trade.Journal.Types
@@ -119,8 +122,9 @@ entryTransaction entry =
         & provenance %~ fmap DepositEntry
 -}
 
-tradeTransaction :: Text -> Text -> Text -> Position -> Transaction Position 2
-tradeTransaction cashAccount equitiesAccount symbol = \case
+positionAssertionTransaction ::
+  Text -> Text -> Text -> Position -> Transaction Position 2
+positionAssertionTransaction cashAccount equitiesAccount symbol = \case
   pos@(Open (OpenPosition {..})) ->
     Transaction
       { _actualDate = utctDay (time (lotDetail openLot)),
@@ -233,84 +237,98 @@ transactionFromChanges cashAccount equitiesAccount symbol lot changes =
     go = \case
       PositionUnchanged _ -> []
       PositionOpen openLot ->
-        [ Posting
-            { _account = Equities equitiesAccount,
-              _isVirtual = False,
-              _isBalancing = True,
-              _amount =
-                CommodityAmount
-                  CommodityLot
-                    { _instrument = Miscellaneous,
-                      _quantity = lotAmount openLot,
-                      _symbol = symbol,
-                      _cost = Nothing,
-                      _purchaseDate =
-                        Just (utctDay (time (lotDetail openLot))),
-                      _note = Nothing,
-                      _price = Just (price (lotDetail openLot))
-                    },
-              _postMetadata = mempty
-            },
-          Posting
-            { _account = Cash cashAccount,
-              _isVirtual = False,
-              _isBalancing = True,
-              _amount = NullAmount,
-              _postMetadata = mempty
-            }
-        ]
-      PositionIncrease _op _n -> []
-      PositionPartialClose _op closingLot ->
-        [ Posting
-            { _account = Cash cashAccount,
-              _isVirtual = False,
-              _isBalancing = True,
-              _amount =
-                CommodityAmount
-                  CommodityLot
-                    { _instrument = Miscellaneous,
-                      _quantity = lotAmount closingLot,
-                      _symbol = symbol,
-                      _cost = Nothing,
-                      _purchaseDate =
-                        Just (utctDay (time (lotDetail closingLot))),
-                      _note = Nothing,
-                      _price = Just (price (lotDetail closingLot))
-                    },
-              _postMetadata = mempty
-            },
-          Posting
-            { _account = Equities equitiesAccount,
-              _isVirtual = False,
-              _isBalancing = True,
-              _amount = NullAmount,
-              _postMetadata = mempty
-            }
-        ]
-      PositionClose (OpenPosition closingLot costBasis) tp ->
-        [ Posting
-            { _account = Cash cashAccount,
-              _isVirtual = False,
-              _isBalancing = True,
-              _amount =
-                CommodityAmount
-                  CommodityLot
-                    { _instrument = Miscellaneous,
-                      _quantity = lotAmount closingLot,
-                      _symbol = symbol,
-                      _cost = costBasis,
-                      _purchaseDate =
-                        Just (utctDay (time (lotDetail closingLot))),
-                      _note = Nothing,
-                      _price = Just (price tp)
-                    },
-              _postMetadata = mempty
-            },
-          Posting
-            { _account = Equities equitiesAccount,
-              _isVirtual = False,
-              _isBalancing = True,
-              _amount = NullAmount,
-              _postMetadata = mempty
-            }
-        ]
+        openPosition openLot (lotAmount openLot)
+      PositionIncrease (OpenPosition openLot _costBasis) n ->
+        openPosition openLot n
+      PositionPartialClose (OpenPosition openLot costBasis) closingLot ->
+        -- trace ("openLot = " ++ ppShow openLot) $
+        --   trace ("costBasis = " ++ ppShow costBasis) $
+        --     trace ("closingLot = " ++ ppShow closingLot) $
+        closePosition
+          openLot
+          costBasis
+          (lotAmount closingLot)
+          (lotDetail closingLot)
+      PositionClose (OpenPosition openLot costBasis) tp ->
+        closePosition openLot costBasis (lotAmount openLot) tp
+
+    openPosition openLot n =
+      [ Posting
+          { _account = Equities equitiesAccount,
+            _isVirtual = False,
+            _isBalancing = True,
+            _amount =
+              CommodityAmount
+                CommodityLot
+                  { _instrument = Miscellaneous,
+                    _quantity = n,
+                    _symbol = symbol,
+                    _cost = Nothing,
+                    _purchaseDate = Nothing,
+                    _note = Nothing,
+                    _price = Just (price (lotDetail openLot))
+                  },
+            _postMetadata = mempty
+          },
+        Posting
+          { _account = Cash cashAccount,
+            _isVirtual = False,
+            _isBalancing = True,
+            _amount =
+              DollarAmount
+                (-price (lotDetail openLot) * n),
+            _postMetadata = mempty
+          }
+      ]
+
+    closePosition openLot costBasis n tp =
+      [ Posting
+          { _account = Equities equitiesAccount,
+            _isVirtual = False,
+            _isBalancing = True,
+            _amount =
+              CommodityAmount
+                CommodityLot
+                  { _instrument = Miscellaneous,
+                    _quantity = n,
+                    _symbol = symbol,
+                    _cost =
+                      Just
+                        ( fromMaybe
+                            (price (lotDetail openLot))
+                            costBasis
+                        ),
+                    _purchaseDate =
+                      Just (utctDay (time (lotDetail openLot))),
+                    _note = Nothing,
+                    _price = Just (price tp)
+                  },
+            _postMetadata = mempty
+          },
+        Posting
+          { _account = Cash cashAccount,
+            _isVirtual = False,
+            _isBalancing = True,
+            _amount = DollarAmount (-price tp * n),
+            _postMetadata = mempty
+          },
+        Posting
+          { _account =
+              if time tp `diffUTCTime` time (lotDetail openLot)
+                < 365 * 24 * 3600
+                then
+                  if diff < 0
+                    then CapitalGainShort
+                    else CapitalLossShort
+                else
+                  if diff < 0
+                    then CapitalGainLong
+                    else CapitalLossLong,
+            _isVirtual = False,
+            _isBalancing = True,
+            _amount = DollarAmount (-diff * n),
+            _postMetadata = mempty
+          }
+      ]
+      where
+        diff = price (lotDetail openLot) - price tp

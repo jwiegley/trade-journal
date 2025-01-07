@@ -13,9 +13,7 @@ module Ledger.Render where
 import Amount
 import Control.Applicative
 import Control.Lens
-import Control.Monad
 import Data.Char (isAlpha)
-import Data.Coerce
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -32,7 +30,7 @@ renderPostingAmount :: (KnownNat n) => PostingAmount n -> NonEmpty Text
 renderPostingAmount MetadataOnly = error "unexpected MetadataOnly"
 renderPostingAmount NullAmount = "" :| []
 renderPostingAmount (DollarAmount amt) = "$" <> T.pack (thousands amt) :| []
-renderPostingAmount (CommodityAmount l@CommodityLot {..}) =
+renderPostingAmount (CommodityAmount CommodityLot {..}) =
   T.pack (renderAmount _quantity) :| [T.pack rendered]
   where
     rendered :: String
@@ -46,14 +44,11 @@ renderPostingAmount (CommodityAmount l@CommodityLot {..}) =
         ( maybe
             ""
             (T.pack . printf " {$%s}" . thousands . abs)
-            (perShareCost l)
+            _cost
         )
         (maybe "" (T.pack . printf " [%s]" . iso8601Show) _purchaseDate)
         (maybe "" (T.pack . printf " (%s)") _note)
         (maybe "" (T.pack . printf " @ $%s" . thousands) _price)
-
-    perShareCost CommodityLot {..} =
-      fmap coerce ((/ _quantity) <$> _cost) :: Maybe (Amount 6)
 
 renderAccount :: Text -> Account -> Text
 renderAccount name = \case

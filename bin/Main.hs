@@ -54,3 +54,6 @@ main = do
 --     mapM_ TL.putStrLn $
 --       renderTransaction "Foo" xact
 --     TL.putStrLn ""
+
+-- jww (2025-01-06): Turn final set of open positions into list of account
+-- balance assertions.
