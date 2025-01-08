@@ -156,7 +156,7 @@ positionAssertionTransaction cashAccount equitiesAccount symbol = \case
                 _postMetadata = mempty
               },
             Posting
-              { _account = Cash cashAccount,
+              { _account = Account cashAccount,
                 _isVirtual = False,
                 _isBalancing = True,
                 _amount = NullAmount,
@@ -180,7 +180,7 @@ positionAssertionTransaction cashAccount equitiesAccount symbol = \case
             <> symbol,
         _postings =
           [ Posting
-              { _account = Cash cashAccount,
+              { _account = Account cashAccount,
                 _isVirtual = False,
                 _isBalancing = True,
                 _amount =
@@ -295,7 +295,7 @@ transactionFromChanges
               _postMetadata = mempty
             },
           Posting
-            { _account = Cash cashAccount,
+            { _account = Account cashAccount,
               _isVirtual = False,
               _isBalancing = True,
               _amount =
@@ -330,7 +330,7 @@ transactionFromChanges
               _postMetadata = mempty
             },
           Posting
-            { _account = Cash cashAccount,
+            { _account = Account cashAccount,
               _isVirtual = False,
               _isBalancing = True,
               _amount = DollarAmount (-price tp * n),
