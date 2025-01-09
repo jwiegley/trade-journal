@@ -220,7 +220,7 @@ transactionFromChanges
   cashAccount
   equitiesAccount
   symbol
-  trade@(Trade lot fees commissions)
+  trade@(Trade lot fees)
   changes =
     Transaction
       { _actualDate = utctDay (time (lotDetail lot)),
@@ -266,15 +266,6 @@ transactionFromChanges
             }
           | fees > 0
         ]
-          ++ [ Posting
-                 { _account = Commissions,
-                   _isVirtual = False,
-                   _isBalancing = True,
-                   _amount = DollarAmount commissions,
-                   _postMetadata = mempty
-                 }
-               | commissions > 0
-             ]
 
       openPostings openLot n =
         [ Posting
@@ -300,7 +291,7 @@ transactionFromChanges
               _isBalancing = True,
               _amount =
                 DollarAmount
-                  (-price (lotDetail openLot) * n - fees - commissions),
+                  (-price (lotDetail openLot) * n - fees),
               _postMetadata = mempty
             }
         ]

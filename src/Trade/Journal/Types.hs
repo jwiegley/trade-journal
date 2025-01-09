@@ -21,9 +21,22 @@ data Lot = Lot
 
 data Trade = Trade
   { tradeLot :: Lot,
-    tradeFees :: Amount 2,
-    tradeCommission :: Amount 2
+    tradeFees :: Amount 2
   }
+  deriving (Eq, Show)
+
+data Deposit = Deposit (Amount 2)
+  deriving (Eq, Show)
+
+data Withdrawal = Withdrawal (Amount 2)
+  deriving (Eq, Show)
+
+data Entry
+  = TradeEntry Trade
+  | -- | OptionTradeEntry OptionTrade
+    -- | IncomeEntry Income
+    DepositEntry Deposit
+  | WithdrawalEntry Withdrawal
   deriving (Eq, Show)
 
 data OpenPosition = OpenPosition

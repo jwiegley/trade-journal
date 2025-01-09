@@ -25,7 +25,7 @@ main = do
   -- pPrint journal
 
   ledger <- (\f -> foldM f newLedger (getJournal journal)) $
-    \(Ledger ledger) (sym, trade@(Trade lot _ _)) ->
+    \(Ledger ledger) (sym, trade@(Trade lot _)) ->
       fmap Ledger $ (\f -> M.alterF f sym ledger) $ \mposs -> do
         -- putStrLn "----------------------------------------"
         -- pPrint mposs

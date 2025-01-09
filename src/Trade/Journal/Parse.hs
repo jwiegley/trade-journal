@@ -137,5 +137,4 @@ parseTrade :: Parser (T.Text, Trade)
 parseTrade = do
   (sym, lot) <- parseLot
   fees <- fromMaybe 0 <$> optional (keyword "fees" *> parseAmount)
-  commissions <- fromMaybe 0 <$> optional (keyword "commissions" *> parseAmount)
-  pure (sym, Trade lot fees commissions)
+  pure (sym, Trade lot fees)

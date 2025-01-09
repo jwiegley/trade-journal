@@ -20,8 +20,7 @@ import Data.Void (Void)
 import Debug.Trace
 import Text.Megaparsec
 import Text.Printf
-import Trade.Journal.Entry qualified as Journal
-import Trade.Journal.Types
+import Trade.Journal.Types qualified as Journal
 import Trade.Provider.ThinkOrSwim.Parser
 import Trade.Provider.ThinkOrSwim.Types
 
@@ -49,66 +48,66 @@ entryParse xact =
     (xact ^. xactDescription)
 
 entryToAction ::
-  Context ->
   Transaction ->
   Entry ->
-  Either String (Annotated Journal.Entry)
-entryToAction ctx xact = \case
+  Either String Journal.Entry
+entryToAction xact = \case
   Bought _device Trade' {..} ->
     Right $
-      annotate $
-        Journal.TradeEntry $
-          Journal.Trade
-            { _tradeAction = Journal.Buy,
-              _tradeLot =
-                Lot
-                  { _amount = coerce tdQuantity,
-                    _symbol = TL.toStrict tdSymbol,
-                    _price = coerce tdPrice
-                  },
-              _tradeFees =
-                Journal.Fees
-                  (-(xact ^. xactMiscFees . coerced))
-                  (-(xact ^. xactCommissionsAndFees . coerced))
-            }
+      Journal.TradeEntry $
+        Journal.Trade
+          { tradeLot =
+              Journal.Lot
+                { lotAmount = coerce tdQuantity,
+                  lotDetail =
+                    Journal.TimePrice
+                      { price = coerce tdPrice,
+                        time = entryTime xact
+                      }
+                },
+            tradeFees =
+              (-(xact ^. xactMiscFees . coerced))
+                + (-(xact ^. xactCommissionsAndFees . coerced))
+          }
   Sold _device Trade' {..} ->
     Right $
-      annotate $
-        Journal.TradeEntry $
-          Journal.Trade
-            { _tradeAction = Journal.Sell,
-              _tradeLot =
-                Lot
-                  { _amount = coerce (abs tdQuantity),
-                    _symbol = TL.toStrict tdSymbol,
-                    _price = coerce tdPrice
-                  },
-              _tradeFees =
-                Journal.Fees
-                  (-(xact ^. xactMiscFees . coerced))
-                  (-(xact ^. xactCommissionsAndFees . coerced))
-            }
+      Journal.TradeEntry $
+        Journal.Trade
+          { tradeLot =
+              Journal.Lot
+                { lotAmount = coerce (abs tdQuantity),
+                  lotDetail =
+                    Journal.TimePrice
+                      { price = coerce tdPrice,
+                        time = entryTime xact
+                      }
+                },
+            tradeFees =
+              (-(xact ^. xactMiscFees . coerced))
+                + (-(xact ^. xactCommissionsAndFees . coerced))
+          }
   AchCredit ->
     Right $
-      annotate $
-        Journal.DepositEntry $
-          Journal.Deposit (xact ^. xactAmount) ""
+      Journal.DepositEntry $
+        Journal.Deposit (xact ^. xactAmount)
   AchDebit ->
     Right $
-      annotate $
-        Journal.DepositEntry $
-          Journal.Deposit (xact ^. xactAmount) ""
+      Journal.DepositEntry $
+        Journal.Deposit (xact ^. xactAmount)
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined
-  CourtesyCredit ->
-    Right $
-      annotate $
-        Journal.IncomeEntry $
-          Journal.Credit (xact ^. xactAmount)
+  {-
+    CourtesyCredit ->
+      Right $
+        annotate $
+          Journal.IncomeEntry $
+            Journal.Credit (xact ^. xactAmount)
+  -}
   -- ForeignTaxWithheld _symbol -> undefined
   -- FundDisbursement -> undefined
   -- IncomingAccountTransfer -> undefined
+  {-
   InterestAdjustment ->
     Right $
       annotate $
@@ -119,70 +118,71 @@ entryToAction ctx xact = \case
       annotate $
         Journal.IncomeEntry $
           Journal.Interest (xact ^. xactAmount) (Just (TL.toStrict sym))
+  -}
   -- MarkToMarket -> undefined
   -- MiscellaneousJournalEntry -> undefined
   -- OffCycleInterest _symbol -> undefined
   -- OrdinaryDividend _symbol -> undefined
   -- QualifiedDividend _symbol -> undefined
+  {-
   Rebate ->
     Right $
       annotate $
         Journal.IncomeEntry $
           Journal.Income (xact ^. xactAmount)
+  -}
   -- RemoveOptionDueToAssignment _amount _symbol _option -> undefined
   -- RemoveOptionDueToExpiration _amount _symbol _option -> undefined
   -- TransferBetweenAccounts -> undefined
   -- TransferFromForexAccount -> undefined
+  {-
   TransferInSecurityOrOption amt sym ->
     Right $
       annotate $
         Journal.DepositEntry $
           Journal.Transfer
-            Lot
+            Journal.Lot
               { _amount = coerce amt,
                 _symbol = TL.toStrict sym,
                 _price = 0
               }
             ""
+  -}
   -- TransferOfCash -> undefined
   -- TransferToForexAccount -> undefined
+  {-
   WireIncoming ->
     Right $
       annotate $
         Journal.DepositEntry $
           Journal.Deposit (xact ^. xactAmount) ""
+  -}
   -- Total -> undefined
   x -> Left $ "Could not convert entry to action: " ++ show x
+
+{-
   where
-    annotate x =
-      Annotated
-        { _item = x,
-          _time = entryTime xact,
-          _context = ctx,
-          _details = lotDetails
-        }
     lotDetails =
       [ Meta "Order" (TL.toStrict (xact ^. xactRefNo)),
         Note (TL.toStrict (xact ^. xactDescription))
       ]
+-}
 
 xactAction ::
-  Context ->
   Transaction ->
   Amount 2 ->
-  Either String (Annotated Journal.Entry)
-xactAction ctx xact bal = do
+  Either String Journal.Entry
+xactAction xact bal = do
   ent <- left show $ entryParse xact
-  x <- entryToAction ctx xact ent
-  assert (sum (x ^.. item . _NetAmount) == xact ^. xactAmount) $
-    assert (bal == xact ^. xactBalance) $
-      pure x
+  x <- entryToAction xact ent
+  -- assert (sum (x ^.. _NetAmount) == xact ^. xactAmount) $
+  assert (bal == xact ^. xactBalance) $
+    pure x
 
 thinkOrSwimEntries ::
-  Context ->
   ThinkOrSwim ->
-  [Annotated Journal.Entry]
-thinkOrSwimEntries ctx tos =
+  [Journal.Entry]
+thinkOrSwimEntries tos =
   concatMap
     ( \case
         Left err -> trace err []
@@ -192,6 +192,6 @@ thinkOrSwimEntries ctx tos =
     $ (\f -> foldr' f (0 :: Amount 2, []) (tos ^. xacts))
     $ \xact (bal, rest) ->
       let nxt = bal + xact ^. xactAmount
-       in case xactAction ctx xact nxt of
+       in case xactAction xact nxt of
             x@(Left _) -> (bal, x : rest)
             x -> (nxt, x : rest)

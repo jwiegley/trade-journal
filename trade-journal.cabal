@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1cd7aa8a3562d17d40597f638db3b7dbb7fa46206eb84a27abec2f1bd4573b58
+-- hash: 7a7f751392a07942333aaeceb0a0fb9c94ee21f09b4fabf5df14866cbd621420
 
 name:           trade-journal
 version:        0.0.2
@@ -25,6 +25,18 @@ library
       Ledger.Entry
       Ledger.Render
   other-modules:
+      Trade.Provider.Coinbase
+      Trade.Provider.Coinbase.Parser
+      Trade.Provider.Coinbase.Process
+      Trade.Provider.Coinbase.Types
+      Trade.Provider.Coinmetro
+      Trade.Provider.Coinmetro.Parser
+      Trade.Provider.Coinmetro.Process
+      Trade.Provider.Coinmetro.Types
+      Trade.Provider.ThinkOrSwim
+      Trade.Provider.ThinkOrSwim.Parser
+      Trade.Provider.ThinkOrSwim.Process
+      Trade.Provider.ThinkOrSwim.Types
       Paths_trade_journal
   hs-source-dirs:
       src
