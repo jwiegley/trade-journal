@@ -9,9 +9,7 @@ import Amount
 import Control.Lens hiding (Context)
 import Data.Coerce (coerce)
 import Data.Foldable
-import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
-import Data.Time.Format.ISO8601
 import Trade.Journal.Types qualified as Journal
 import Trade.Provider.Coinmetro.Types
 
@@ -29,7 +27,7 @@ xactAction Transaction {..} _bal
                     lotDetail =
                       Journal.TimePrice
                         { price = coerce _xactPrice,
-                          time = xactParsedDate
+                          time = _xactDate
                         }
                   },
               tradeFees = coerce _xactFee
@@ -39,13 +37,6 @@ xactAction Transaction {..} _bal
       || "Withdrawal" `T.isInfixOf` _xactDescription =
       [Journal.DepositEntry $ Journal.Deposit _xactAmount]
   | otherwise = []
-  where
-    xactParsedDate =
-      fromMaybe
-        ( error
-            "Could not parse time from Coinbase"
-        )
-        (iso8601ParseM (T.unpack _xactDate))
 
 coinmetroEntries ::
   [Transaction] ->

@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -8,15 +9,19 @@ module Trade.Provider.Coinmetro.Types where
 import Amount
 import Control.Lens
 import Data.Csv ((.:))
-import qualified Data.Csv as Csv
+import Data.Csv qualified as Csv
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Time
+import Data.Time.Format.ISO8601
 import GHC.Generics
 import GHC.TypeLits (KnownNat)
 import Text.Read (readMaybe)
 
 data Transaction = Transaction
   { _xactAsset :: !Text,
-    _xactDate :: !Text,
+    _xactDate :: !UTCTime,
     _xactDescription :: !Text,
     _xactAmount :: !(Amount 2),
     _xactFee :: !(Amount 2),
@@ -34,7 +39,7 @@ data Transaction = Transaction
   }
   deriving (Generic, Eq, Show)
 
-readAmount :: KnownNat n => String -> Amount n
+readAmount :: (KnownNat n) => String -> Amount n
 readAmount "" = 0
 readAmount ('-' : xs) = -(readAmount xs)
 readAmount s = case readMaybe (filter (`notElem` [',', '$', ')']) s) of
@@ -45,7 +50,14 @@ instance Csv.FromNamedRecord Transaction where
   parseNamedRecord m =
     Transaction
       <$> (m .: "Asset")
-      <*> (m .: "Date")
+      <*> ( fromMaybe
+              ( error
+                  "Could not parse time"
+              )
+              . iso8601ParseM
+              . T.unpack
+              <$> m .: "Date"
+          )
       <*> (m .: "Description")
       <*> (readAmount <$> m .: "Amount")
       <*> (readAmount <$> m .: "Fee")

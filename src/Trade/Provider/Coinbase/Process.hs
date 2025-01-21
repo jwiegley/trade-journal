@@ -9,9 +9,6 @@ import Amount
 import Control.Lens hiding (Context)
 import Data.Coerce (coerce)
 import Data.Foldable
-import Data.Maybe (fromMaybe)
-import Data.Text qualified as T
-import Data.Time.Format.ISO8601
 import Trade.Journal.Types qualified as Journal
 import Trade.Provider.Coinbase.Types
 
@@ -20,32 +17,25 @@ xactAction ::
   Amount 2 ->
   [Journal.Entry]
 xactAction Transaction {..} _bal
-  | "Order" `T.isInfixOf` _xactDescription =
+  | "Order" == _xactTransactionType =
       [ Journal.TradeEntry $
           Journal.Trade
             { tradeLot =
                 Journal.Lot
-                  { lotAmount = coerce _xactAmount,
+                  { lotAmount = coerce _xactQuantityTransacted,
                     lotDetail =
                       Journal.TimePrice
-                        { price = coerce _xactPrice,
-                          time = xactParsedDate
+                        { price = coerce _xactPriceAtTransaction,
+                          time = _xactTimestamp
                         }
                   },
-              tradeFees = coerce _xactFee
+              tradeFees = coerce _xactFeesAndOrSpread
             }
       ]
-  | "Deposit" `T.isInfixOf` _xactDescription
-      || "Withdrawal" `T.isInfixOf` _xactDescription =
-      [Journal.DepositEntry $ Journal.Deposit _xactAmount]
+  | "Deposit" == _xactTransactionType
+      || "Withdrawal" == _xactTransactionType =
+      [Journal.DepositEntry $ Journal.Deposit _xactQuantityTransacted]
   | otherwise = []
-  where
-    xactParsedDate =
-      fromMaybe
-        ( error
-            "Could not parse time from Coinbase"
-        )
-        (iso8601ParseM (T.unpack _xactDate))
 
 coinmetroEntries ::
   [Transaction] ->
@@ -54,5 +44,5 @@ coinmetroEntries cmXacts =
   snd $
     (\f -> foldr' f (0 :: Amount 2, []) cmXacts) $
       \xact (bal, rest) ->
-        let bal' = bal + xact ^. xactAmount
+        let bal' = bal + xact ^. xactQuantityTransacted
          in (bal', xactAction xact bal' ++ rest)
