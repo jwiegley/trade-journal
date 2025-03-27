@@ -31,6 +31,10 @@
               shell.buildInputs = with pkgs; [
                 pkg-config
               ];
+              modules = [{
+                enableLibraryProfiling = true;
+                enableProfiling = true;
+              }];
             };
         })
       ];

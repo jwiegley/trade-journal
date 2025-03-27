@@ -60,7 +60,9 @@ library:
     # - Trade.Ledger.Render
     # - Trade.Process
     # - Trade.Provider.ThinkOrSwim
-    # - Trade.Provider.Coinmetro
+    - Trade.Provider.Coinmetro.Parser
+    - Trade.Provider.Coinmetro.Process
+    - Trade.Provider.Coinmetro.Types
     # - Trade.Taxes.USA.WashSaleRule
     # - Trade.Taxes.USA.WashSaleRule2
 

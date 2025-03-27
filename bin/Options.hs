@@ -18,10 +18,11 @@ tradeJournalSummary =
 
 data Options = Options
   { verbose :: !Bool,
-    journalFile :: !FilePath,
-    broker :: !String,
+    journalFile :: !(Maybe FilePath),
+    broker :: !(Maybe String),
     account :: !(Maybe String),
-    command :: !String
+    command :: !String,
+    arguments :: ![String]
   }
   deriving (Show, Eq)
 
@@ -33,15 +34,19 @@ tradeJournalOpts =
           <> long "verbose"
           <> help "Report progress verbosely"
       )
-    <*> strOption
-      ( short 'f'
-          <> long "file"
-          <> help "Path to journal file"
+    <*> optional
+      ( strOption
+          ( short 'f'
+              <> long "file"
+              <> help "Path to journal file"
+          )
       )
-    <*> strOption
-      ( short 'b'
-          <> long "broker"
-          <> help "Name of brokerage account"
+    <*> optional
+      ( strOption
+          ( short 'b'
+              <> long "broker"
+              <> help "Name of brokerage account"
+          )
       )
     <*> optional
       ( strOption
@@ -51,6 +56,11 @@ tradeJournalOpts =
           )
       )
     <*> strArgument (help "Command to execute")
+    <*> many
+      ( argument
+          (eitherReader Right)
+          (help "Command arguments" <> metavar "ARGS")
+      )
 
 optionsDefinition :: ParserInfo Options
 optionsDefinition =

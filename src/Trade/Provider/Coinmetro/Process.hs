@@ -17,22 +17,25 @@ xactAction ::
   Transaction ->
   Amount 2 ->
   [Journal.Entry]
-xactAction Transaction {..} _bal
+xactAction xact@Transaction {..} _bal
   | "Order" `T.isInfixOf` _xactDescription =
-      [ Journal.TradeEntry $
-          Journal.Trade
-            { tradeLot =
-                Journal.Lot
-                  { lotAmount = coerce _xactAmount,
-                    lotDetail =
-                      Journal.TimePrice
-                        { price = coerce _xactPrice,
-                          time = _xactDate
-                        }
-                  },
-              tradeFees = coerce _xactFee
-            }
-      ]
+      case _xactPrice of
+        Left _ -> error $ "Order missing price: " ++ show xact
+        Right p ->
+          [ Journal.TradeEntry $
+              Journal.Trade
+                { tradeLot =
+                    Journal.Lot
+                      { lotAmount = coerce _xactAmount,
+                        lotDetail =
+                          Journal.TimePrice
+                            { price = coerce p,
+                              time = _xactDate
+                            }
+                      },
+                  tradeFees = coerce _xactFee
+                }
+          ]
   | "Deposit" `T.isInfixOf` _xactDescription
       || "Withdrawal" `T.isInfixOf` _xactDescription =
       [Journal.DepositEntry $ Journal.Deposit _xactAmount]
