@@ -54,46 +54,60 @@ entryToAction ::
 entryToAction xact = \case
   Bought _device Trade' {..} ->
     Right $
-      Journal.TradeEntry $
-        Journal.Trade
-          { tradeLot =
-              Journal.Lot
-                { lotAmount = coerce tdQuantity,
-                  lotDetail =
-                    Journal.TimePrice
-                      { price = coerce tdPrice,
-                        time = entryTime xact
-                      }
-                },
-            tradeFees =
-              (-(xact ^. xactMiscFees . coerced))
-                + (-(xact ^. xactCommissionsAndFees . coerced))
-          }
+      Journal.TradeEntry
+        { tradeAssetFrom = undefined,
+          tradeAssetTo = undefined,
+          tradeCost = undefined,
+          tradeEntry =
+            Journal.Trade
+              { tradeLot =
+                  Journal.Lot
+                    { lotAmount = coerce tdQuantity,
+                      lotDetail =
+                        Journal.TimePrice
+                          { price = coerce tdPrice,
+                            time = entryTime xact
+                          }
+                    },
+                tradeFees =
+                  (-(xact ^. xactMiscFees . coerced))
+                    + (-(xact ^. xactCommissionsAndFees . coerced))
+              }
+        }
   Sold _device Trade' {..} ->
     Right $
-      Journal.TradeEntry $
-        Journal.Trade
-          { tradeLot =
-              Journal.Lot
-                { lotAmount = coerce (abs tdQuantity),
-                  lotDetail =
-                    Journal.TimePrice
-                      { price = coerce tdPrice,
-                        time = entryTime xact
-                      }
-                },
-            tradeFees =
-              (-(xact ^. xactMiscFees . coerced))
-                + (-(xact ^. xactCommissionsAndFees . coerced))
-          }
+      Journal.TradeEntry
+        { tradeAssetFrom = undefined,
+          tradeAssetTo = undefined,
+          tradeCost = undefined,
+          tradeEntry =
+            Journal.Trade
+              { tradeLot =
+                  Journal.Lot
+                    { lotAmount = coerce (abs tdQuantity),
+                      lotDetail =
+                        Journal.TimePrice
+                          { price = coerce tdPrice,
+                            time = entryTime xact
+                          }
+                    },
+                tradeFees =
+                  (-(xact ^. xactMiscFees . coerced))
+                    + (-(xact ^. xactCommissionsAndFees . coerced))
+              }
+        }
   AchCredit ->
-    Right $
-      Journal.DepositEntry $
-        Journal.Deposit (xact ^. xactAmount)
+    Right
+      Journal.DepositEntry
+        { depositAsset = undefined,
+          depositEntry = Journal.Deposit (xact ^. xactAmount)
+        }
   AchDebit ->
     Right $
-      Journal.DepositEntry $
-        Journal.Deposit (xact ^. xactAmount)
+      Journal.DepositEntry
+        { depositAsset = undefined,
+          depositEntry = Journal.Deposit (xact ^. xactAmount)
+        }
   -- AdrFee _symbol -> undefined
   -- CashAltInterest _amount _symbol -> undefined
   -- CourtesyAdjustment -> undefined

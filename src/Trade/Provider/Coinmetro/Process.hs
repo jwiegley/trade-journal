@@ -22,23 +22,33 @@ xactAction xact@Transaction {..} _bal
       case _xactPrice of
         Left _ -> error $ "Order missing price: " ++ show xact
         Right p ->
-          [ Journal.TradeEntry $
-              Journal.Trade
-                { tradeLot =
-                    Journal.Lot
-                      { lotAmount = coerce _xactAmount,
-                        lotDetail =
-                          Journal.TimePrice
-                            { price = coerce p,
-                              time = _xactDate
-                            }
-                      },
-                  tradeFees = coerce _xactFee
-                }
+          [ Journal.TradeEntry
+              { tradeAssetFrom = _xactAsset,
+                tradeAssetTo = _xactOtherCurrency,
+                tradeCost =
+                  either (const Nothing) Just _xactOtherAmount,
+                tradeEntry =
+                  Journal.Trade
+                    { tradeLot =
+                        Journal.Lot
+                          { lotAmount = coerce _xactAmount,
+                            lotDetail =
+                              Journal.TimePrice
+                                { price = coerce p,
+                                  time = _xactDate
+                                }
+                          },
+                      tradeFees = coerce _xactFee
+                    }
+              }
           ]
   | "Deposit" `T.isInfixOf` _xactDescription
       || "Withdrawal" `T.isInfixOf` _xactDescription =
-      [Journal.DepositEntry $ Journal.Deposit _xactAmount]
+      [ Journal.DepositEntry
+          { depositAsset = _xactAsset,
+            depositEntry = Journal.Deposit _xactAmount
+          }
+      ]
   | otherwise = []
 
 coinmetroEntries ::

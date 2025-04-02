@@ -5,6 +5,7 @@ module Trade.Journal.Types where
 
 import Amount
 import Data.Map.Strict (Map)
+import Data.Text (Text)
 import Data.Time
 
 data TimePrice = TimePrice
@@ -32,11 +33,22 @@ data Withdrawal = Withdrawal (Amount 2)
   deriving (Eq, Show)
 
 data Entry
-  = TradeEntry Trade
+  = TradeEntry
+      { tradeAssetFrom :: Text,
+        tradeAssetTo :: Text,
+        tradeCost :: Maybe (Amount 2),
+        tradeEntry :: Trade
+      }
   | -- | OptionTradeEntry OptionTrade
     -- | IncomeEntry Income
-    DepositEntry Deposit
-  | WithdrawalEntry Withdrawal
+    DepositEntry
+      { depositAsset :: Text,
+        depositEntry :: Deposit
+      }
+  | WithdrawalEntry
+      { withdrawalAsset :: Text,
+        withdrawalEntry :: Withdrawal
+      }
   deriving (Eq, Show)
 
 data OpenPosition = OpenPosition

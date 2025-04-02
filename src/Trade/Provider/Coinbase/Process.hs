@@ -18,23 +18,32 @@ xactAction ::
   [Journal.Entry]
 xactAction Transaction {..} _bal
   | "Order" == _xactTransactionType =
-      [ Journal.TradeEntry $
-          Journal.Trade
-            { tradeLot =
-                Journal.Lot
-                  { lotAmount = coerce _xactQuantityTransacted,
-                    lotDetail =
-                      Journal.TimePrice
-                        { price = coerce _xactPriceAtTransaction,
-                          time = _xactTimestamp
-                        }
-                  },
-              tradeFees = coerce _xactFeesAndOrSpread
-            }
+      [ Journal.TradeEntry
+          { tradeAssetFrom = undefined,
+            tradeAssetTo = undefined,
+            tradeCost = undefined,
+            tradeEntry =
+              Journal.Trade
+                { tradeLot =
+                    Journal.Lot
+                      { lotAmount = coerce _xactQuantityTransacted,
+                        lotDetail =
+                          Journal.TimePrice
+                            { price = coerce _xactPriceAtTransaction,
+                              time = _xactTimestamp
+                            }
+                      },
+                  tradeFees = coerce _xactFeesAndOrSpread
+                }
+          }
       ]
   | "Deposit" == _xactTransactionType
       || "Withdrawal" == _xactTransactionType =
-      [Journal.DepositEntry $ Journal.Deposit _xactQuantityTransacted]
+      [ Journal.DepositEntry
+          { depositAsset = undefined,
+            depositEntry = Journal.Deposit _xactQuantityTransacted
+          }
+      ]
   | otherwise = []
 
 coinmetroEntries ::
