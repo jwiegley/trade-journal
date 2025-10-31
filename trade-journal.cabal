@@ -1,13 +1,13 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.36.1.
+-- This file has been generated from package.yaml by hpack version 0.38.2.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 0904b8d6f82e90e090059c7206970b13aa8aebdc27ea9b5d5e15b278be386e33
+-- hash: 17ae5bc4e1dcf9cae9d4de6a6b2ea7f5330fee848e2e79822c73080f43c48d6a
 
 name:           trade-journal
-version:        0.0.2
+version:        0.0.3
 description:    Command-line reporting utility for processing trade journals.
 author:         John Wiegley
 maintainer:     johnw@newartisans.com
