@@ -1,3 +1,11 @@
 /agda2hs
 /build.sh
 /.format
+/dist-newstyle/
+/result
+/.hpc/
+*.hi
+*.o
+*.prof
+*.tix
+*.hp
