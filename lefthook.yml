@@ -1,0 +1,32 @@
+pre-commit:
+  parallel: true
+  commands:
+    fourmolu:
+      glob: "**/*.hs"
+      exclude:
+        - "src/Trade/Journal/Zipper.hs"
+        - "vendor/**"
+      run: |
+        if command -v fourmolu >/dev/null 2>&1; then
+          fourmolu --mode check {staged_files}
+        fi
+    hlint:
+      glob: "**/*.hs"
+      exclude:
+        - "vendor/**"
+      run: |
+        if command -v hlint >/dev/null 2>&1; then
+          hlint {staged_files}
+        fi
+    shellcheck:
+      run: |
+        if command -v shellcheck >/dev/null 2>&1; then
+          shellcheck build
+        fi
+    shfmt:
+      run: shfmt -d build
+    nix-build:
+      run: nix build 2>&1
+    nix-check:
+      glob: "*.{hs,nix,yaml,cabal}"
+      run: nix flake check --no-warn-dirty 2>&1
