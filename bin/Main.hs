@@ -21,56 +21,56 @@ import Trade.Provider.Coinmetro.Process qualified as Coinmetro
 
 main :: IO ()
 main = do
-  opts <- Options.getOptions
+    opts <- Options.getOptions
 
-  case Options.command opts of
-    "coinmetro" ->
-      case Options.arguments opts of
-        file : _ -> do
-          eres <- Coinmetro.readCsv file
-          case eres of
-            Left err ->
-              error $ "Error reading Coinmetro file: " ++ TL.unpack err
-            Right journal -> do
-              pPrintList journal
-              let entries = Coinmetro.coinmetroEntries journal
-              pPrintList entries
-        _ -> error "Usage: trade coinmetro FILE"
-    _ -> case (,)
-      <$> Options.journalFile opts
-      <*> Options.broker opts of
-      Nothing ->
-        error "Usage: trade -f FILE -b NAME"
-      Just (journal, broker) -> do
-        j <- parseJournal journal
-        -- pPrint journal
+    case Options.command opts of
+        "coinmetro" ->
+            case Options.arguments opts of
+                file : _ -> do
+                    eres <- Coinmetro.readCsv file
+                    case eres of
+                        Left err ->
+                            error $ "Error reading Coinmetro file: " ++ TL.unpack err
+                        Right journal -> do
+                            pPrintList journal
+                            let entries = Coinmetro.coinmetroEntries journal
+                            pPrintList entries
+                _ -> error "Usage: trade coinmetro FILE"
+        _ -> case (,)
+            <$> Options.journalFile opts
+            <*> Options.broker opts of
+            Nothing ->
+                error "Usage: trade -f FILE -b NAME"
+            Just (journal, broker) -> do
+                j <- parseJournal journal
+                -- pPrint journal
 
-        ledger <- (\f -> foldM f newLedger (getJournal j)) $
-          \(Ledger ledger) (sym, trade@(Trade lot _)) ->
-            fmap Ledger $ (\f -> M.alterF f sym ledger) $ \mposs -> do
-              -- putStrLn "----------------------------------------"
-              -- pPrint mposs
-              -- pPrint lot
-              let changes = applyLot lot (concat mposs)
-              -- pPrint changes
-              let xact =
-                    transactionFromChanges
-                      ""
-                      (T.pack (fromMaybe "" (Options.account opts)))
-                      sym
-                      trade
-                      changes
-              -- pPrint xact
-              mapM_ T.putStrLn $
-                renderTransaction (T.pack broker) xact
-              T.putStrLn ""
-              pure $ Just $ changedPositions changes
+                ledger <- (\f -> foldM f newLedger (getJournal j)) $
+                    \(Ledger ledger) (sym, trade@(Trade lot _)) ->
+                        fmap Ledger $ (\f -> M.alterF f sym ledger) $ \mposs -> do
+                            -- putStrLn "----------------------------------------"
+                            -- pPrint mposs
+                            -- pPrint lot
+                            let changes = applyLot lot (concat mposs)
+                            -- pPrint changes
+                            let xact =
+                                    transactionFromChanges
+                                        ""
+                                        (T.pack (fromMaybe "" (Options.account opts)))
+                                        sym
+                                        trade
+                                        changes
+                            -- pPrint xact
+                            mapM_ T.putStrLn $
+                                renderTransaction (T.pack broker) xact
+                            T.putStrLn ""
+                            pure $ Just $ changedPositions changes
 
-        -- pPrint ledger
-        let _ledger' = processLedger (const washSales) ledger
-        -- pPrint ledger'
+                -- pPrint ledger
+                let _ledger' = processLedger (const washSales) ledger
+                -- pPrint ledger'
 
-        pure ()
+                pure ()
 
 -- forM_ (M.toList (getLedger ledger')) $ \(sym, poss) -> do
 --   forM_ poss $ \pos -> do

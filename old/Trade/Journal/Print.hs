@@ -23,61 +23,61 @@ import GHC.TypeLits
 import Trade.Journal.Types
 
 class Printable a where
-  printItem :: a -> Text
+    printItem :: a -> Text
 
 printEntries ::
-  (Printable a, HasLot a) =>
-  [Annotated a] ->
-  [Text]
+    (Printable a, HasLot a) =>
+    [Annotated a] ->
+    [Text]
 printEntries = map $ \x ->
-  ( case x ^? time of
-      Just t -> printTime t <> " "
-      Nothing -> ""
-  )
-    <> printItem (x ^. item)
-    <> case printAnnotated x (x ^? item . _Lot) of
-      "" -> ""
-      anns -> " " <> anns
+    ( case x ^? time of
+        Just t -> printTime t <> " "
+        Nothing -> ""
+    )
+        <> printItem (x ^. item)
+        <> case printAnnotated x (x ^? item . _Lot) of
+            "" -> ""
+            anns -> " " <> anns
 
 printString :: T.Text -> Text
 printString = TL.pack . show . TL.fromStrict
 
 printLot :: Lot -> Text
 printLot lot =
-  TL.concat $
-    intersperse
-      " "
-      [ printAmount 0 (lot ^. amount),
-        TL.fromStrict (lot ^. symbol),
-        printAmount 4 (lot ^. price)
-      ]
+    TL.concat $
+        intersperse
+            " "
+            [ printAmount 0 (lot ^. amount)
+            , TL.fromStrict (lot ^. symbol)
+            , printAmount 4 (lot ^. price)
+            ]
 
-totalAmount :: forall n. KnownNat n => Maybe Lot -> Int -> Amount n -> Text
+totalAmount :: forall n. (KnownNat n) => Maybe Lot -> Int -> Amount n -> Text
 totalAmount mlot n x =
-  printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
+    printAmount n (totaled (fromMaybe (error "Unexpected") mlot) x)
 
 printAnnotated :: Annotated a -> Maybe Lot -> Text
 printAnnotated ann _mlot =
-  TL.concat
-    ( intersperse
-        " "
-        inlineAnns
-    )
-    <> case separateAnns of
-      [] -> ""
-      xs -> TL.concat $ intersperse "\n  " ("" : xs)
+    TL.concat
+        ( intersperse
+            " "
+            inlineAnns
+        )
+        <> case separateAnns of
+            [] -> ""
+            xs -> TL.concat $ intersperse "\n  " ("" : xs)
   where
     annotations = mapMaybe printAnnotation (sort (ann ^. details))
     (inlineAnns, separateAnns) = partitionEithers annotations
     printAnnotation = \case
-      Note x -> Just $ Left $ "note " <> printString x
-      Meta k v -> Just $ Right $ "meta " <> printText k <> " " <> printText v
+        Note x -> Just $ Left $ "note " <> printString x
+        Meta k v -> Just $ Right $ "meta " <> printText k <> " " <> printText v
     printText t
-      | T.all isAlphaNum t = TL.fromStrict t
-      | otherwise = "\"" <> TL.replace "\"" "\\\"" (TL.fromStrict t) <> "\""
+        | T.all isAlphaNum t = TL.fromStrict t
+        | otherwise = "\"" <> TL.replace "\"" "\\\"" (TL.fromStrict t) <> "\""
 
 printTime :: UTCTime -> Text
 printTime = TL.pack . formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S%Q"
 
-printAmount :: forall n. KnownNat n => Int -> Amount n -> Text
+printAmount :: forall n. (KnownNat n) => Int -> Amount n -> Text
 printAmount n = TL.pack . amountToString n

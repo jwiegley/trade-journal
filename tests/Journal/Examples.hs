@@ -12,9 +12,11 @@ import Data.List (intersperse)
 import Data.String.Here.Interpolated
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as TL
+
 -- import qualified Trade.Closings as Closings
 -- import Trade.Journal.Entry
 import Trade.Journal.Parse
+
 -- import Trade.Journal.Pipes
 -- import Trade.Taxes.USA.WashSaleRule
 import Test.Tasty
@@ -22,30 +24,30 @@ import Test.Tasty.HUnit
 
 testExamples :: TestTree
 testExamples =
-  testGroup
-    "examples"
-    [ baseline,
-      realWorld
-    ]
+    testGroup
+        "examples"
+        [ baseline
+        , realWorld
+        ]
 
 baseline :: TestTree
 baseline =
-  testGroup
-    "baseline"
-    [ testCase "journal-buy-sell-profit" journalBuySellProfit,
-      testCase "journal-buy-sell-loss-buy" journalBuySellLossBuy
-    ]
+    testGroup
+        "baseline"
+        [ testCase "journal-buy-sell-profit" journalBuySellProfit
+        , testCase "journal-buy-sell-loss-buy" journalBuySellLossBuy
+        ]
 
 journalBuySellProfit :: Assertion
 journalBuySellProfit = ii @--> oo
   where
     ii =
-      [i|
+        [i|
 2020-07-02 buy 100 AAPL 260.00
 2020-07-03 sell 100 AAPL 300.00 fees 0.20
         |]
     oo =
-      [i|
+        [i|
 2020-07-02 00:00:00 buy 100 AAPL 260.0000
 2020-07-02 00:00:00 open long 100 AAPL 260.0000 ids [1]
 2020-07-03 00:00:00 sell 100 AAPL 300.0000 fees 0.20
@@ -56,14 +58,14 @@ journalBuySellLossBuy :: Assertion
 journalBuySellLossBuy = ii @--> oo
   where
     ii =
-      [i|
+        [i|
 2020-07-02 buy 100 AAPL 260.00
 2020-07-03 sell 100 AAPL 240.00 fees 0.20 wash to A
 2020-07-04 buy 100 AAPL 260.00 apply A 100
         |]
     oo =
-      -- The final wash present date is incorrect
-      [i|
+        -- The final wash present date is incorrect
+        [i|
 2020-07-02 00:00:00 buy 100 AAPL 260.0000
 2020-07-02 00:00:00 open long 100 AAPL 260.0000 ids [1]
 2020-07-03 00:00:00 sell 100 AAPL 240.0000 fees 0.20 wash to A
@@ -77,15 +79,15 @@ journalBuySellLossBuy = ii @--> oo
 
 realWorld :: TestTree
 realWorld =
-  testGroup
-    "real-world"
-    [testCase "zoom-history" zoomHistory]
+    testGroup
+        "real-world"
+        [testCase "zoom-history" zoomHistory]
 
 zoomHistory :: Assertion
 zoomHistory = ii @--> oo
   where
     ii =
-      [i|
+        [i|
 | Trns |   Qty | Open  |    Basis |    Price | Gain ($) |    |                     |
 |------+-------+-------+----------+----------+----------+----+---------------------|
 | Eqty |   140 | 06/24 |  99.7792 |          |          |    |                     |
@@ -148,7 +150,7 @@ zoomHistory = ii @--> oo
 | Sell |   100 | 09/06 | 85.9245  |   95.00  |  -226.51 |    |                     |
         |]
     oo =
-      [i|
+        [i|
 2019-06-24 00:00:00 buy 140 ZM 99.7792 exempt
 2019-06-24 00:00:00 buy 10 ZM 89.7850 exempt
 2019-06-24 00:00:00 buy 30 ZM 106.6800 exempt
@@ -200,20 +202,20 @@ zoomHistory = ii @--> oo
 
 (@-->) :: Text -> Text -> Assertion
 x @--> y = do
-  (_, msgs) <-
-    runWriterT $ do
-      _entries <- parseEntriesFromText "" x
-      -- parseProcessPrint
-      --   (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
-      --   entries
-      --   tell
-      pure ()
-  let y' = TL.intercalate "\n" (map TL.fromStrict msgs)
-  trimLines y' @?= trimLines y
+    (_, msgs) <-
+        runWriterT $ do
+            _entries <- parseEntriesFromText "" x
+            -- parseProcessPrint
+            --   (washSaleRule @_ @() . fst . Closings.closings Closings.FIFO)
+            --   entries
+            --   tell
+            pure ()
+    let y' = TL.intercalate "\n" (map TL.fromStrict msgs)
+    trimLines y' @?= trimLines y
   where
     trimLines =
-      TL.concat
-        . intersperse "\n"
-        . map TL.strip
-        . TL.splitOn "\n"
-        . TL.strip
+        TL.concat
+            . intersperse "\n"
+            . map TL.strip
+            . TL.splitOn "\n"
+            . TL.strip

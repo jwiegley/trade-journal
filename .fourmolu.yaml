@@ -1,0 +1,8 @@
+indentation: 2
+comma-style: leading
+record-brace-space: false
+newlines-between-decls: 1
+haddock-style: multi-line
+let-style: auto
+in-style: right-align
+unicode: never

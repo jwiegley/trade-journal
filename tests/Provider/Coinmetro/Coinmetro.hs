@@ -13,10 +13,10 @@ import Test.Tasty.HUnit
 
 testCoinmetro :: TestTree
 testCoinmetro =
-  testGroup
-    "coinmetro"
-    [ testCase "import" testCsvImport
-    ]
+    testGroup
+        "coinmetro"
+        [ testCase "import" testCsvImport
+        ]
 
 testCsvImport :: Assertion
 testCsvImport = pure ()

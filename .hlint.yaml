@@ -1,0 +1,5 @@
+- ignore: {name: "Reduce duplication"}
+- ignore: {name: "Use newtype instead of data"}
+
+# Zipper.hs is generated from Agda proofs -- do not lint
+- ignore: {within: "Trade.Journal.Zipper"}

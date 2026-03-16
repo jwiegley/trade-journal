@@ -1,7 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Trade.Journal.Utils where
 
@@ -22,7 +20,7 @@ import Debug.Trace (traceM)
 import Text.PrettyPrint as P
 import Prelude hiding (Double, Float, (<>))
 
-readonly :: Monad m => ReaderT s m a -> StateT s m a
+readonly :: (Monad m) => ReaderT s m a -> StateT s m a
 readonly f = lift . runReaderT f =<< get
 {-# INLINE readonly #-}
 
@@ -42,7 +40,7 @@ distance :: UTCTime -> UTCTime -> Integer
 distance x y = abs (utctDay x `diffDays` utctDay y)
 {-# INLINE distance #-}
 
-renderM :: Applicative f => Doc -> f ()
+renderM :: (Applicative f) => Doc -> f ()
 renderM = traceM . render
 {-# INLINE renderM #-}
 
@@ -54,25 +52,25 @@ percent n f s = f part <&> \v -> v + (s - part)
 
 zipped :: Traversal' s a -> Traversal' s b -> Traversal' s (a, b)
 zipped f g k s = case liftA2 (,) (s ^? f) (s ^? g) of
-  Nothing -> pure s
-  Just p -> k p <&> \(a, b) -> s & f .~ a & g .~ b
+    Nothing -> pure s
+    Just p -> k p <&> \(a, b) -> s & f .~ a & g .~ b
 {-# INLINE zipped #-}
 
 zipped3 ::
-  Traversal' s a ->
-  Traversal' s b ->
-  Traversal' s c ->
-  Traversal' s (a, b, c)
+    Traversal' s a ->
+    Traversal' s b ->
+    Traversal' s c ->
+    Traversal' s (a, b, c)
 zipped3 f g h k s = case liftA3 (,,) (s ^? f) (s ^? g) (s ^? h) of
-  Nothing -> pure s
-  Just p -> k p <&> \(a, b, c) -> s & f .~ a & g .~ b & h .~ c
+    Nothing -> pure s
+    Just p -> k p <&> \(a, b, c) -> s & f .~ a & g .~ b & h .~ c
 
 contractList :: (a -> a -> Maybe a) -> [a] -> [a]
 contractList _ [] = []
 contractList _ [x] = [x]
 contractList f (x : y : xs) = case f x y of
-  Nothing -> x : contractList f (y : xs)
-  Just z -> contractList f (z : xs)
+    Nothing -> x : contractList f (y : xs)
+    Just z -> contractList f (z : xs)
 
 foldrs :: (a -> [a] -> b -> b) -> b -> [a] -> b
 foldrs f z = go
@@ -81,51 +79,51 @@ foldrs f z = go
     go (x : xs) = f x xs (go xs)
 
 -- | A specialized variant of 'foldM' with some arguments shifted around.
-foldAM :: Monad m => a -> [b] -> (b -> a -> m a) -> m a
+foldAM :: (Monad m) => a -> [b] -> (b -> a -> m a) -> m a
 foldAM z xs f = foldM (flip f) z xs
 {-# INLINE foldAM #-}
 
-foldAM' :: Monad m => a -> [b] -> (b -> a -> m (Maybe b, a)) -> m a
+foldAM' :: (Monad m) => a -> [b] -> (b -> a -> m (Maybe b, a)) -> m a
 foldAM' z [] _ = pure z
 foldAM' z (x : xs) f = do
-  (mres, z') <- f x z
-  foldAM'
-    z'
-    ( case mres of
-        Nothing -> xs
-        Just x' -> x' : xs
-    )
-    f
+    (mres, z') <- f x z
+    foldAM'
+        z'
+        ( case mres of
+            Nothing -> xs
+            Just x' -> x' : xs
+        )
+        f
 {-# INLINE foldAM' #-}
 
 renderList :: (a -> Doc) -> [a] -> Doc
 renderList _ [] = brackets P.empty
 renderList f ts =
-  fst (foldl' go (P.empty, True) ts) <> space <> rbrack
+    fst (foldl' go (P.empty, True) ts) <> space <> rbrack
   where
     go (_, True) x = (lbrack <> space <> f x, False)
     go (acc, False) x = (acc $$ comma <> space <> f x, False)
 
 class Render a where
-  rendered :: a -> Doc
+    rendered :: a -> Doc
 
-instance Render a => Render [a] where
-  rendered = renderList rendered
+instance (Render a) => Render [a] where
+    rendered = renderList rendered
 
-instance Render a => Render (Maybe a) where
-  rendered Nothing = text "Nothing"
-  rendered (Just x) = text "Just" <> space <> rendered x
+instance (Render a) => Render (Maybe a) where
+    rendered Nothing = text "Nothing"
+    rendered (Just x) = text "Just" <> space <> rendered x
 
 instance Render Text where
-  rendered = text . T.unpack
+    rendered = text . T.unpack
 
 instance Render Day where
-  rendered = text . iso8601Show
+    rendered = text . iso8601Show
 
 instance Render UTCTime where
-  rendered = text . iso8601Show . utctDay
+    rendered = text . iso8601Show . utctDay
 
-tshow :: Show a => a -> Doc
+tshow :: (Show a) => a -> Doc
 tshow = text . show
 {-# INLINE tshow #-}
 
@@ -141,11 +139,11 @@ tshow = text . show
 -- laws. It's only valid to use it when you don't insert any separator strings
 -- while traversing, and if your original Text contains only isolated split
 -- strings.
-splitOn :: Applicative f => Text -> IndexedLensLike' Int f Text Text
+splitOn :: (Applicative f) => Text -> IndexedLensLike' Int f Text Text
 splitOn s f =
-  fmap (T.intercalate s)
-    . conjoined traverse (indexing traverse) f
-    . T.splitOn s
+    fmap (T.intercalate s)
+        . conjoined traverse (indexing traverse) f
+        . T.splitOn s
 {-# INLINE splitOn #-}
 
 meld :: [a] -> [[b]] -> [Either a b]

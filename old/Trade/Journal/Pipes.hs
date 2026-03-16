@@ -11,25 +11,25 @@ import Trade.Journal.Print
 import Trade.Journal.Types
 
 processEntries ::
-  (HasLot a, Printable a) =>
-  ( [Annotated a] ->
-    [Annotated a]
-  ) ->
-  [Annotated a] ->
-  [Text]
+    (HasLot a, Printable a) =>
+    ( [Annotated a] ->
+      [Annotated a]
+    ) ->
+    [Annotated a] ->
+    [Text]
 processEntries handleData = map TL.toStrict . printEntries . handleData
 
 parseProcessPrint ::
-  ( HasLot a,
-    Printable a,
-    MonadFail m,
-    MonadIO m
-  ) =>
-  ( [Annotated a] ->
-    [Annotated a]
-  ) ->
-  [Annotated a] ->
-  ([Text] -> m ()) ->
-  m ()
+    ( HasLot a
+    , Printable a
+    , MonadFail m
+    , MonadIO m
+    ) =>
+    ( [Annotated a] ->
+      [Annotated a]
+    ) ->
+    [Annotated a] ->
+    ([Text] -> m ()) ->
+    m ()
 parseProcessPrint handleData entries printer =
-  printer (processEntries handleData entries)
+    printer (processEntries handleData entries)

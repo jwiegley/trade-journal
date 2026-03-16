@@ -12,8 +12,8 @@ import Trade.Provider.Coinbase.Types
 
 readCsv :: FilePath -> IO (Either Text [Transaction])
 readCsv path = do
-  text <- TL.readFile path
-  let bs = TL.encodeUtf8 text
-  case Csv.decodeByName bs of
-    Left err -> fail $ "Error: " ++ err
-    Right (_, res) -> pure $ Right $ toList res
+    text <- TL.readFile path
+    let bs = TL.encodeUtf8 text
+    case Csv.decodeByName bs of
+        Left err -> fail $ "Error: " ++ err
+        Right (_, res) -> pure $ Right $ toList res

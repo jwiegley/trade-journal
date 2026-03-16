@@ -12,6 +12,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Hedgehog
 import TestClosings
+
 -- import Examples
 -- import Gains
 -- import GainsKeeper
@@ -21,33 +22,33 @@ import Trade.Data.Zipper
 
 main :: IO ()
 main =
-  defaultMain $
-    testGroup
-      "journal"
-      [ testProperty "zipper-unzipper" $ property do
-          xs <-
-            forAll $
-              Gen.list
-                (Range.linear 0 100)
-                (Gen.int (Range.linear 0 100))
-          lift $ xs @?= maybe xs unzipper (zipper even xs),
-        testProperty "zipperM-unzipper" $ property do
-          xs <-
-            forAll $
-              Gen.list
-                (Range.linear 0 100)
-                (Gen.int (Range.linear 0 100))
-          lift $
-            xs
-              @?= maybe
-                xs
-                unzipper
-                (runIdentity (zipperM (pure . even) xs)),
-        --
-        testClosings,
-        -- testWashSaleRule
-        testWashSaleRule2
-        -- testGains,
-        -- testGainsKeeper,
-        -- testExamples
-      ]
+    defaultMain $
+        testGroup
+            "journal"
+            [ testProperty "zipper-unzipper" $ property do
+                xs <-
+                    forAll $
+                        Gen.list
+                            (Range.linear 0 100)
+                            (Gen.int (Range.linear 0 100))
+                lift $ xs @?= maybe xs unzipper (zipper even xs)
+            , testProperty "zipperM-unzipper" $ property do
+                xs <-
+                    forAll $
+                        Gen.list
+                            (Range.linear 0 100)
+                            (Gen.int (Range.linear 0 100))
+                lift $
+                    xs
+                        @?= maybe
+                            xs
+                            unzipper
+                            (runIdentity (zipperM (pure . even) xs))
+            , --
+              testClosings
+            , -- testWashSaleRule
+              testWashSaleRule2
+              -- testGains,
+              -- testGainsKeeper,
+              -- testExamples
+            ]

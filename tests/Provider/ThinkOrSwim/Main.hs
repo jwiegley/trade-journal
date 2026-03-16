@@ -5,8 +5,8 @@ import ThinkOrSwim
 
 main :: IO ()
 main =
-  defaultMain $
-    testGroup
-      "thinkorswim"
-      [ testThinkOrSwim
-      ]
+    defaultMain $
+        testGroup
+            "thinkorswim"
+            [ testThinkOrSwim
+            ]

@@ -18,81 +18,81 @@ copyright = "2020-2025"
 
 tradeJournalSummary :: String
 tradeJournalSummary =
-  "trade-journal "
-    ++ version
-    ++ ", (C) "
-    ++ copyright
-    ++ " John Wiegley"
+    "trade-journal "
+        ++ version
+        ++ ", (C) "
+        ++ copyright
+        ++ " John Wiegley"
 
 data Command
-  = Coinmetro !FilePath
-  | ThinkOrSwim !FilePath
-  | Journal !FilePath
-  deriving (Data, Show, Eq, Typeable, Generic)
+    = Coinmetro !FilePath
+    | ThinkOrSwim !FilePath
+    | Journal !FilePath
+    deriving (Data, Show, Eq, Typeable, Generic)
 
 makeLenses ''Command
 
 data Options = Options
-  { _verbose :: !Bool,
-    _totals :: !Bool,
-    _command :: !Command
-  }
-  deriving (Data, Show, Eq, Typeable, Generic)
+    { _verbose :: !Bool
+    , _totals :: !Bool
+    , _command :: !Command
+    }
+    deriving (Data, Show, Eq, Typeable, Generic)
 
 makeLenses ''Options
 
 tradeJournalOpts :: Parser Options
 tradeJournalOpts =
-  Options
-    <$> switch
-      ( short 'v'
-          <> long "verbose"
-          <> help "Report progress verbosely"
-      )
-    <*> switch
-      ( long "totals"
-          <> help "Show calculated totals for entries"
-      )
-    <*> hsubparser (coinmetroCommand <> thinkOrSwimCommand <> journalCommand)
+    Options
+        <$> switch
+            ( short 'v'
+                <> long "verbose"
+                <> help "Report progress verbosely"
+            )
+        <*> switch
+            ( long "totals"
+                <> help "Show calculated totals for entries"
+            )
+        <*> hsubparser (coinmetroCommand <> thinkOrSwimCommand <> journalCommand)
   where
     coinmetroCommand :: Mod CommandFields Command
     coinmetroCommand =
-      OA.command
-        "coinmetro"
-        (info coinmetroOptions (progDesc "Process Coinmetro CSV file"))
+        OA.command
+            "coinmetro"
+            (info coinmetroOptions (progDesc "Process Coinmetro CSV file"))
       where
         coinmetroOptions :: Parser Command
         coinmetroOptions =
-          Coinmetro
-            <$> strArgument (metavar "FILE" <> help "CSV file to read")
+            Coinmetro
+                <$> strArgument (metavar "FILE" <> help "CSV file to read")
 
     thinkOrSwimCommand :: Mod CommandFields Command
     thinkOrSwimCommand =
-      OA.command
-        "thinkorswim"
-        (info thinkOrSwimOptions (progDesc "Process ThinkOrSwim export file"))
+        OA.command
+            "thinkorswim"
+            (info thinkOrSwimOptions (progDesc "Process ThinkOrSwim export file"))
       where
         thinkOrSwimOptions :: Parser Command
         thinkOrSwimOptions =
-          ThinkOrSwim
-            <$> strArgument (metavar "FILE" <> help "Export file to read")
+            ThinkOrSwim
+                <$> strArgument (metavar "FILE" <> help "Export file to read")
 
     journalCommand :: Mod CommandFields Command
     journalCommand =
-      OA.command
-        "journal"
-        (info journalOptions (progDesc "Process trade-journal file"))
+        OA.command
+            "journal"
+            (info journalOptions (progDesc "Process trade-journal file"))
       where
         journalOptions :: Parser Command
         journalOptions =
-          Journal
-            <$> strArgument (metavar "FILE" <> help "Journal file to read")
+            Journal
+                <$> strArgument (metavar "FILE" <> help "Journal file to read")
 
 optionsDefinition :: ParserInfo Options
 optionsDefinition =
-  info
-    (helper <*> tradeJournalOpts)
-    (fullDesc <> progDesc "" <> header tradeJournalSummary)
+    info
+        (helper <*> tradeJournalOpts)
+        (fullDesc <> progDesc "" <> header tradeJournalSummary)
 
 getOptions :: IO Options
 getOptions = execParser optionsDefinition

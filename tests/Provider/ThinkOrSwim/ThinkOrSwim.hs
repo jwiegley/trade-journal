@@ -13,10 +13,10 @@ import Test.Tasty.HUnit
 
 testThinkOrSwim :: TestTree
 testThinkOrSwim =
-  testGroup
-    "thinkorswim"
-    [ testCase "import" testCsvImport
-    ]
+    testGroup
+        "thinkorswim"
+        [ testCase "import" testCsvImport
+        ]
 
 testCsvImport :: Assertion
 testCsvImport = pure ()

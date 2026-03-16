@@ -1,12 +1,12 @@
 module Main where
 
-import Test.Tasty
 import Coinmetro
+import Test.Tasty
 
 main :: IO ()
 main =
-  defaultMain $
-    testGroup
-      "coinmetro"
-      [ testCoinmetro
-      ]
+    defaultMain $
+        testGroup
+            "coinmetro"
+            [ testCoinmetro
+            ]

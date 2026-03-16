@@ -32,9 +32,9 @@ type Parser = ParsecT Void Text Identity
 
 skipLineComment' :: Tokens Text -> Parser ()
 skipLineComment' prefix =
-  string prefix
-    *> takeWhileP (Just "character") (\x -> x /= '\n' && x /= '\r')
-    $> ()
+    string prefix
+        *> takeWhileP (Just "character") (\x -> x /= '\n' && x /= '\r')
+        $> ()
 
 whiteSpace :: Parser ()
 whiteSpace = L.space space1 lineCmnt blockCmnt
@@ -49,174 +49,183 @@ keyword :: Text -> Parser Text
 keyword = lexeme . string
 
 parseEntries ::
-  (MonadFail m, MonadIO m) =>
-  FilePath ->
-  m [Annotated Entry]
+    (MonadFail m, MonadIO m) =>
+    FilePath ->
+    m [Annotated Entry]
 parseEntries path = do
-  input <- liftIO $ TL.readFile path
-  parseEntriesFromText path input
+    input <- liftIO $ TL.readFile path
+    parseEntriesFromText path input
 
 parseEntriesFromText ::
-  MonadFail m =>
-  FilePath ->
-  Text ->
-  m [Annotated Entry]
+    (MonadFail m) =>
+    FilePath ->
+    Text ->
+    m [Annotated Entry]
 parseEntriesFromText path input =
-  case parse
-    ( many (whiteSpace *> parseAnnotated parseEntry)
-        <* eof
-    )
-    path
-    input of
-    Left e -> fail $ errorBundlePretty e
-    Right res -> pure res
+    case parse
+        ( many (whiteSpace *> parseAnnotated parseEntry)
+            <* eof
+        )
+        path
+        input of
+        Left e -> fail $ errorBundlePretty e
+        Right res -> pure res
 
 parseAnnotated :: Parser a -> Parser (Annotated a)
 parseAnnotated parser = do
-  _time <- Trade.Journal.Parse.parseTime
-  _item <- parser
-  _details <- many parseAnnotation
-  let _context =
-        Context
-          { _account = "NYI",
-            _currency = "NYI"
-          }
-  pure Annotated {..}
+    _time <- Trade.Journal.Parse.parseTime
+    _item <- parser
+    _details <- many parseAnnotation
+    let _context =
+            Context
+                { _account = "NYI"
+                , _currency = "NYI"
+                }
+    pure Annotated{..}
 
 quotedString :: Parser T.Text
 quotedString = identPQuoted <&> T.pack
   where
     escape :: Parser String
     escape = do
-      d <- char '\\'
-      c <- oneOf ['\\', '\"', '0', 'n', 'r', 'v', 't', 'b', 'f']
-      return [d, c]
+        d <- char '\\'
+        c <- oneOf ['\\', '\"', '0', 'n', 'r', 'v', 't', 'b', 'f']
+        return [d, c]
 
     nonEscape :: Parser Char
     nonEscape = noneOf ['\\', '\"', '\0', '\n', '\r', '\v', '\t', '\b', '\f']
 
     identPQuoted :: Parser String
     identPQuoted =
-      let inner = fmap return (try nonEscape) <|> escape
-       in do
-            _ <- char '"'
-            strings <- many inner
-            _ <- char '"'
-            return $ concat strings
+        let inner = fmap return (try nonEscape) <|> escape
+         in do
+                _ <- char '"'
+                strings <- many inner
+                _ <- char '"'
+                return $ concat strings
 
 parseLot :: Parser Lot
 parseLot = do
-  _amount <- parseAmount
-  _symbol <- TL.toStrict <$> parseSymbol
-  _price <- parseAmount
-  pure Lot {..}
+    _amount <- parseAmount
+    _symbol <- TL.toStrict <$> parseSymbol
+    _price <- parseAmount
+    pure Lot{..}
 
 parseAnnotation :: Parser Annotation
 parseAnnotation = do
-  -- keyword "fees" *> (Fees <$> parseAmount)
-  --   <|> keyword "commission" *> (Commission <$> parseAmount)
-  --   <|> keyword "account" *> (Account <$> parseText)
-  --   <|> keyword "id" *> (Ident <$> L.decimal)
-  --   <|> keyword "order" *> (Order <$> parseText)
-  -- <|> keyword "strategy" *> (Strategy <$> parseText)
-  keyword "note" *> (Note <$> quotedString)
-    <|> keyword "meta" *> (Meta <$> parseText <*> parseText)
+    -- keyword "fees" *> (Fees <$> parseAmount)
+    --   <|> keyword "commission" *> (Commission <$> parseAmount)
+    --   <|> keyword "account" *> (Account <$> parseText)
+    --   <|> keyword "id" *> (Ident <$> L.decimal)
+    --   <|> keyword "order" *> (Order <$> parseText)
+    -- <|> keyword "strategy" *> (Strategy <$> parseText)
+    keyword "note"
+        *> (Note <$> quotedString)
+            <|> keyword "meta"
+        *> (Meta <$> parseText <*> parseText)
 
 parseText :: Parser T.Text
 parseText =
-  T.pack
-    <$> ( char '"' *> manyTill L.charLiteral (char '"')
-            <|> some alphaNumChar
-        )
+    T.pack
+        <$> ( char '"'
+                *> manyTill L.charLiteral (char '"')
+                    <|> some alphaNumChar
+            )
 
 parseTime :: Parser UTCTime
 parseTime = do
-  dateString <- some (digitChar <|> char '-') <* whiteSpace
-  timeString <-
-    optional (some (digitChar <|> char ':') <* whiteSpace)
-  case timeString of
-    Nothing -> parseTimeM False defaultTimeLocale "%Y-%m-%d" dateString
-    Just str ->
-      parseTimeM
-        False
-        defaultTimeLocale
-        "%Y-%m-%d %H:%M:%S%Q"
-        (dateString ++ " " ++ str)
+    dateString <- some (digitChar <|> char '-') <* whiteSpace
+    timeString <-
+        optional (some (digitChar <|> char ':') <* whiteSpace)
+    case timeString of
+        Nothing -> parseTimeM False defaultTimeLocale "%Y-%m-%d" dateString
+        Just str ->
+            parseTimeM
+                False
+                defaultTimeLocale
+                "%Y-%m-%d %H:%M:%S%Q"
+                (dateString ++ " " ++ str)
 
-parseAmount :: KnownNat n => Parser (Amount n)
+parseAmount :: (KnownNat n) => Parser (Amount n)
 parseAmount =
-  read <$> some (digitChar <|> char '.') <* whiteSpace
+    read <$> some (digitChar <|> char '.') <* whiteSpace
 
 parseSymbol :: Parser Text
 parseSymbol =
-  TL.pack
-    <$> some (satisfy (\c -> isAlphaNum c || c `elem` ['.', '/']))
-    <* whiteSpace
+    TL.pack
+        <$> some (satisfy (\c -> isAlphaNum c || c `elem` ['.', '/']))
+        <* whiteSpace
 
 parseDeposit :: Parser Deposit
 parseDeposit =
-  keyword "deposit"
-    *> ( Deposit
-           <$> parseAmount
-           <*> (keyword "from" *> parseText)
-       )
-    <|> keyword "withdraw"
-      *> ( Deposit
-             <$> (negate <$> parseAmount)
-             <*> (keyword "to" *> parseText)
-         )
-    <|> keyword "transfer"
-      *> ( Transfer
-             <$> parseLot
-             <*> (keyword "from" *> parseText)
-         )
-    <|> keyword "transfer"
-      *> ( Transfer
-             <$> (over amount negate <$> parseLot)
-             <*> (keyword "to" *> parseText)
-         )
+    keyword "deposit"
+        *> ( Deposit
+                <$> parseAmount
+                <*> (keyword "from" *> parseText)
+           )
+            <|> keyword "withdraw"
+        *> ( Deposit . negate
+                <$> parseAmount
+                <*> (keyword "to" *> parseText)
+           )
+            <|> keyword "transfer"
+        *> ( Transfer
+                <$> parseLot
+                <*> (keyword "from" *> parseText)
+           )
+            <|> keyword "transfer"
+        *> ( Transfer . over amount negate
+                <$> parseLot
+                <*> (keyword "to" *> parseText)
+           )
 
 parseTrade :: Parser Trade
 parseTrade = do
-  _tradeAction <- (Buy <$ keyword "buy") <|> (Sell <$ keyword "sell")
-  _tradeLot <- parseLot
-  _tradeFees <-
-    Fees
-      <$> ( ( keyword "fees"
-                *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
-            )
-              <|> pure 0
-          )
-      <*> ( ( keyword "commission"
-                *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
-            )
-              <|> pure 0
-          )
-  pure Trade {..}
+    _tradeAction <- (Buy <$ keyword "buy") <|> (Sell <$ keyword "sell")
+    _tradeLot <- parseLot
+    _tradeFees <-
+        Fees
+            <$> ( ( keyword "fees"
+                        *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
+                  )
+                    <|> pure 0
+                )
+            <*> ( ( keyword "commission"
+                        *> ((/ (_tradeLot ^. amount)) <$> parseAmount)
+                  )
+                    <|> pure 0
+                )
+    pure Trade{..}
 
 parseOptionTrade :: Parser OptionTrade
 parseOptionTrade = do
-  _optionTradeAction <-
-    Exercise <$ keyword "exercise"
-      <|> Assign <$ keyword "assign"
-      <|> Expire <$ keyword "expire"
-  _optionTradeLot <- parseLot
-  pure OptionTrade {..}
+    _optionTradeAction <-
+        Exercise
+            <$ keyword "exercise"
+                <|> Assign
+            <$ keyword "assign"
+                <|> Expire
+            <$ keyword "expire"
+    _optionTradeLot <- parseLot
+    pure OptionTrade{..}
 
 parseIncome :: Parser Income
 parseIncome =
-  keyword "dividend" *> (Dividend <$> parseAmount <*> parseLot)
-    <|> keyword "interest"
-      *> ( Interest
-             <$> parseAmount
-             <*> optional (keyword "from" *> (TL.toStrict <$> parseSymbol))
-         )
-    <|> keyword "income" *> (Income <$> parseAmount)
-    <|> keyword "credit" *> (Credit <$> parseAmount)
+    keyword "dividend"
+        *> (Dividend <$> parseAmount <*> parseLot)
+            <|> keyword "interest"
+        *> ( Interest
+                <$> parseAmount
+                <*> optional (keyword "from" *> (TL.toStrict <$> parseSymbol))
+           )
+            <|> keyword "income"
+        *> (Income <$> parseAmount)
+            <|> keyword "credit"
+        *> (Credit <$> parseAmount)
 
 parseEntry :: Parser Entry
 parseEntry =
-  (TradeEntry <$> parseTrade)
-    <|> (OptionTradeEntry <$> parseOptionTrade)
-    <|> (IncomeEntry <$> parseIncome)
-    <|> (DepositEntry <$> parseDeposit)
+    (TradeEntry <$> parseTrade)
+        <|> (OptionTradeEntry <$> parseOptionTrade)
+        <|> (IncomeEntry <$> parseIncome)
+        <|> (DepositEntry <$> parseDeposit)

@@ -26,28 +26,28 @@ import Trade.Journal.Utils (meld)
 import Trade.Taxes.USA.WashSaleRule (Washing, washSaleRule)
 
 data ProcessedEntry
-  = AnEntry !Entry
-  | APositionEvent !PositionEvent
-  | AWashing !Washing
-  deriving (Show, Eq, PrettyVal, Generic, Data)
+    = AnEntry !Entry
+    | APositionEvent !PositionEvent
+    | AWashing !Washing
+    deriving (Show, Eq, PrettyVal, Generic, Data)
 
 makeClassyPrisms ''ProcessedEntry
 
 instance Printable ProcessedEntry where
-  printItem (AnEntry entry) = printItem entry
-  printItem (APositionEvent event) = printItem event
-  printItem (AWashing washing) = printItem washing
+    printItem (AnEntry entry) = printItem entry
+    printItem (APositionEvent event) = printItem event
+    printItem (AWashing washing) = printItem washing
 
 instance HasLot ProcessedEntry where
-  _Lot f (AnEntry s) = AnEntry <$> (s & _Lot %%~ f)
-  _Lot f (APositionEvent s) = APositionEvent <$> (s & _Lot %%~ f)
-  _Lot f (AWashing s) = AWashing <$> (s & _Lot %%~ f)
+    _Lot f (AnEntry s) = AnEntry <$> (s & _Lot %%~ f)
+    _Lot f (APositionEvent s) = APositionEvent <$> (s & _Lot %%~ f)
+    _Lot f (AWashing s) = AWashing <$> (s & _Lot %%~ f)
 
 data ProcessingEnvironment = ProcessingEnvironment
-  { lotCalculationMethod :: !(Calculation (Annotated PositionEvent)),
-    washSales :: !Bool
-  }
-  deriving (Show)
+    { lotCalculationMethod :: !(Calculation (Annotated PositionEvent))
+    , washSales :: !Bool
+    }
+    deriving (Show)
 
 parseJournalEntries :: FilePath -> IO [Annotated Entry]
 parseJournalEntries = parseEntries
@@ -56,37 +56,37 @@ printJournalEntries :: [Annotated Entry] -> [Text]
 printJournalEntries = printEntries
 
 processPositionEvents ::
-  Calculation (Annotated PositionEvent) ->
-  [Annotated Entry] ->
-  ( [[Annotated PositionEvent]],
-    Map T.Text (IntMap (Annotated PositionEvent))
-  )
+    Calculation (Annotated PositionEvent) ->
+    [Annotated Entry] ->
+    ( [[Annotated PositionEvent]]
+    , Map T.Text (IntMap (Annotated PositionEvent))
+    )
 processPositionEvents calc = closings calc _TradeEntry
 
 washPositionEvents ::
-  [Annotated PositionEvent] ->
-  [Annotated (Either PositionEvent Washing)]
+    [Annotated PositionEvent] ->
+    [Annotated (Either PositionEvent Washing)]
 washPositionEvents = washSaleRule id
 
 processJournal ::
-  ProcessingEnvironment ->
-  [Annotated Entry] ->
-  ( [Annotated ProcessedEntry],
-    Map T.Text (IntMap (Annotated PositionEvent))
-  )
-processJournal ProcessingEnvironment {..} (entries :: [Annotated Entry]) =
-  let (events :: [[Annotated PositionEvent]], positions) =
-        processPositionEvents lotCalculationMethod entries
-      processedEvents :: [Annotated ProcessedEntry] =
-        map combine (meld entries events)
-   in ( if washSales
-          then
-            map
-              (fmap (either id AWashing))
-              (washSaleRule _APositionEvent processedEvents)
-          else processedEvents,
-        positions
-      )
+    ProcessingEnvironment ->
+    [Annotated Entry] ->
+    ( [Annotated ProcessedEntry]
+    , Map T.Text (IntMap (Annotated PositionEvent))
+    )
+processJournal ProcessingEnvironment{..} (entries :: [Annotated Entry]) =
+    let (events :: [[Annotated PositionEvent]], positions) =
+            processPositionEvents lotCalculationMethod entries
+        processedEvents :: [Annotated ProcessedEntry] =
+            map combine (meld entries events)
+     in ( if washSales
+            then
+                map
+                    (fmap (either id AWashing))
+                    (washSaleRule _APositionEvent processedEvents)
+            else processedEvents
+        , positions
+        )
   where
     combine (Left ent) = fmap AnEntry ent
     combine (Right pe) = fmap APositionEvent pe
@@ -94,11 +94,11 @@ processJournal ProcessingEnvironment {..} (entries :: [Annotated Entry]) =
 entriesOnly :: [Annotated ProcessedEntry] -> [Annotated Entry]
 entriesOnly [] = []
 entriesOnly (x : xs) = case x ^? item . _AnEntry of
-  Just entry -> (entry <$ x) : entriesOnly xs
-  Nothing -> entriesOnly xs
+    Just entry -> (entry <$ x) : entriesOnly xs
+    Nothing -> entriesOnly xs
 
 positionsOnly :: [Annotated ProcessedEntry] -> [Annotated PositionEvent]
 positionsOnly [] = []
 positionsOnly (x : xs) = case x ^? item . _APositionEvent of
-  Just entry -> (entry <$ x) : positionsOnly xs
-  Nothing -> positionsOnly xs
+    Just entry -> (entry <$ x) : positionsOnly xs
+    Nothing -> positionsOnly xs
