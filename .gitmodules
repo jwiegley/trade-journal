@@ -1,3 +1,0 @@
-[submodule "vendor/simple-amount"]
-	path = vendor/simple-amount
-	url = git@github.com:jwiegley/simple-amount
